@@ -66,6 +66,14 @@ module Rvim
       @config.instance_variable_get(:@editing_mode_label)
     end
 
+    def screen=(screen)
+      @screen = screen
+    end
+
+    def render
+      @screen&.render
+    end
+
     def self.start(filepath = nil)
       # Wired in Stage 4
       editor = new(Reline.core.config)
