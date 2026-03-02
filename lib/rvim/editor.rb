@@ -25,6 +25,7 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_command, [?o.ord], :rvim_open_below)
       @config.add_default_key_binding_by_keymap(:vi_command, [?O.ord], :rvim_open_above)
       @config.add_default_key_binding_by_keymap(:vi_command, [?Z.ord], :rvim_z_prefix)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?:.ord], :rvim_enter_command_mode)
     end
 
     def open(path)
@@ -80,6 +81,56 @@ module Rvim
 
     def render
       @screen&.render
+    end
+
+    def update(key)
+      if @command_mode
+        process_command_key(key)
+      else
+        @status_message = nil
+        super
+      end
+    end
+
+    private def process_command_key(key)
+      ch = key.char
+      if ch.nil?
+        cancel_command
+        return
+      end
+      case ch
+      when "\r", "\n"
+        execute_command
+      when "\e"
+        cancel_command
+      when "\x7f", "\b" # backspace / DEL
+        if @command_buffer.empty?
+          cancel_command
+        else
+          @command_buffer.chop!
+        end
+      else
+        @command_buffer << ch.to_s
+      end
+    end
+
+    private def execute_command
+      parsed = Rvim::Command.parse(@command_buffer)
+      Rvim::Command.execute(self, parsed) if parsed
+      @command_mode = false
+      @command_buffer = +''
+    end
+
+    private def cancel_command
+      @command_mode = false
+      @command_buffer = +''
+      @status_message = nil
+    end
+
+    private def rvim_enter_command_mode(key)
+      @command_mode = true
+      @command_buffer = +''
+      @status_message = nil
     end
 
     private def ed_prev_history(key, arg: 1)
