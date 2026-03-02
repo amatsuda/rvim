@@ -22,6 +22,9 @@ module Rvim
 
     private def install_key_bindings
       @config.add_default_key_binding_by_keymap(:vi_command, [?g.ord], :rvim_g_prefix)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?o.ord], :rvim_open_below)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?O.ord], :rvim_open_above)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?Z.ord], :rvim_z_prefix)
     end
 
     def open(path)
@@ -110,6 +113,29 @@ module Rvim
         if key_for_proc == 'g' || key_for_proc == 'g'.ord
           @line_index = 0
           @byte_pointer = 0
+        end
+      end
+    end
+
+    private def rvim_open_below(key)
+      @buffer_of_lines.insert(@line_index + 1, String.new(encoding: encoding))
+      @line_index += 1
+      @byte_pointer = 0
+      @config.editing_mode = :vi_insert
+    end
+
+    private def rvim_open_above(key)
+      @buffer_of_lines.insert(@line_index, String.new(encoding: encoding))
+      @byte_pointer = 0
+      @config.editing_mode = :vi_insert
+    end
+
+    private def rvim_z_prefix(key)
+      @waiting_proc = lambda do |key_for_proc, _sym|
+        @waiting_proc = nil
+        if key_for_proc == 'Z' || key_for_proc == 'Z'.ord
+          save if @filepath
+          @quit = true
         end
       end
     end
