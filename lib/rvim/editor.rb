@@ -74,12 +74,47 @@ module Rvim
       @screen&.render
     end
 
+    def handle_signal
+      if @interrupted
+        @interrupted = false
+        @quit = true
+        raise Interrupt
+      end
+    end
+
     def self.start(filepath = nil)
-      # Wired in Stage 4
       editor = new(Reline.core.config)
       editor.open(filepath) if filepath
-      puts "rvim #{Rvim::VERSION}: opened #{editor.filepath || '(empty)'}, " \
-           "#{editor.buffer_of_lines.size} line(s)"
+      screen = Rvim::Screen.new(editor)
+      editor.screen = screen
+
+      Reline.core.line_editor = editor
+      otio = nil
+      begin
+        otio = Reline::IOGate.prep
+        screen.setup
+        editor.set_signal_handlers
+        Reline::IOGate.with_raw_input do
+          loop do
+            screen.render
+            begin
+              Reline.core.send(:read_io, Reline.core.config.keyseq_timeout) do |inputs|
+                inputs.each do |key|
+                  editor.set_pasting_state(Reline::IOGate.in_pasting?)
+                  editor.update(key)
+                end
+              end
+            rescue Interrupt
+              editor.quit!
+            end
+            break if editor.quit?
+          end
+        end
+      ensure
+        editor&.finalize
+        screen&.teardown
+        Reline::IOGate.deprep(otio) if otio
+      end
     end
   end
 end
