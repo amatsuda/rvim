@@ -17,6 +17,11 @@ module Rvim
       @command_mode = false
       @command_buffer = +''
       @status_message = nil
+      install_key_bindings
+    end
+
+    private def install_key_bindings
+      @config.add_default_key_binding_by_keymap(:vi_command, [?g.ord], :rvim_g_prefix)
     end
 
     def open(path)
@@ -72,6 +77,41 @@ module Rvim
 
     def render
       @screen&.render
+    end
+
+    private def ed_prev_history(key, arg: 1)
+      arg.times do
+        break if @line_index <= 0
+
+        cursor = current_byte_pointer_cursor
+        @line_index -= 1
+        calculate_nearest_cursor(cursor)
+      end
+    end
+
+    private def ed_next_history(key, arg: 1)
+      arg.times do
+        break if @line_index >= @buffer_of_lines.size - 1
+
+        cursor = current_byte_pointer_cursor
+        @line_index += 1
+        calculate_nearest_cursor(cursor)
+      end
+    end
+
+    private def vi_to_history_line(key)
+      @line_index = @buffer_of_lines.size - 1
+      @byte_pointer = 0
+    end
+
+    private def rvim_g_prefix(key)
+      @waiting_proc = lambda do |key_for_proc, _sym|
+        @waiting_proc = nil
+        if key_for_proc == 'g' || key_for_proc == 'g'.ord
+          @line_index = 0
+          @byte_pointer = 0
+        end
+      end
     end
 
     def handle_signal
