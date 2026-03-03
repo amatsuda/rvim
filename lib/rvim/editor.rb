@@ -26,6 +26,11 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_command, [?O.ord], :rvim_open_above)
       @config.add_default_key_binding_by_keymap(:vi_command, [?Z.ord], :rvim_z_prefix)
       @config.add_default_key_binding_by_keymap(:vi_command, [?:.ord], :rvim_enter_command_mode)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?u.ord], :undo)
+      @config.add_default_key_binding_by_keymap(:vi_command, [0x12], :redo) # Ctrl-R
+      @config.add_default_key_binding_by_keymap(:vi_command, [?d.ord], :rvim_d_prefix)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?p.ord], :rvim_paste_after)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?P.ord], :rvim_paste_before)
     end
 
     def open(path)
@@ -181,6 +186,49 @@ module Rvim
       @buffer_of_lines.insert(@line_index, String.new(encoding: encoding))
       @byte_pointer = 0
       @config.editing_mode = :vi_insert
+    end
+
+    private def rvim_d_prefix(key)
+      @waiting_proc = lambda do |key_for_proc, _sym|
+        @waiting_proc = nil
+        if key_for_proc == 'd' || key_for_proc == 'd'.ord
+          delete_current_line_linewise
+        end
+      end
+    end
+
+    private def delete_current_line_linewise
+      return if @buffer_of_lines.empty?
+
+      cut = @buffer_of_lines.delete_at(@line_index)
+      @rvim_clipboard = cut
+      @rvim_clipboard_linewise = true
+      if @buffer_of_lines.empty?
+        @buffer_of_lines = [String.new(encoding: encoding)]
+        @line_index = 0
+      elsif @line_index >= @buffer_of_lines.size
+        @line_index = @buffer_of_lines.size - 1
+      end
+      @byte_pointer = 0
+    end
+
+    private def rvim_paste_after(key, arg: 1)
+      if @rvim_clipboard_linewise && @rvim_clipboard
+        @buffer_of_lines.insert(@line_index + 1, String.new(@rvim_clipboard, encoding: encoding))
+        @line_index += 1
+        @byte_pointer = 0
+      else
+        vi_paste_next(key, arg: arg)
+      end
+    end
+
+    private def rvim_paste_before(key, arg: 1)
+      if @rvim_clipboard_linewise && @rvim_clipboard
+        @buffer_of_lines.insert(@line_index, String.new(@rvim_clipboard, encoding: encoding))
+        @byte_pointer = 0
+      else
+        vi_paste_prev(key, arg: arg)
+      end
     end
 
     private def rvim_z_prefix(key)
