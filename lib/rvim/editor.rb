@@ -88,7 +88,9 @@ module Rvim
         process_command_key(key)
       else
         @status_message = nil
+        before = @buffer_of_lines.map(&:dup)
         super
+        @modified = true if before != @buffer_of_lines
       end
     end
 
