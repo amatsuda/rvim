@@ -4,7 +4,7 @@ require 'reline'
 
 module Rvim
   class Editor < Reline::LineEditor
-    attr_reader :filepath
+    attr_reader :filepath, :visual_mode, :visual_anchor
     attr_accessor :modified, :command_mode, :command_buffer, :status_message
 
     def initialize(config)
@@ -17,6 +17,9 @@ module Rvim
       @command_mode = false
       @command_buffer = +''
       @status_message = nil
+      @visual_mode = nil
+      @visual_anchor = nil
+      @last_visual = nil
       install_key_bindings
     end
 
@@ -31,6 +34,9 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_command, [?d.ord], :rvim_d_prefix)
       @config.add_default_key_binding_by_keymap(:vi_command, [?p.ord], :rvim_paste_after)
       @config.add_default_key_binding_by_keymap(:vi_command, [?P.ord], :rvim_paste_before)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?v.ord], :rvim_visual_char)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?V.ord], :rvim_visual_line)
+      @config.add_default_key_binding_by_keymap(:vi_command, [0x16], :rvim_visual_block) # Ctrl-V
     end
 
     def open(path)
@@ -91,12 +97,83 @@ module Rvim
     def update(key)
       if @command_mode
         process_command_key(key)
+      elsif @visual_mode
+        return if intercept_visual_key(key)
+
+        before = @buffer_of_lines.map(&:dup)
+        super
+        @modified = true if before != @buffer_of_lines
       else
         @status_message = nil
         before = @buffer_of_lines.map(&:dup)
         super
         @modified = true if before != @buffer_of_lines
       end
+    end
+
+    def selection
+      return nil unless @visual_mode
+
+      Rvim::Selection.from(
+        @visual_mode,
+        @visual_anchor,
+        [@line_index, @byte_pointer],
+        @buffer_of_lines,
+      )
+    end
+
+    # Returns true if the key was fully handled and update should not call super.
+    private def intercept_visual_key(key)
+      ch = key.char
+      sym = key.method_symbol
+      if ch == "\e"
+        exit_visual
+        return true
+      end
+      case sym
+      when :rvim_visual_char then switch_visual_mode(:char); return true
+      when :rvim_visual_line then switch_visual_mode(:line); return true
+      when :rvim_visual_block then switch_visual_mode(:block); return true
+      end
+      false
+    end
+
+    private def switch_visual_mode(mode)
+      if @visual_mode == mode
+        exit_visual
+      else
+        @visual_mode = mode
+        @visual_anchor ||= [@line_index, @byte_pointer]
+      end
+    end
+
+    private def enter_visual(mode)
+      @visual_mode = mode
+      @visual_anchor = [@line_index, @byte_pointer]
+    end
+
+    private def exit_visual
+      if @visual_mode && @visual_anchor
+        @last_visual = {
+          mode: @visual_mode,
+          anchor: @visual_anchor.dup,
+          last_end: [@line_index, @byte_pointer],
+        }
+      end
+      @visual_mode = nil
+      @visual_anchor = nil
+    end
+
+    private def rvim_visual_char(key)
+      enter_visual(:char)
+    end
+
+    private def rvim_visual_line(key)
+      enter_visual(:line)
+    end
+
+    private def rvim_visual_block(key)
+      enter_visual(:block)
     end
 
     private def process_command_key(key)

@@ -108,4 +108,52 @@ class TestEditor < Test::Unit::TestCase
       assert_equal false, @editor.modified
     end
   end
+
+  def test_v_enters_visual_char_mode
+    @editor.instance_variable_set(:@buffer_of_lines, %w[alpha beta])
+    @editor.instance_variable_set(:@line_index, 0)
+    @editor.instance_variable_set(:@byte_pointer, 2)
+    feed('v', :rvim_visual_char)
+    assert_equal :char, @editor.visual_mode
+    assert_equal [0, 2], @editor.visual_anchor
+  end
+
+  def test_capital_V_enters_visual_line_mode
+    @editor.instance_variable_set(:@buffer_of_lines, %w[a b c])
+    feed('V', :rvim_visual_line)
+    assert_equal :line, @editor.visual_mode
+  end
+
+  def test_esc_exits_visual_and_stashes_last_visual
+    @editor.instance_variable_set(:@buffer_of_lines, %w[a b c])
+    feed('v', :rvim_visual_char)
+    feed("\e", nil)
+    assert_nil @editor.visual_mode
+    last = @editor.instance_variable_get(:@last_visual)
+    assert_equal :char, last[:mode]
+  end
+
+  def test_v_in_visual_char_exits
+    @editor.instance_variable_set(:@buffer_of_lines, %w[a b c])
+    feed('v', :rvim_visual_char)
+    feed('v', :rvim_visual_char)
+    assert_nil @editor.visual_mode
+  end
+
+  def test_V_in_visual_char_switches_to_line
+    @editor.instance_variable_set(:@buffer_of_lines, %w[a b c])
+    feed('v', :rvim_visual_char)
+    feed('V', :rvim_visual_line)
+    assert_equal :line, @editor.visual_mode
+  end
+
+  def test_selection_returns_nil_when_not_in_visual
+    assert_nil @editor.selection
+  end
+
+  def test_selection_returns_object_in_visual
+    @editor.instance_variable_set(:@buffer_of_lines, %w[alpha beta])
+    feed('v', :rvim_visual_char)
+    assert_kind_of Rvim::Selection, @editor.selection
+  end
 end

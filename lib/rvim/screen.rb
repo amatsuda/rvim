@@ -99,11 +99,17 @@ module Rvim
     end
 
     def mode_label
-      case @editor.editing_mode_label
-      when :vi_insert then '[Insert]'
-      when :vi_command then '[Normal]'
-      when :emacs then '[Emacs]'
-      else "[#{@editor.editing_mode_label}]"
+      case @editor.visual_mode
+      when :char then '[Visual]'
+      when :line then '[Visual Line]'
+      when :block then '[Visual Block]'
+      else
+        case @editor.editing_mode_label
+        when :vi_insert then '[Insert]'
+        when :vi_command then '[Normal]'
+        when :emacs then '[Emacs]'
+        else "[#{@editor.editing_mode_label}]"
+        end
       end
     end
 
