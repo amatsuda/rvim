@@ -135,7 +135,27 @@ module Rvim
       when :rvim_visual_line then switch_visual_mode(:line); return true
       when :rvim_visual_block then switch_visual_mode(:block); return true
       end
+      case ch
+      when 'y'
+        sel = selection
+        Rvim::Operations.yank(self, sel) if sel
+        exit_visual
+        return true
+      end
       false
+    end
+
+    def set_clipboard(content, kind)
+      @rvim_clipboard = content
+      @rvim_clipboard_kind = kind
+      # legacy linewise flag for compatibility with v1's dd/p path
+      @rvim_clipboard_linewise = (kind == :line)
+    end
+
+    def move_cursor_to(line, byte)
+      @line_index = line.clamp(0, [@buffer_of_lines.size - 1, 0].max)
+      target = @buffer_of_lines[@line_index] || ''
+      @byte_pointer = byte.clamp(0, target.bytesize)
     end
 
     private def switch_visual_mode(mode)
@@ -278,8 +298,7 @@ module Rvim
       return if @buffer_of_lines.empty?
 
       cut = @buffer_of_lines.delete_at(@line_index)
-      @rvim_clipboard = cut
-      @rvim_clipboard_linewise = true
+      set_clipboard(cut, :line)
       if @buffer_of_lines.empty?
         @buffer_of_lines = [String.new(encoding: encoding)]
         @line_index = 0
@@ -290,22 +309,108 @@ module Rvim
     end
 
     private def rvim_paste_after(key, arg: 1)
-      if @rvim_clipboard_linewise && @rvim_clipboard
-        @buffer_of_lines.insert(@line_index + 1, String.new(@rvim_clipboard, encoding: encoding))
-        @line_index += 1
-        @byte_pointer = 0
+      case @rvim_clipboard_kind
+      when :line
+        paste_lines_after
+      when :char
+        paste_char_after
+      when :block
+        paste_block(after: true)
       else
         vi_paste_next(key, arg: arg)
       end
     end
 
     private def rvim_paste_before(key, arg: 1)
-      if @rvim_clipboard_linewise && @rvim_clipboard
-        @buffer_of_lines.insert(@line_index, String.new(@rvim_clipboard, encoding: encoding))
-        @byte_pointer = 0
+      case @rvim_clipboard_kind
+      when :line
+        paste_lines_before
+      when :char
+        paste_char_before
+      when :block
+        paste_block(after: false)
       else
         vi_paste_prev(key, arg: arg)
       end
+    end
+
+    private def paste_lines_after
+      return unless @rvim_clipboard
+
+      @rvim_clipboard.split("\n", -1).each_with_index do |line, i|
+        @buffer_of_lines.insert(@line_index + 1 + i, String.new(line, encoding: encoding))
+      end
+      @line_index += 1
+      @byte_pointer = 0
+    end
+
+    private def paste_lines_before
+      return unless @rvim_clipboard
+
+      @rvim_clipboard.split("\n", -1).each_with_index do |line, i|
+        @buffer_of_lines.insert(@line_index + i, String.new(line, encoding: encoding))
+      end
+      @byte_pointer = 0
+    end
+
+    private def paste_char_after
+      return unless @rvim_clipboard
+
+      lines = @rvim_clipboard.split("\n", -1)
+      current = @buffer_of_lines[@line_index] || (+'')
+      insert_at = current.bytesize.zero? ? 0 : @byte_pointer + 1
+      insert_at = [insert_at, current.bytesize].min
+
+      head = current.byteslice(0, insert_at) || +''
+      tail = current.byteslice(insert_at, current.bytesize - insert_at) || +''
+
+      if lines.size == 1
+        merged = head + lines.first + tail
+        @buffer_of_lines[@line_index] = String.new(merged, encoding: encoding)
+        @byte_pointer = insert_at + lines.first.bytesize - 1
+        @byte_pointer = 0 if @byte_pointer.negative?
+      else
+        @buffer_of_lines[@line_index] = String.new(head + lines.first, encoding: encoding)
+        last = String.new(lines.last + tail, encoding: encoding)
+        middle = lines[1..-2] || []
+        offset = 1
+        middle.each do |m|
+          @buffer_of_lines.insert(@line_index + offset, String.new(m, encoding: encoding))
+          offset += 1
+        end
+        @buffer_of_lines.insert(@line_index + offset, last)
+        @line_index += offset
+        @byte_pointer = [lines.last.bytesize - 1, 0].max
+      end
+    end
+
+    private def paste_char_before
+      return unless @rvim_clipboard
+
+      saved = @byte_pointer
+      @byte_pointer = saved - 1
+      @byte_pointer = -1 if @byte_pointer.negative?
+      paste_char_after
+    end
+
+    private def paste_block(after:)
+      return unless @rvim_clipboard
+
+      base_line = @line_index
+      base_col = @byte_pointer + (after ? 1 : 0)
+      Array(@rvim_clipboard).each_with_index do |chunk, i|
+        target_line = base_line + i
+        @buffer_of_lines[target_line] ||= String.new('', encoding: encoding)
+        line = @buffer_of_lines[target_line]
+        col = [base_col, line.bytesize].min
+        head = line.byteslice(0, col) || +''
+        # pad if cursor is past EOL on this row
+        pad = col > line.bytesize ? ' ' * (col - line.bytesize) : ''
+        tail = line.byteslice(col, line.bytesize - col) || +''
+        @buffer_of_lines[target_line] = String.new(head + pad + chunk.to_s + tail, encoding: encoding)
+      end
+      @line_index = base_line
+      @byte_pointer = base_col
     end
 
     private def rvim_z_prefix(key)
