@@ -38,15 +38,17 @@ module Rvim
       visible = visible_rows
       adjust_scroll(visible)
 
+      sel = @editor.selection
       out = +HIDE_CURSOR
       visible.times do |i|
         idx = @scroll_top + i
-        line = if idx < @editor.buffer_of_lines.size
-                 render_line(@editor.buffer_of_lines[idx])
-               else
-                 '~'
-               end
-        out << move_to(i + 1, 1) << ERASE_LINE << truncate(line, @cols)
+        if idx < @editor.buffer_of_lines.size
+          raw = render_line(@editor.buffer_of_lines[idx])
+          rendered = sel ? apply_selection_highlight(raw, idx, sel) : truncate(raw, @cols)
+        else
+          rendered = '~'
+        end
+        out << move_to(i + 1, 1) << ERASE_LINE << rendered
       end
 
       out << move_to(@rows - 1, 1) << ERASE_LINE << REVERSE_ON
@@ -85,6 +87,47 @@ module Rvim
 
     def render_line(line)
       line.gsub("\t", '        ')
+    end
+
+    def apply_selection_highlight(line, line_index, sel)
+      case sel.mode
+      when :line
+        if line_index.between?(sel.start_line, sel.end_line)
+          REVERSE_ON + truncate(line, @cols).ljust(@cols) + REVERSE_OFF
+        else
+          truncate(line, @cols)
+        end
+      when :char
+        first, last = char_segment_bounds(line, line_index, sel)
+        return truncate(line, @cols) unless first
+
+        splice_highlight(line, first, last)
+      when :block
+        if line_index.between?(sel.start_line, sel.end_line)
+          first = [sel.start_col, line.bytesize].min
+          last = [sel.end_col + 1, line.bytesize].min
+          splice_highlight(line, first, last)
+        else
+          truncate(line, @cols)
+        end
+      end
+    end
+
+    def char_segment_bounds(line, line_index, sel)
+      return nil unless line_index.between?(sel.start_line, sel.end_line)
+
+      first = line_index == sel.start_line ? sel.start_col : 0
+      last = line_index == sel.end_line ? sel.end_col + 1 : line.bytesize
+      [first, [last, line.bytesize].min]
+    end
+
+    def splice_highlight(line, first, last)
+      first = [first, line.bytesize].min
+      last = [last, line.bytesize].min
+      head = line.byteslice(0, first) || ''
+      mid = line.byteslice(first, last - first) || ''
+      tail = line.byteslice(last, line.bytesize - last) || ''
+      truncate(head + REVERSE_ON + mid + REVERSE_OFF + tail, @cols + REVERSE_ON.size + REVERSE_OFF.size)
     end
 
     def status_line
