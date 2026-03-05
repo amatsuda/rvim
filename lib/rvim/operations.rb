@@ -92,6 +92,30 @@ module Rvim
       editor.move_cursor_to(sel.start_line, sel.start_col)
     end
 
+    def shift_right(editor, sel, count: 1)
+      shiftwidth = 2
+      indent = ' ' * (shiftwidth * count)
+      (sel.start_line..sel.end_line).each do |i|
+        line = editor.buffer_of_lines[i]
+        editor.buffer_of_lines[i] = String.new(indent + line.to_s, encoding: editor.encoding)
+      end
+      editor.move_cursor_to(sel.start_line, 0)
+    end
+
+    def shift_left(editor, sel, count: 1)
+      shiftwidth = 2
+      strip = shiftwidth * count
+      (sel.start_line..sel.end_line).each do |i|
+        line = editor.buffer_of_lines[i]
+        next unless line
+
+        leading = line.bytes.take_while { |b| b == 0x20 }.size
+        remove = [leading, strip].min
+        editor.buffer_of_lines[i] = String.new(line.byteslice(remove, line.bytesize - remove) || '', encoding: editor.encoding)
+      end
+      editor.move_cursor_to(sel.start_line, 0)
+    end
+
     def ensure_buffer_nonempty(editor)
       return unless editor.buffer_of_lines.empty?
 

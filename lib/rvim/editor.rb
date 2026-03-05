@@ -37,6 +37,8 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_command, [?v.ord], :rvim_visual_char)
       @config.add_default_key_binding_by_keymap(:vi_command, [?V.ord], :rvim_visual_line)
       @config.add_default_key_binding_by_keymap(:vi_command, [0x16], :rvim_visual_block) # Ctrl-V
+      @config.add_default_key_binding_by_keymap(:vi_command, [?>.ord], :rvim_shift_right_prefix)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?<.ord], :rvim_shift_left_prefix)
     end
 
     def open(path)
@@ -153,6 +155,22 @@ module Rvim
         sel = selection
         if sel
           Rvim::Operations.change(self, sel)
+          @modified = true
+        end
+        exit_visual
+        return true
+      when '>'
+        sel = selection
+        if sel
+          Rvim::Operations.shift_right(self, sel)
+          @modified = true
+        end
+        exit_visual
+        return true
+      when '<'
+        sel = selection
+        if sel
+          Rvim::Operations.shift_left(self, sel)
           @modified = true
         end
         exit_visual
@@ -303,6 +321,37 @@ module Rvim
       @buffer_of_lines.insert(@line_index, String.new(encoding: encoding))
       @byte_pointer = 0
       @config.editing_mode = :vi_insert
+    end
+
+    private def rvim_shift_right_prefix(key, arg: 1)
+      count = arg
+      @waiting_proc = lambda do |key_for_proc, _sym|
+        @waiting_proc = nil
+        if key_for_proc == '>' || key_for_proc == '>'.ord
+          shift_lines_at_cursor(count, direction: :right)
+        end
+      end
+    end
+
+    private def rvim_shift_left_prefix(key, arg: 1)
+      count = arg
+      @waiting_proc = lambda do |key_for_proc, _sym|
+        @waiting_proc = nil
+        if key_for_proc == '<' || key_for_proc == '<'.ord
+          shift_lines_at_cursor(count, direction: :left)
+        end
+      end
+    end
+
+    private def shift_lines_at_cursor(count, direction:)
+      end_line = [@line_index + count - 1, @buffer_of_lines.size - 1].min
+      sel = Rvim::Selection.from(:line, [@line_index, 0], [end_line, 0], @buffer_of_lines)
+      if direction == :right
+        Rvim::Operations.shift_right(self, sel)
+      else
+        Rvim::Operations.shift_left(self, sel)
+      end
+      @modified = true
     end
 
     private def rvim_d_prefix(key)
