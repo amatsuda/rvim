@@ -92,6 +92,19 @@ module Rvim
       editor.move_cursor_to(sel.start_line, sel.start_col)
     end
 
+    def toggle_case(editor, sel)
+      buffer = editor.buffer_of_lines
+      sel.each_segment(buffer) do |li, s, e|
+        line = buffer[li]
+        head = line.byteslice(0, s) || +''
+        mid = line.byteslice(s, e - s) || +''
+        tail = line.byteslice(e, line.bytesize - e) || +''
+        flipped = mid.chars.map { |c| c =~ /[A-Z]/ ? c.downcase : c =~ /[a-z]/ ? c.upcase : c }.join
+        buffer[li] = String.new(head + flipped + tail, encoding: line.encoding)
+      end
+      editor.move_cursor_to(sel.start_line, sel.start_col)
+    end
+
     def shift_right(editor, sel, count: 1)
       shiftwidth = 2
       indent = ' ' * (shiftwidth * count)

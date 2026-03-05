@@ -183,6 +183,14 @@ module Rvim
         end
         exit_visual
         return true
+      when '~'
+        sel = selection
+        if sel
+          Rvim::Operations.toggle_case(self, sel)
+          @modified = true
+        end
+        exit_visual
+        return true
       end
       false
     end
