@@ -138,6 +138,14 @@ module Rvim
       when :rvim_visual_block then switch_visual_mode(:block); return true
       end
       case ch
+      when 'o'
+        if @visual_anchor
+          new_anchor = [@line_index, @byte_pointer]
+          al, ac = @visual_anchor
+          move_cursor_to(al, ac)
+          @visual_anchor = new_anchor
+        end
+        return true
       when 'y'
         sel = selection
         Rvim::Operations.yank(self, sel) if sel
@@ -295,19 +303,32 @@ module Rvim
       end
     end
 
-    private def vi_to_history_line(key)
-      @line_index = @buffer_of_lines.size - 1
+    private def vi_to_history_line(key, arg: nil)
+      target = arg.is_a?(Integer) && arg > 0 ? arg - 1 : @buffer_of_lines.size - 1
+      @line_index = target.clamp(0, @buffer_of_lines.size - 1)
       @byte_pointer = 0
     end
 
     private def rvim_g_prefix(key)
       @waiting_proc = lambda do |key_for_proc, _sym|
         @waiting_proc = nil
-        if key_for_proc == 'g' || key_for_proc == 'g'.ord
+        case key_for_proc
+        when 'g', 'g'.ord
           @line_index = 0
           @byte_pointer = 0
+        when 'v', 'v'.ord
+          reselect_last_visual
         end
       end
+    end
+
+    private def reselect_last_visual
+      return unless @last_visual
+
+      @visual_mode = @last_visual[:mode]
+      @visual_anchor = @last_visual[:anchor].dup
+      le, lc = @last_visual[:last_end]
+      move_cursor_to(le, lc)
     end
 
     private def rvim_open_below(key)
