@@ -141,8 +141,28 @@ module Rvim
         Rvim::Operations.yank(self, sel) if sel
         exit_visual
         return true
+      when 'd', 'x'
+        sel = selection
+        if sel
+          Rvim::Operations.delete(self, sel)
+          @modified = true
+        end
+        exit_visual
+        return true
+      when 'c', 's'
+        sel = selection
+        if sel
+          Rvim::Operations.change(self, sel)
+          @modified = true
+        end
+        exit_visual
+        return true
       end
       false
+    end
+
+    def config
+      @config
     end
 
     def set_clipboard(content, kind)
