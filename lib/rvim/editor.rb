@@ -31,7 +31,6 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_command, [?:.ord], :rvim_enter_command_mode)
       @config.add_default_key_binding_by_keymap(:vi_command, [?u.ord], :undo)
       @config.add_default_key_binding_by_keymap(:vi_command, [0x12], :redo) # Ctrl-R
-      @config.add_default_key_binding_by_keymap(:vi_command, [?d.ord], :rvim_d_prefix)
       @config.add_default_key_binding_by_keymap(:vi_command, [?p.ord], :rvim_paste_after)
       @config.add_default_key_binding_by_keymap(:vi_command, [?P.ord], :rvim_paste_before)
       @config.add_default_key_binding_by_keymap(:vi_command, [?v.ord], :rvim_visual_char)
@@ -383,20 +382,71 @@ module Rvim
       @modified = true
     end
 
-    private def rvim_d_prefix(key)
-      @waiting_proc = lambda do |key_for_proc, _sym|
-        @waiting_proc = nil
-        if key_for_proc == 'd' || key_for_proc == 'd'.ord
-          delete_current_line_linewise
-        end
+    private def vi_delete_meta(key, arg: nil)
+      if @vi_waiting_operator == :vi_delete_meta_confirm && arg.nil?
+        count = @vi_waiting_operator_arg || 1
+        delete_lines_linewise(count)
+        @vi_waiting_operator = nil
+        @vi_waiting_operator_arg = nil
+        return
       end
+      super
     end
 
-    private def delete_current_line_linewise
+    private def vi_delete_meta_confirm(byte_pointer_diff)
+      capture_charwise(byte_pointer_diff)
+      super
+    end
+
+    private def vi_change_meta(key, arg: nil)
+      if @vi_waiting_operator == :vi_change_meta_confirm && arg.nil?
+        count = @vi_waiting_operator_arg || 1
+        change_lines_linewise(count)
+        @vi_waiting_operator = nil
+        @vi_waiting_operator_arg = nil
+        return
+      end
+      super
+    end
+
+    private def vi_change_meta_confirm(byte_pointer_diff)
+      capture_charwise(byte_pointer_diff)
+      super
+    end
+
+    private def vi_yank(key, arg: nil)
+      if @vi_waiting_operator == :vi_yank_confirm && arg.nil?
+        count = @vi_waiting_operator_arg || 1
+        yank_lines_linewise(count)
+        @vi_waiting_operator = nil
+        @vi_waiting_operator_arg = nil
+        return
+      end
+      super
+    end
+
+    private def vi_yank_confirm(byte_pointer_diff)
+      capture_charwise(byte_pointer_diff)
+      super
+    end
+
+    private def capture_charwise(byte_pointer_diff)
+      return if byte_pointer_diff.zero?
+
+      if byte_pointer_diff > 0
+        cut = current_line.byteslice(@byte_pointer, byte_pointer_diff)
+      else
+        cut = current_line.byteslice(@byte_pointer + byte_pointer_diff, -byte_pointer_diff)
+      end
+      set_clipboard(cut.to_s, :char)
+    end
+
+    private def delete_lines_linewise(count)
       return if @buffer_of_lines.empty?
 
-      cut = @buffer_of_lines.delete_at(@line_index)
-      set_clipboard(cut, :line)
+      count = [count, @buffer_of_lines.size - @line_index].min
+      cut_lines = @buffer_of_lines.slice!(@line_index, count) || []
+      set_clipboard(cut_lines.join("\n"), :line)
       if @buffer_of_lines.empty?
         @buffer_of_lines = [String.new(encoding: encoding)]
         @line_index = 0
@@ -404,6 +454,21 @@ module Rvim
         @line_index = @buffer_of_lines.size - 1
       end
       @byte_pointer = 0
+    end
+
+    private def yank_lines_linewise(count)
+      count = [count, @buffer_of_lines.size - @line_index].min
+      text = @buffer_of_lines[@line_index, count].join("\n")
+      set_clipboard(text, :line)
+    end
+
+    private def change_lines_linewise(count)
+      count = [count, @buffer_of_lines.size - @line_index].min
+      cut_lines = @buffer_of_lines.slice!(@line_index, count) || []
+      set_clipboard(cut_lines.join("\n"), :line)
+      @buffer_of_lines.insert(@line_index, String.new(encoding: encoding))
+      @byte_pointer = 0
+      @config.editing_mode = :vi_insert
     end
 
     private def rvim_paste_after(key, arg: 1)
