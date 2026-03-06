@@ -104,12 +104,45 @@ module Rvim
         before = @buffer_of_lines.map(&:dup)
         super
         @modified = true if before != @buffer_of_lines
+      elsif operator_pending? && text_object_prefix?(key)
+        arm_text_object_pending(key.char == 'a')
       else
         @status_message = nil
         before = @buffer_of_lines.map(&:dup)
         super
         @modified = true if before != @buffer_of_lines
       end
+    end
+
+    private def operator_pending?
+      !@vi_waiting_operator.nil?
+    end
+
+    private def text_object_prefix?(key)
+      key.char == 'i' || key.char == 'a'
+    end
+
+    private def arm_text_object_pending(inclusive)
+      @waiting_proc = lambda do |obj_key, _sym|
+        @waiting_proc = nil
+        range = Rvim::TextObject.find(obj_key, self, inclusive: inclusive)
+        apply_pending_operator_to_range(range) if range
+      end
+    end
+
+    private def apply_pending_operator_to_range(sel)
+      op = @vi_waiting_operator
+      @vi_waiting_operator = nil
+      @vi_waiting_operator_arg = nil
+      case op
+      when :vi_delete_meta_confirm
+        Rvim::Operations.delete(self, sel)
+      when :vi_change_meta_confirm
+        Rvim::Operations.change(self, sel)
+      when :vi_yank_confirm
+        Rvim::Operations.yank(self, sel)
+      end
+      @modified = true if op == :vi_delete_meta_confirm || op == :vi_change_meta_confirm
     end
 
     def selection
