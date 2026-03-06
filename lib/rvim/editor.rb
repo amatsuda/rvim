@@ -20,6 +20,7 @@ module Rvim
       @visual_mode = nil
       @visual_anchor = nil
       @last_visual = nil
+      @rvim_text_object_pending = nil
       install_key_bindings
     end
 
@@ -104,8 +105,10 @@ module Rvim
         before = @buffer_of_lines.map(&:dup)
         super
         @modified = true if before != @buffer_of_lines
+      elsif @rvim_text_object_pending
+        consume_text_object_key(key)
       elsif operator_pending? && text_object_prefix?(key)
-        arm_text_object_pending(key.char == 'a')
+        @rvim_text_object_pending = key.char == 'a' ? :around : :inner
       else
         @status_message = nil
         before = @buffer_of_lines.map(&:dup)
@@ -122,19 +125,30 @@ module Rvim
       key.char == 'i' || key.char == 'a'
     end
 
-    private def arm_text_object_pending(inclusive)
-      @waiting_proc = lambda do |obj_key, _sym|
-        @waiting_proc = nil
-        range = Rvim::TextObject.find(obj_key, self, inclusive: inclusive)
-        apply_pending_operator_to_range(range) if range
+    private def consume_text_object_key(key)
+      inclusive = @rvim_text_object_pending == :around
+      @rvim_text_object_pending = nil
+
+      if key.char == "\e"
+        # Cancel the operator silently.
+        @vi_waiting_operator = nil
+        @vi_waiting_operator_arg = nil
+        return
       end
+
+      range = Rvim::TextObject.find(key.char, self, inclusive: inclusive)
+      if range
+        before = @buffer_of_lines.map(&:dup)
+        apply_pending_operator_to_range(range)
+        @modified = true if @buffer_of_lines != before
+      end
+
+      @vi_waiting_operator = nil
+      @vi_waiting_operator_arg = nil
     end
 
     private def apply_pending_operator_to_range(sel)
-      op = @vi_waiting_operator
-      @vi_waiting_operator = nil
-      @vi_waiting_operator_arg = nil
-      case op
+      case @vi_waiting_operator
       when :vi_delete_meta_confirm
         Rvim::Operations.delete(self, sel)
       when :vi_change_meta_confirm
@@ -142,7 +156,6 @@ module Rvim
       when :vi_yank_confirm
         Rvim::Operations.yank(self, sel)
       end
-      @modified = true if op == :vi_delete_meta_confirm || op == :vi_change_meta_confirm
     end
 
     def selection
