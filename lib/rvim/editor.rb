@@ -21,6 +21,7 @@ module Rvim
       @visual_anchor = nil
       @last_visual = nil
       @rvim_text_object_pending = nil
+      @rvim_visual_textobj_pending = nil
       install_key_bindings
     end
 
@@ -125,6 +126,20 @@ module Rvim
       key.char == 'i' || key.char == 'a'
     end
 
+    private def consume_visual_text_object_key(key)
+      inclusive = @rvim_visual_textobj_pending == :around
+      @rvim_visual_textobj_pending = nil
+
+      return if key.char == "\e"
+
+      range = Rvim::TextObject.find(key.char, self, inclusive: inclusive)
+      return unless range
+
+      @visual_anchor = [range.start_line, range.start_col]
+      move_cursor_to(range.end_line, range.end_col)
+      @visual_mode = range.linewise? ? :line : :char
+    end
+
     private def consume_text_object_key(key)
       inclusive = @rvim_text_object_pending == :around
       @rvim_text_object_pending = nil
@@ -182,7 +197,15 @@ module Rvim
       when :rvim_visual_line then switch_visual_mode(:line); return true
       when :rvim_visual_block then switch_visual_mode(:block); return true
       end
+      if @rvim_visual_textobj_pending
+        consume_visual_text_object_key(key)
+        return true
+      end
+
       case ch
+      when 'i', 'a'
+        @rvim_visual_textobj_pending = (ch == 'a' ? :around : :inner)
+        return true
       when 'o'
         if @visual_anchor
           new_anchor = [@line_index, @byte_pointer]
