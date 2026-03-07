@@ -103,4 +103,51 @@ class TestTextObjectWord < Test::Unit::TestCase
     assert_equal 5, sel.start_col
     assert_equal 7, sel.end_col
   end
+
+  # ---- brackets ----
+
+  def test_iparen_simple
+    buffer('foo(bar)baz')
+    place(0, 5) # cursor inside on 'a'
+    sel = Rvim::TextObject.find('(', @editor, inclusive: false)
+    assert_equal 4, sel.start_col # right after (
+    assert_equal 6, sel.end_col # right before )
+  end
+
+  def test_aparen_includes_brackets
+    buffer('foo(bar)baz')
+    place(0, 5)
+    sel = Rvim::TextObject.find('(', @editor, inclusive: true)
+    assert_equal 3, sel.start_col # the (
+    assert_equal 7, sel.end_col # the )
+  end
+
+  def test_iparen_nested_inner
+    buffer('a (b (c) d) e')
+    place(0, 6) # on 'c' inside inner parens
+    sel = Rvim::TextObject.find('(', @editor, inclusive: false)
+    assert_equal 6, sel.start_col # after inner (
+    assert_equal 6, sel.end_col # before inner )
+  end
+
+  def test_ibrace_multiline
+    buffer('def foo {', '  body', '}', '')
+    place(1, 2) # cursor on body
+    sel = Rvim::TextObject.find('{', @editor, inclusive: false)
+    # { is at (0, 8). next_byte -> (1, 0). } is at (2, 0); prev_byte -> end of (1).
+    assert_equal 1, sel.start_line
+    assert_equal 0, sel.start_col
+    assert_equal 1, sel.end_line
+    assert_equal (buffer_at(1).bytesize - 1), sel.end_col
+  end
+
+  def test_ibracket_no_pair_returns_nil
+    buffer('hello world')
+    place(0, 4)
+    assert_nil Rvim::TextObject.find('(', @editor, inclusive: false)
+  end
+
+  def buffer_at(idx)
+    @editor.instance_variable_get(:@buffer_of_lines)[idx]
+  end
 end

@@ -128,9 +128,102 @@ module Rvim
       end
     end
 
-    # Stub — fleshed out in Stage 5.
     def bracket(editor, open_ch, close_ch, inclusive:)
+      buffer = editor.buffer_of_lines
+      cur_line = editor.line_index
+      cur_col = editor.byte_pointer
+
+      open_pos = find_unmatched_open(buffer, cur_line, cur_col, open_ch, close_ch)
+      return nil unless open_pos
+
+      close_pos = find_matching_close(buffer, open_pos[0], open_pos[1], open_ch, close_ch)
+      return nil unless close_pos
+
+      if inclusive
+        Rvim::Selection.from(:char, open_pos, close_pos, buffer)
+      else
+        # Inner range: byte after open, byte before close.
+        ol, oc = open_pos
+        cl, cc = close_pos
+        inner_start = next_byte(buffer, ol, oc)
+        inner_end = prev_byte(buffer, cl, cc)
+        return nil unless inner_start && inner_end
+
+        # If open and close are adjacent (e.g. "()"), no inner range.
+        if cl == ol && cc - oc <= 1
+          return nil
+        end
+
+        Rvim::Selection.from(:char, inner_start, inner_end, buffer)
+      end
+    end
+
+    def find_unmatched_open(buffer, line, col, open_ch, close_ch)
+      # Walk backward from cursor; treat a close as +1 nesting, an open as -1.
+      # Stop when nesting reaches -1 (an unmatched open).
+      depth = 0
+      l = line
+      c = col
+      # If cursor is on the close, walk left from one past the close to find its open.
+      while l >= 0
+        line_str = buffer[l] || ''
+        c = line_str.bytesize - 1 if c.nil? || c >= line_str.bytesize
+        while c >= 0
+          ch = line_str.byteslice(c, 1)
+          if ch == close_ch && !(l == line && c == col)
+            depth += 1
+          elsif ch == open_ch
+            return [l, c] if depth.zero?
+
+            depth -= 1
+          end
+          c -= 1
+        end
+        l -= 1
+        c = nil
+      end
       nil
+    end
+
+    def find_matching_close(buffer, line, col, open_ch, close_ch)
+      depth = 0
+      l = line
+      c = col + 1
+      while l < buffer.size
+        line_str = buffer[l] || ''
+        while c < line_str.bytesize
+          ch = line_str.byteslice(c, 1)
+          if ch == open_ch
+            depth += 1
+          elsif ch == close_ch
+            return [l, c] if depth.zero?
+
+            depth -= 1
+          end
+          c += 1
+        end
+        l += 1
+        c = 0
+      end
+      nil
+    end
+
+    def next_byte(buffer, line, col)
+      line_str = buffer[line] || ''
+      if col + 1 < line_str.bytesize
+        [line, col + 1]
+      elsif line + 1 < buffer.size
+        [line + 1, 0]
+      end
+    end
+
+    def prev_byte(buffer, line, col)
+      if col - 1 >= 0
+        [line, col - 1]
+      elsif line - 1 >= 0
+        prev_line = buffer[line - 1] || ''
+        [line - 1, [prev_line.bytesize - 1, 0].max]
+      end
     end
 
     # Stub — fleshed out in Stage 6.
