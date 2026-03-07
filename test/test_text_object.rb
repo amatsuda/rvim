@@ -150,4 +150,30 @@ class TestTextObjectWord < Test::Unit::TestCase
   def buffer_at(idx)
     @editor.instance_variable_get(:@buffer_of_lines)[idx]
   end
+
+  # ---- paragraphs ----
+
+  def test_ip_inside_paragraph
+    buffer('a', 'b', 'c', '', 'd', 'e')
+    place(1, 0)
+    sel = Rvim::TextObject.find('p', @editor, inclusive: false)
+    assert_equal 0, sel.start_line
+    assert_equal 2, sel.end_line
+  end
+
+  def test_ip_on_blank_line
+    buffer('a', '', '', 'b')
+    place(1, 0)
+    sel = Rvim::TextObject.find('p', @editor, inclusive: false)
+    assert_equal 1, sel.start_line
+    assert_equal 2, sel.end_line
+  end
+
+  def test_ap_extends_across_blank_run
+    buffer('a', 'b', '', '', 'c')
+    place(0, 0)
+    sel = Rvim::TextObject.find('p', @editor, inclusive: true)
+    assert_equal 0, sel.start_line
+    assert_equal 3, sel.end_line # paragraph + trailing blank run
+  end
 end

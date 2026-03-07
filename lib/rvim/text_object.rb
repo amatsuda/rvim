@@ -226,9 +226,32 @@ module Rvim
       end
     end
 
-    # Stub — fleshed out in Stage 6.
     def paragraph(editor, inclusive:)
-      nil
+      buffer = editor.buffer_of_lines
+      cur = editor.line_index
+
+      blank = ->(li) { (buffer[li] || '').empty? }
+
+      # Find the contiguous run the cursor is in (paragraph or blank block).
+      start_line = cur
+      start_line -= 1 while start_line > 0 && blank.call(start_line - 1) == blank.call(cur)
+      end_line = cur
+      end_line += 1 while end_line < buffer.size - 1 && blank.call(end_line + 1) == blank.call(cur)
+
+      if inclusive
+        # Extend across the trailing blank/non-blank run; if at EOF, extend across leading instead.
+        if end_line < buffer.size - 1
+          j = end_line + 1
+          j += 1 while j < buffer.size - 1 && blank.call(j + 1) != blank.call(cur)
+          end_line = j
+        elsif start_line > 0
+          j = start_line - 1
+          j -= 1 while j > 0 && blank.call(j - 1) != blank.call(cur)
+          start_line = j
+        end
+      end
+
+      Rvim::Selection.from(:line, [start_line, 0], [end_line, 0], buffer)
     end
   end
 end
