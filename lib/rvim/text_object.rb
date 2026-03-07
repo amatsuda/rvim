@@ -80,9 +80,52 @@ module Rvim
       end
     end
 
-    # Stub — fleshed out in Stage 4.
     def quote(editor, char, inclusive:)
-      nil
+      line_index = editor.line_index
+      line = editor.buffer_of_lines[line_index] || ''
+      pos = editor.byte_pointer
+
+      # Find all unescaped occurrences of the quote on this line.
+      positions = []
+      i = 0
+      while i < line.bytesize
+        if line.byteslice(i, 1) == char && (i.zero? || line.byteslice(i - 1, 1) != '\\')
+          positions << i
+        end
+        i += 1
+      end
+      return nil if positions.size < 2
+
+      # Find the surrounding pair: largest open <= pos, smallest close > pos.
+      open_pos = positions.select { |p| p <= pos }.last
+      close_pos = positions.select { |p| p > (open_pos || -1) }.first
+      # If cursor is on a quote and there's no enclosing pair, treat current as opening.
+      if open_pos.nil? || close_pos.nil?
+        # Try cursor-as-opening: pair up positions[0..1], [2..3], ...
+        pair = positions.each_slice(2).find { |o, c| c && o <= pos && pos <= c }
+        return nil unless pair
+
+        open_pos, close_pos = pair
+      end
+
+      if inclusive
+        # Extend by trailing whitespace, or leading if no trailing.
+        end_pos = close_pos
+        while end_pos < line.bytesize - 1 && line.byteslice(end_pos + 1, 1) == ' '
+          end_pos += 1
+        end
+        start_pos = open_pos
+        if end_pos == close_pos
+          while start_pos > 0 && line.byteslice(start_pos - 1, 1) == ' '
+            start_pos -= 1
+          end
+        end
+        Rvim::Selection.from(:char, [line_index, start_pos], [line_index, end_pos], editor.buffer_of_lines)
+      else
+        return nil if close_pos - open_pos <= 1
+
+        Rvim::Selection.from(:char, [line_index, open_pos + 1], [line_index, close_pos - 1], editor.buffer_of_lines)
+      end
     end
 
     # Stub — fleshed out in Stage 5.

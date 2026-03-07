@@ -63,4 +63,44 @@ class TestTextObjectWord < Test::Unit::TestCase
     assert_equal 0, sel.start_col
     assert_equal 0, sel.end_col # just 'a'
   end
+
+  # ---- quotes ----
+
+  def test_iquote_inside_string
+    buffer('say "hello world" loudly')
+    place(0, 8) # cursor inside the string
+    sel = Rvim::TextObject.find('"', @editor, inclusive: false)
+    assert_equal 5, sel.start_col # right after opening "
+    assert_equal 15, sel.end_col # right before closing "
+  end
+
+  def test_aquote_includes_quotes_and_trailing_space
+    buffer('say "hi" loud')
+    place(0, 5)
+    sel = Rvim::TextObject.find('"', @editor, inclusive: true)
+    assert_equal 4, sel.start_col # opening "
+    assert_equal 8, sel.end_col # closing " plus trailing space
+  end
+
+  def test_iquote_no_pair_returns_nil
+    buffer('lonely "string here')
+    place(0, 5)
+    assert_nil Rvim::TextObject.find('"', @editor, inclusive: false)
+  end
+
+  def test_isingle_quote
+    buffer("say 'hi' there")
+    place(0, 5)
+    sel = Rvim::TextObject.find("'", @editor, inclusive: false)
+    assert_equal 5, sel.start_col
+    assert_equal 6, sel.end_col
+  end
+
+  def test_ibacktick
+    buffer('cmd `pwd` ok')
+    place(0, 6)
+    sel = Rvim::TextObject.find('`', @editor, inclusive: false)
+    assert_equal 5, sel.start_col
+    assert_equal 7, sel.end_col
+  end
 end
