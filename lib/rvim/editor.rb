@@ -11,6 +11,8 @@ module Rvim
       super
       @config.editing_mode = :vi_command
       multiline_on
+      # Never terminate the multiline buffer — Enter always inserts a newline.
+      self.confirm_multiline_termination_proc = ->(_buffer) { false }
       @filepath = nil
       @modified = false
       @quit = false
