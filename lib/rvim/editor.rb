@@ -4,8 +4,8 @@ require 'reline'
 
 module Rvim
   class Editor < Reline::LineEditor
-    attr_reader :filepath, :visual_mode, :visual_anchor
-    attr_accessor :modified, :command_mode, :command_buffer, :status_message
+    attr_reader :filepath, :visual_mode, :visual_anchor, :prompt_mode, :prompt_buffer
+    attr_accessor :modified, :status_message
 
     def initialize(config)
       super
@@ -16,8 +16,8 @@ module Rvim
       @filepath = nil
       @modified = false
       @quit = false
-      @command_mode = false
-      @command_buffer = +''
+      @prompt_mode = nil
+      @prompt_buffer = +''
       @status_message = nil
       @visual_mode = nil
       @visual_anchor = nil
@@ -100,8 +100,8 @@ module Rvim
     end
 
     def update(key)
-      if @command_mode
-        process_command_key(key)
+      if @prompt_mode
+        process_prompt_key(key)
       elsif @visual_mode
         return if intercept_visual_key(key)
 
@@ -320,45 +320,60 @@ module Rvim
       enter_visual(:block)
     end
 
-    private def process_command_key(key)
+    private def process_prompt_key(key)
       ch = key.char
       if ch.nil?
-        cancel_command
+        cancel_prompt
         return
       end
       case ch
       when "\r", "\n"
-        execute_command
+        execute_prompt
       when "\e"
-        cancel_command
+        cancel_prompt
       when "\x7f", "\b" # backspace / DEL
-        if @command_buffer.empty?
-          cancel_command
+        if @prompt_buffer.empty?
+          cancel_prompt
         else
-          @command_buffer.chop!
+          @prompt_buffer.chop!
         end
       else
-        @command_buffer << ch.to_s
+        @prompt_buffer << ch.to_s
       end
     end
 
-    private def execute_command
-      parsed = Rvim::Command.parse(@command_buffer)
-      Rvim::Command.execute(self, parsed) if parsed
-      @command_mode = false
-      @command_buffer = +''
+    private def execute_prompt
+      case @prompt_mode
+      when :ex
+        parsed = Rvim::Command.parse(@prompt_buffer)
+        Rvim::Command.execute(self, parsed) if parsed
+      end
+      reset_prompt
     end
 
-    private def cancel_command
-      @command_mode = false
-      @command_buffer = +''
+    private def cancel_prompt
+      reset_prompt
       @status_message = nil
+    end
+
+    private def reset_prompt
+      @prompt_mode = nil
+      @prompt_buffer = +''
     end
 
     private def rvim_enter_command_mode(key)
-      @command_mode = true
-      @command_buffer = +''
+      @prompt_mode = :ex
+      @prompt_buffer = +''
       @status_message = nil
+    end
+
+    # Backcompat readers used by Screen for the prompt-mode rendering.
+    def command_mode
+      @prompt_mode == :ex
+    end
+
+    def command_buffer
+      @prompt_buffer
     end
 
     private def ed_prev_history(key, arg: 1)
