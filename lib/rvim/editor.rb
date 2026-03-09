@@ -24,8 +24,13 @@ module Rvim
       @last_visual = nil
       @rvim_text_object_pending = nil
       @rvim_visual_textobj_pending = nil
+      @search_pattern = nil
+      @search_direction = :forward
+      @search_matches = []
       install_key_bindings
     end
+
+    attr_reader :search_pattern, :search_direction, :search_matches
 
     private def install_key_bindings
       @config.add_default_key_binding_by_keymap(:vi_command, [?g.ord], :rvim_g_prefix)
@@ -33,6 +38,8 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_command, [?O.ord], :rvim_open_above)
       @config.add_default_key_binding_by_keymap(:vi_command, [?Z.ord], :rvim_z_prefix)
       @config.add_default_key_binding_by_keymap(:vi_command, [?:.ord], :rvim_enter_command_mode)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?/.ord], :rvim_enter_search_forward)
+      @config.add_default_key_binding_by_keymap(:vi_command, [??.ord], :rvim_enter_search_backward)
       @config.add_default_key_binding_by_keymap(:vi_command, [?u.ord], :undo)
       @config.add_default_key_binding_by_keymap(:vi_command, [0x12], :redo) # Ctrl-R
       @config.add_default_key_binding_by_keymap(:vi_command, [?p.ord], :rvim_paste_after)
@@ -347,8 +354,12 @@ module Rvim
       when :ex
         parsed = Rvim::Command.parse(@prompt_buffer)
         Rvim::Command.execute(self, parsed) if parsed
+        reset_prompt
+      when :search_forward, :search_backward
+        commit_search
+      else
+        reset_prompt
       end
-      reset_prompt
     end
 
     private def cancel_prompt
@@ -365,6 +376,37 @@ module Rvim
       @prompt_mode = :ex
       @prompt_buffer = +''
       @status_message = nil
+    end
+
+    private def rvim_enter_search_forward(key)
+      @prompt_mode = :search_forward
+      @prompt_buffer = +''
+      @status_message = nil
+    end
+
+    private def rvim_enter_search_backward(key)
+      @prompt_mode = :search_backward
+      @prompt_buffer = +''
+      @status_message = nil
+    end
+
+    private def commit_search
+      pattern = @prompt_buffer.dup
+      direction = @prompt_mode == :search_forward ? :forward : :backward
+      reset_prompt
+      return if pattern.empty?
+
+      matches = Rvim::Search.scan(@buffer_of_lines, pattern)
+      if matches.empty?
+        @status_message = "E486: Pattern not found: #{pattern}"
+        return
+      end
+
+      @search_pattern = pattern
+      @search_direction = direction
+      @search_matches = matches
+      target = Rvim::Search.next_match(matches, @line_index, @byte_pointer, direction)
+      move_cursor_to(target[0], target[1]) if target
     end
 
     # Backcompat readers used by Screen for the prompt-mode rendering.

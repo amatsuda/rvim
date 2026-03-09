@@ -59,8 +59,8 @@ module Rvim
 
       cursor_row = @editor.line_index - @scroll_top + 1
       cursor_col = display_column(@editor.buffer_of_lines[@editor.line_index] || '', @editor.byte_pointer) + 1
-      if @editor.command_mode
-        out << move_to(@rows, @editor.command_buffer.length + 2)
+      if @editor.prompt_mode
+        out << move_to(@rows, @editor.prompt_buffer.length + 2)
       else
         out << move_to(cursor_row, cursor_col)
       end
@@ -157,12 +157,12 @@ module Rvim
     end
 
     def bottom_line
-      if @editor.command_mode
-        ":#{@editor.command_buffer}"
-      elsif @editor.status_message
-        @editor.status_message.to_s
+      case @editor.prompt_mode
+      when :ex then ":#{@editor.prompt_buffer}"
+      when :search_forward then "/#{@editor.prompt_buffer}"
+      when :search_backward then "?#{@editor.prompt_buffer}"
       else
-        ''
+        @editor.status_message ? @editor.status_message.to_s : ''
       end
     end
 
