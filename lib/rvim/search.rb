@@ -28,14 +28,22 @@ module Rvim
       out
     end
 
-    def next_match(matches, line, col, direction)
+    def next_match(matches, line, col, direction, include_start: false)
       return nil if matches.empty?
 
       case direction
       when :forward
-        matches.find { |l, s, _| l > line || (l == line && s > col) } || matches.first
+        if include_start
+          matches.find { |l, s, _| l > line || (l == line && s >= col) } || matches.first
+        else
+          matches.find { |l, s, _| l > line || (l == line && s > col) } || matches.first
+        end
       when :backward
-        matches.reverse_each.find { |l, _, e| l < line || (l == line && e < col) } || matches.last
+        if include_start
+          matches.reverse_each.find { |l, _, e| l < line || (l == line && e <= col) } || matches.last
+        else
+          matches.reverse_each.find { |l, _, e| l < line || (l == line && e < col) } || matches.last
+        end
       end
     end
 

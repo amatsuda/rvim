@@ -40,6 +40,8 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_command, [?:.ord], :rvim_enter_command_mode)
       @config.add_default_key_binding_by_keymap(:vi_command, [?/.ord], :rvim_enter_search_forward)
       @config.add_default_key_binding_by_keymap(:vi_command, [??.ord], :rvim_enter_search_backward)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?n.ord], :rvim_search_next)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?N.ord], :rvim_search_prev)
       @config.add_default_key_binding_by_keymap(:vi_command, [?u.ord], :undo)
       @config.add_default_key_binding_by_keymap(:vi_command, [0x12], :redo) # Ctrl-R
       @config.add_default_key_binding_by_keymap(:vi_command, [?p.ord], :rvim_paste_after)
@@ -406,6 +408,27 @@ module Rvim
       @status_message = nil
     end
 
+    private def rvim_search_next(key)
+      jump_to_search(@search_direction)
+    end
+
+    private def rvim_search_prev(key)
+      reverse = @search_direction == :forward ? :backward : :forward
+      jump_to_search(reverse)
+    end
+
+    private def jump_to_search(direction)
+      return unless @search_pattern
+
+      @search_matches = Rvim::Search.scan(@buffer_of_lines, @search_pattern) if @search_matches.empty?
+      target = Rvim::Search.next_match(@search_matches, @line_index, @byte_pointer, direction)
+      if target
+        move_cursor_to(target[0], target[1])
+      else
+        @status_message = "E486: Pattern not found: #{@search_pattern}"
+      end
+    end
+
     private def commit_search
       pattern = @prompt_buffer.dup
       direction = @prompt_mode == :search_forward ? :forward : :backward
@@ -421,7 +444,7 @@ module Rvim
       @search_pattern = pattern
       @search_direction = direction
       @search_matches = matches
-      target = Rvim::Search.next_match(matches, @line_index, @byte_pointer, direction)
+      target = Rvim::Search.next_match(matches, @line_index, @byte_pointer, direction, include_start: true)
       move_cursor_to(target[0], target[1]) if target
     end
 
