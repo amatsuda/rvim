@@ -336,17 +336,27 @@ module Rvim
       case ch
       when "\r", "\n"
         execute_prompt
+        return
       when "\e"
         cancel_prompt
+        return
       when "\x7f", "\b" # backspace / DEL
         if @prompt_buffer.empty?
           cancel_prompt
+          return
         else
           @prompt_buffer.chop!
         end
       else
         @prompt_buffer << ch.to_s
       end
+      refresh_incremental_search
+    end
+
+    private def refresh_incremental_search
+      return unless @prompt_mode == :search_forward || @prompt_mode == :search_backward
+
+      @search_matches = Rvim::Search.scan(@buffer_of_lines, @prompt_buffer)
     end
 
     private def execute_prompt
@@ -363,8 +373,14 @@ module Rvim
     end
 
     private def cancel_prompt
+      was_search = @prompt_mode == :search_forward || @prompt_mode == :search_backward
       reset_prompt
       @status_message = nil
+      # Clear the incremental highlight if we cancel mid-search; preserve any
+      # previously committed @search_pattern by re-scanning for it.
+      if was_search
+        @search_matches = @search_pattern ? Rvim::Search.scan(@buffer_of_lines, @search_pattern) : []
+      end
     end
 
     private def reset_prompt
