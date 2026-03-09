@@ -39,12 +39,19 @@ module Rvim
       adjust_scroll(visible)
 
       sel = @editor.selection
+      matches = @editor.search_matches || []
       out = +HIDE_CURSOR
       visible.times do |i|
         idx = @scroll_top + i
         if idx < @editor.buffer_of_lines.size
           raw = render_line(@editor.buffer_of_lines[idx])
-          rendered = sel ? apply_selection_highlight(raw, idx, sel) : truncate(raw, @cols)
+          rendered = if sel
+                       apply_selection_highlight(raw, idx, sel)
+                     elsif matches.any? { |l, _, _| l == idx }
+                       apply_search_highlight(raw, idx, matches)
+                     else
+                       truncate(raw, @cols)
+                     end
         else
           rendered = '~'
         end
@@ -119,6 +126,22 @@ module Rvim
       first = line_index == sel.start_line ? sel.start_col : 0
       last = line_index == sel.end_line ? sel.end_col + 1 : line.bytesize
       [first, [last, line.bytesize].min]
+    end
+
+    def apply_search_highlight(line, line_index, matches)
+      # Splice reverse-video around each match's [byte_start..byte_end] range,
+      # right-to-left so earlier indices stay valid.
+      ranges = matches.select { |l, _, _| l == line_index }.map { |_, s, e| [s, e] }
+      out = line.dup
+      ranges.sort_by { |s, _| -s }.each do |s, e|
+        first = [s, out.bytesize].min
+        last = [e + 1, out.bytesize].min
+        head = out.byteslice(0, first) || +''
+        mid = out.byteslice(first, last - first) || +''
+        tail = out.byteslice(last, out.bytesize - last) || +''
+        out = head + REVERSE_ON + mid + REVERSE_OFF + tail
+      end
+      truncate(out, @cols + ranges.size * (REVERSE_ON.bytesize + REVERSE_OFF.bytesize))
     end
 
     def splice_highlight(line, first, last)
