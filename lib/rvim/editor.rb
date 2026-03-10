@@ -216,6 +216,12 @@ module Rvim
       end
 
       case ch
+      when ':'
+        exit_visual
+        @prompt_mode = :ex
+        @prompt_buffer = +"'<,'>"
+        @status_message = nil
+        return true
       when 'i', 'a'
         @rvim_visual_textobj_pending = (ch == 'a' ? :around : :inner)
         return true
