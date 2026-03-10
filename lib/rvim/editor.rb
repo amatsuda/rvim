@@ -42,6 +42,8 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_command, [??.ord], :rvim_enter_search_backward)
       @config.add_default_key_binding_by_keymap(:vi_command, [?n.ord], :rvim_search_next)
       @config.add_default_key_binding_by_keymap(:vi_command, [?N.ord], :rvim_search_prev)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?*.ord], :rvim_search_word_forward)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?#.ord], :rvim_search_word_backward)
       @config.add_default_key_binding_by_keymap(:vi_command, [?u.ord], :undo)
       @config.add_default_key_binding_by_keymap(:vi_command, [0x12], :redo) # Ctrl-R
       @config.add_default_key_binding_by_keymap(:vi_command, [?p.ord], :rvim_paste_after)
@@ -415,6 +417,46 @@ module Rvim
     private def rvim_search_prev(key)
       reverse = @search_direction == :forward ? :backward : :forward
       jump_to_search(reverse)
+    end
+
+    private def rvim_search_word_forward(key)
+      search_word_under_cursor(:forward)
+    end
+
+    private def rvim_search_word_backward(key)
+      search_word_under_cursor(:backward)
+    end
+
+    private def search_word_under_cursor(direction)
+      word = word_at_cursor
+      return unless word
+
+      pattern = "\\b#{Regexp.escape(word)}\\b"
+      matches = Rvim::Search.scan(@buffer_of_lines, pattern)
+      if matches.empty?
+        @status_message = "E486: Pattern not found: #{word}"
+        return
+      end
+      @search_pattern = pattern
+      @search_direction = direction
+      @search_matches = matches
+      target = Rvim::Search.next_match(matches, @line_index, @byte_pointer, direction)
+      move_cursor_to(target[0], target[1]) if target
+    end
+
+    private def word_at_cursor
+      line = @buffer_of_lines[@line_index] || ''
+      return nil if line.empty?
+
+      pos = [@byte_pointer, line.bytesize - 1].min
+      ch = line.byteslice(pos, 1)
+      return nil unless ch && ch =~ /\w/
+
+      start_byte = pos
+      start_byte -= 1 while start_byte > 0 && line.byteslice(start_byte - 1, 1) =~ /\w/
+      end_byte = pos
+      end_byte += 1 while end_byte < line.bytesize - 1 && line.byteslice(end_byte + 1, 1) =~ /\w/
+      line.byteslice(start_byte, end_byte - start_byte + 1)
     end
 
     private def jump_to_search(direction)
