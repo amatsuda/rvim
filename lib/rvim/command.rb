@@ -2,13 +2,36 @@
 
 module Rvim
   class Command
-    Parsed = Struct.new(:verb, :arg, :bang, :line_number, keyword_init: true)
+    Parsed = Struct.new(:verb, :arg, :bang, :line_number, :sub, :range, keyword_init: true)
+
+    SUBSTITUTE_RE = %r{
+      \A
+      (?<range>%|\d+(?:,\d+)?|'<,'>)?
+      s/
+      (?<pat>(?:\\.|[^/])*)
+      /
+      (?<rep>(?:\\.|[^/])*)
+      /?
+      (?<flags>[gi]*)?
+      \z
+    }x
 
     def self.parse(input)
       str = input.to_s.dup
       str = str[1..] if str.start_with?(':')
       str.strip!
       return nil if str.empty?
+
+      if (m = SUBSTITUTE_RE.match(str))
+        return Parsed.new(
+          verb: :sub,
+          range: parse_range(m[:range]),
+          sub: { pattern: m[:pat], replacement: m[:rep], global: m[:flags].to_s.include?('g') },
+          arg: nil,
+          bang: false,
+          line_number: nil,
+        )
+      end
 
       if str.match?(/\A\d+\z/)
         return Parsed.new(verb: :goto, arg: nil, bang: false, line_number: str.to_i)
@@ -30,6 +53,19 @@ module Rvim
              end
 
       Parsed.new(verb: verb, arg: arg, bang: bang, line_number: nil)
+    end
+
+    def self.parse_range(token)
+      return :current if token.nil? || token.empty?
+      return :whole if token == '%'
+      return :visual if token == "'<,'>"
+
+      if token.include?(',')
+        a, b = token.split(',').map(&:to_i)
+        [a, b]
+      else
+        [token.to_i, token.to_i]
+      end
     end
 
     def self.execute(editor, parsed)
@@ -54,6 +90,8 @@ module Rvim
         target = (parsed.line_number - 1).clamp(0, last)
         editor.instance_variable_set(:@line_index, target)
         editor.instance_variable_set(:@byte_pointer, 0)
+      when :sub
+        execute_substitute(editor, parsed)
       else
         editor.status_message = "E492: Not an editor command: #{parsed.verb}"
       end
@@ -76,6 +114,74 @@ module Rvim
         editor.status_message = 'E37: No write since last change (add ! to override)'
       else
         editor.quit!
+      end
+    end
+
+    def self.execute_substitute(editor, parsed)
+      sub = parsed.sub
+      pattern = compile_sub_pattern(sub[:pattern])
+      unless pattern
+        editor.status_message = "E383: Invalid search string: #{sub[:pattern]}"
+        return
+      end
+
+      replacement = sub[:replacement].to_s.gsub(/\\\//, '/')
+      global = sub[:global]
+      start_line, end_line = resolve_sub_range(editor, parsed.range)
+
+      count = 0
+      lines = 0
+      (start_line..end_line).each do |i|
+        line = editor.buffer_of_lines[i]
+        new_line, n = if global
+                        gsub = line.gsub(pattern) { count += 1; replacement }
+                        [gsub, count]
+                      else
+                        replaced = false
+                        s = line.sub(pattern) do
+                          replaced = true
+                          count += 1
+                          replacement
+                        end
+                        [s, replaced ? 1 : 0]
+                      end
+        if new_line != line
+          editor.buffer_of_lines[i] = new_line
+          lines += 1
+          editor.modified = true
+        end
+        _ = n
+      end
+      editor.status_message = "#{count} substitution#{count == 1 ? '' : 's'} on #{lines} line#{lines == 1 ? '' : 's'}"
+    end
+
+    def self.compile_sub_pattern(str)
+      Regexp.new(str)
+    rescue RegexpError
+      nil
+    end
+
+    def self.resolve_sub_range(editor, range)
+      last = editor.buffer_of_lines.size - 1
+      case range
+      when :current
+        [editor.line_index, editor.line_index]
+      when :whole
+        [0, last]
+      when :visual
+        last_visual = editor.instance_variable_get(:@last_visual)
+        if last_visual
+          al = last_visual[:anchor][0]
+          el = last_visual[:last_end][0]
+          [[al, el].min, [al, el].max].map { |v| v.clamp(0, last) }
+        else
+          [editor.line_index, editor.line_index]
+        end
+      when Array
+        a, b = range
+        [(a - 1).clamp(0, last), (b - 1).clamp(0, last)]
+      else
+        [editor.line_index, editor.line_index]
       end
     end
   end

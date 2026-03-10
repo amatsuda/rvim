@@ -88,4 +88,42 @@ class TestCommand < Test::Unit::TestCase
     Rvim::Command.execute(editor, Rvim::Command.parse(':99'))
     assert_equal 2, editor.line_index
   end
+
+  def test_parse_substitute_simple
+    parsed = Rvim::Command.parse(':s/foo/bar/')
+    assert_equal :sub, parsed.verb
+    assert_equal 'foo', parsed.sub[:pattern]
+    assert_equal 'bar', parsed.sub[:replacement]
+    assert_equal false, parsed.sub[:global]
+    assert_equal :current, parsed.range
+  end
+
+  def test_parse_substitute_global
+    parsed = Rvim::Command.parse(':s/foo/bar/g')
+    assert_equal true, parsed.sub[:global]
+  end
+
+  def test_parse_substitute_whole_file
+    parsed = Rvim::Command.parse(':%s/foo/bar/g')
+    assert_equal :whole, parsed.range
+  end
+
+  def test_parse_substitute_line_range
+    parsed = Rvim::Command.parse(':2,5s/foo/bar/')
+    assert_equal [2, 5], parsed.range
+  end
+
+  def test_execute_substitute_replaces_first_only
+    editor = Rvim::Editor.new(Reline.core.config)
+    editor.instance_variable_set(:@buffer_of_lines, [+'foo foo foo'])
+    Rvim::Command.execute(editor, Rvim::Command.parse(':s/foo/bar/'))
+    assert_equal 'bar foo foo', editor.buffer_of_lines[0]
+  end
+
+  def test_execute_substitute_global
+    editor = Rvim::Editor.new(Reline.core.config)
+    editor.instance_variable_set(:@buffer_of_lines, [+'foo foo foo'])
+    Rvim::Command.execute(editor, Rvim::Command.parse(':s/foo/bar/g'))
+    assert_equal 'bar bar bar', editor.buffer_of_lines[0]
+  end
 end
