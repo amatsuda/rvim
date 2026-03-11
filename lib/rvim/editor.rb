@@ -56,6 +56,7 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_command, [0x16], :rvim_visual_block) # Ctrl-V
       @config.add_default_key_binding_by_keymap(:vi_command, [?>.ord], :rvim_shift_right_prefix)
       @config.add_default_key_binding_by_keymap(:vi_command, [?<.ord], :rvim_shift_left_prefix)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?..ord], :rvim_dot)
     end
 
     def open(path)
@@ -168,6 +169,20 @@ module Rvim
     end
 
     attr_reader :last_change_keys
+
+    private def rvim_dot(key, arg: 1)
+      return if @last_change_keys.empty?
+
+      count = arg
+      keys = @last_change_keys.dup
+      @replaying = true
+      @vi_arg = nil # don't double-apply the count to each replayed key
+      count.times do
+        keys.each { |k| update(k) }
+      end
+    ensure
+      @replaying = false
+    end
 
     private def operator_pending?
       !@vi_waiting_operator.nil?
