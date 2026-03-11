@@ -156,4 +156,26 @@ class TestEditor < Test::Unit::TestCase
     feed('v', :rvim_visual_char)
     assert_kind_of Rvim::Selection, @editor.selection
   end
+
+  def test_change_recording_freezes_on_modification
+    @editor.instance_variable_set(:@buffer_of_lines, [+'hello'])
+    feed('i', :vi_insert)
+    feed('X', :ed_insert)
+    feed("\e", :vi_command_mode)
+    assert @editor.last_change_keys.size >= 3, 'expected i X Esc to be recorded'
+  end
+
+  def test_pure_motion_does_not_record_change
+    @editor.instance_variable_set(:@buffer_of_lines, %w[alpha beta gamma])
+    feed('j', :ed_next_history)
+    feed('j', :ed_next_history)
+    assert_equal [], @editor.last_change_keys
+  end
+
+  def test_dw_records_two_keys
+    @editor.instance_variable_set(:@buffer_of_lines, [+'foo bar baz'])
+    feed('d', :vi_delete_meta)
+    feed('w', :vi_next_word)
+    assert_equal 2, @editor.last_change_keys.size
+  end
 end

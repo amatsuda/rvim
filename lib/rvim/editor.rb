@@ -27,6 +27,9 @@ module Rvim
       @search_pattern = nil
       @search_direction = :forward
       @search_matches = []
+      @change_keys = []
+      @last_change_keys = []
+      @replaying = false
       install_key_bindings
     end
 
@@ -111,25 +114,60 @@ module Rvim
     end
 
     def update(key)
+      pre_idle = idle_for_recording?
+      pre_buffer = @buffer_of_lines.map(&:dup)
+      record_change_key(key, pre_idle) unless @replaying
+
       if @prompt_mode
         process_prompt_key(key)
       elsif @visual_mode
-        return if intercept_visual_key(key)
-
-        before = @buffer_of_lines.map(&:dup)
-        super
-        @modified = true if before != @buffer_of_lines
+        result = intercept_visual_key(key)
+        unless result
+          super
+          @modified = true if pre_buffer != @buffer_of_lines
+        end
       elsif @rvim_text_object_pending
         consume_text_object_key(key)
       elsif operator_pending? && text_object_prefix?(key)
         @rvim_text_object_pending = key.char == 'a' ? :around : :inner
       else
         @status_message = nil
-        before = @buffer_of_lines.map(&:dup)
         super
-        @modified = true if before != @buffer_of_lines
+        @modified = true if pre_buffer != @buffer_of_lines
+      end
+
+      freeze_change_if_settled(pre_buffer) unless @replaying
+    end
+
+    private def idle_for_recording?
+      @prompt_mode.nil? &&
+        @visual_mode.nil? &&
+        @vi_waiting_operator.nil? &&
+        @rvim_text_object_pending.nil? &&
+        @waiting_proc.nil? &&
+        editing_mode_label == :vi_command
+    end
+
+    private def record_change_key(key, was_idle)
+      if was_idle
+        @change_keys = [key]
+        @change_buffer_snapshot = @buffer_of_lines.map(&:dup)
+      else
+        @change_keys << key
       end
     end
+
+    private def freeze_change_if_settled(_pre_buffer)
+      return unless idle_for_recording?
+      return if @change_buffer_snapshot.nil?
+      return if @change_buffer_snapshot == @buffer_of_lines
+
+      @last_change_keys = @change_keys.dup
+      @change_keys = []
+      @change_buffer_snapshot = nil
+    end
+
+    attr_reader :last_change_keys
 
     private def operator_pending?
       !@vi_waiting_operator.nil?
