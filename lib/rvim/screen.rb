@@ -157,11 +157,12 @@ module Rvim
       mode = mode_label
       name = @editor.filepath || '[No Name]'
       modified = @editor.modified ? ' [+]' : ''
+      recording = @editor.recording_macro ? "  recording @#{@editor.recording_macro}" : ''
       total = @editor.buffer_of_lines.size
       ln = @editor.line_index + 1
       col = @editor.byte_pointer + 1
       pct = total.zero? ? 0 : (ln * 100 / total)
-      " #{mode} #{name}#{modified}    #{ln},#{col}    #{pct}%"
+      " #{mode} #{name}#{modified}    #{ln},#{col}    #{pct}%#{recording}"
     end
 
     def mode_label

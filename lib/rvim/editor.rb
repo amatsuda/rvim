@@ -30,6 +30,10 @@ module Rvim
       @change_keys = []
       @last_change_keys = []
       @replaying = false
+      @registers = {}
+      @recording_macro = nil
+      @macro_keys = []
+      @last_macro_register = nil
       install_key_bindings
     end
 
@@ -168,7 +172,7 @@ module Rvim
       @change_buffer_snapshot = nil
     end
 
-    attr_reader :last_change_keys
+    attr_reader :last_change_keys, :recording_macro
 
     private def rvim_dot(key, arg: 1)
       return if @last_change_keys.empty?
