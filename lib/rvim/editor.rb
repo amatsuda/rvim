@@ -61,6 +61,7 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_command, [?>.ord], :rvim_shift_right_prefix)
       @config.add_default_key_binding_by_keymap(:vi_command, [?<.ord], :rvim_shift_left_prefix)
       @config.add_default_key_binding_by_keymap(:vi_command, [?..ord], :rvim_dot)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?q.ord], :rvim_q_prefix)
     end
 
     def open(path)
@@ -122,6 +123,7 @@ module Rvim
       pre_idle = idle_for_recording?
       pre_buffer = @buffer_of_lines.map(&:dup)
       record_change_key(key, pre_idle) unless @replaying
+      record_macro_key(key) unless @replaying
 
       if @prompt_mode
         process_prompt_key(key)
@@ -172,7 +174,34 @@ module Rvim
       @change_buffer_snapshot = nil
     end
 
+    private def record_macro_key(key)
+      return unless @recording_macro
+      return if key.char == 'q' # the terminator stops recording rather than being captured
+
+      @macro_keys << key
+    end
+
     attr_reader :last_change_keys, :recording_macro
+
+    private def rvim_q_prefix(key)
+      if @recording_macro
+        name = @recording_macro
+        @registers[name] = @macro_keys.dup
+        @recording_macro = nil
+        @macro_keys = []
+        @status_message = "Recorded into @#{name}"
+      else
+        @waiting_proc = lambda do |reg_key, _sym|
+          @waiting_proc = nil
+          ch = reg_key.is_a?(Integer) ? reg_key.chr : reg_key.to_s
+          if ch =~ /\A[a-z]\z/
+            @recording_macro = ch
+            @macro_keys = []
+            @status_message = "Recording @#{ch}"
+          end
+        end
+      end
+    end
 
     private def rvim_dot(key, arg: 1)
       return if @last_change_keys.empty?
