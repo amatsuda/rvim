@@ -62,6 +62,7 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_command, [?<.ord], :rvim_shift_left_prefix)
       @config.add_default_key_binding_by_keymap(:vi_command, [?..ord], :rvim_dot)
       @config.add_default_key_binding_by_keymap(:vi_command, [?q.ord], :rvim_q_prefix)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?@.ord], :rvim_at_prefix)
     end
 
     def open(path)
@@ -200,6 +201,25 @@ module Rvim
             @status_message = "Recording @#{ch}"
           end
         end
+      end
+    end
+
+    private def rvim_at_prefix(key, arg: 1)
+      count = arg
+      @waiting_proc = lambda do |reg_key, _sym|
+        @waiting_proc = nil
+        ch = reg_key.is_a?(Integer) ? reg_key.chr : reg_key.to_s
+        target = ch == '@' ? @last_macro_register : ch
+        keys = @registers[target]
+        next unless keys && !keys.empty?
+
+        @last_macro_register = target
+        @replaying = true
+        saved_arg = @vi_arg
+        @vi_arg = nil
+        count.times { keys.each { |k| update(k) } }
+        @vi_arg = saved_arg
+        @replaying = false
       end
     end
 
