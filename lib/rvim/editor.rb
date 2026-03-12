@@ -637,6 +637,122 @@ module Rvim
       @byte_pointer = 0
     end
 
+    private def vi_next_word(key, arg: 1)
+      arg.times { advance_word_start(big: false) || break }
+    end
+
+    private def vi_next_big_word(key, arg: 1)
+      arg.times { advance_word_start(big: true) || break }
+    end
+
+    private def vi_prev_word(key, arg: 1)
+      arg.times { retreat_word_start(big: false) || break }
+    end
+
+    private def vi_prev_big_word(key, arg: 1)
+      arg.times { retreat_word_start(big: true) || break }
+    end
+
+    private def vi_end_word(key, arg: 1, inclusive: false)
+      arg.times { advance_word_end(big: false) || break }
+    end
+
+    private def vi_end_big_word(key, arg: 1, inclusive: false)
+      arg.times { advance_word_end(big: true) || break }
+    end
+
+    private def word_class(byte, big)
+      return :space if byte.nil? || byte == ' ' || byte == "\t"
+      return :word if big
+
+      byte =~ /\w/ ? :word : :punct
+    end
+
+    private def advance_word_start(big:)
+      line = @buffer_of_lines[@line_index] || ''
+      # Step over the current run.
+      cur_class = @byte_pointer < line.bytesize ? word_class(line.byteslice(@byte_pointer, 1), big) : :space
+      while @byte_pointer < line.bytesize && word_class(line.byteslice(@byte_pointer, 1), big) == cur_class && cur_class != :space
+        @byte_pointer += 1
+      end
+      # Now skip whitespace (including line breaks) until we find a non-space.
+      loop do
+        line = @buffer_of_lines[@line_index] || ''
+        while @byte_pointer < line.bytesize && word_class(line.byteslice(@byte_pointer, 1), big) == :space
+          @byte_pointer += 1
+        end
+        return true if @byte_pointer < line.bytesize
+
+        if @line_index + 1 < @buffer_of_lines.size
+          @line_index += 1
+          @byte_pointer = 0
+          # Empty line counts as a word boundary — stop here.
+          return true if (@buffer_of_lines[@line_index] || '').empty?
+        else
+          # At EOF: clamp to last char of last line.
+          last = @buffer_of_lines[@line_index] || ''
+          @byte_pointer = [last.bytesize - 1, 0].max
+          return false
+        end
+      end
+    end
+
+    private def retreat_word_start(big:)
+      # If at start of line, jump to end of previous line.
+      if @byte_pointer.zero?
+        return false if @line_index.zero?
+
+        @line_index -= 1
+        prev = @buffer_of_lines[@line_index] || ''
+        @byte_pointer = prev.bytesize
+      end
+      # Step left past whitespace.
+      line = @buffer_of_lines[@line_index] || ''
+      while @byte_pointer > 0 && word_class(line.byteslice(@byte_pointer - 1, 1), big) == :space
+        @byte_pointer -= 1
+      end
+      return retreat_word_start(big: big) if @byte_pointer.zero?
+
+      # Now back up through the current word/punct run to its start.
+      cls = word_class(line.byteslice(@byte_pointer - 1, 1), big)
+      while @byte_pointer > 0 && word_class(line.byteslice(@byte_pointer - 1, 1), big) == cls
+        @byte_pointer -= 1
+      end
+      true
+    end
+
+    private def advance_word_end(big:)
+      line = @buffer_of_lines[@line_index] || ''
+      # Step forward by one position to escape the current word-end.
+      if @byte_pointer + 1 < line.bytesize
+        @byte_pointer += 1
+      elsif @line_index + 1 < @buffer_of_lines.size
+        @line_index += 1
+        @byte_pointer = 0
+        line = @buffer_of_lines[@line_index] || ''
+      else
+        return false
+      end
+      # Skip whitespace (possibly across lines).
+      loop do
+        line = @buffer_of_lines[@line_index] || ''
+        while @byte_pointer < line.bytesize && word_class(line.byteslice(@byte_pointer, 1), big) == :space
+          @byte_pointer += 1
+        end
+        break if @byte_pointer < line.bytesize
+        return false if @line_index + 1 >= @buffer_of_lines.size
+
+        @line_index += 1
+        @byte_pointer = 0
+      end
+      # Advance through the current word/punct run; stop on the last char.
+      cls = word_class(line.byteslice(@byte_pointer, 1), big)
+      while @byte_pointer + 1 < line.bytesize && word_class(line.byteslice(@byte_pointer + 1, 1), big) == cls
+        @byte_pointer += 1
+      end
+      true
+    end
+
     private def rvim_g_prefix(key)
       @waiting_proc = lambda do |key_for_proc, _sym|
         @waiting_proc = nil
