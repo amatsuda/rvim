@@ -66,6 +66,7 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_command, [?..ord], :rvim_dot)
       @config.add_default_key_binding_by_keymap(:vi_command, [?q.ord], :rvim_q_prefix)
       @config.add_default_key_binding_by_keymap(:vi_command, [?@.ord], :rvim_at_prefix)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?".ord], :rvim_register_prefix)
     end
 
     def open(path)
@@ -186,6 +187,14 @@ module Rvim
     end
 
     attr_reader :last_change_keys, :recording_macro
+
+    private def rvim_register_prefix(key)
+      @waiting_proc = lambda do |reg_key, _sym|
+        @waiting_proc = nil
+        ch = reg_key.is_a?(Integer) ? reg_key.chr : reg_key.to_s
+        @pending_register = ch if ch =~ /\A[a-zA-Z0-9"+%]\z/
+      end
+    end
 
     private def rvim_q_prefix(key)
       if @recording_macro
