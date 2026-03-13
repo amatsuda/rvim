@@ -30,10 +30,13 @@ module Rvim
       @change_keys = []
       @last_change_keys = []
       @replaying = false
-      @registers = {}
+      @macros = {}
       @recording_macro = nil
       @macro_keys = []
       @last_macro_register = nil
+      @registers = Rvim::Registers.new
+      @pending_register = nil
+      @last_register_op = nil
       install_key_bindings
     end
 
@@ -187,7 +190,7 @@ module Rvim
     private def rvim_q_prefix(key)
       if @recording_macro
         name = @recording_macro
-        @registers[name] = @macro_keys.dup
+        @macros[name] = @macro_keys.dup
         @recording_macro = nil
         @macro_keys = []
         @status_message = "Recorded into @#{name}"
@@ -210,7 +213,7 @@ module Rvim
         @waiting_proc = nil
         ch = reg_key.is_a?(Integer) ? reg_key.chr : reg_key.to_s
         target = ch == '@' ? @last_macro_register : ch
-        keys = @registers[target]
+        keys = @macros[target]
         next unless keys && !keys.empty?
 
         @last_macro_register = target
@@ -392,11 +395,20 @@ module Rvim
       @config
     end
 
+    def write_register(text, kind, register: nil)
+      name = register || '"'
+      @registers.write(name, text, kind)
+      @registers.write_yank_history(text, kind) if @last_register_op == :yank
+      @registers.write_delete_history(text, kind) if @last_register_op == :delete
+    end
+
+    def read_register(name = nil)
+      @registers.read(name || '"')
+    end
+
+    # Backcompat for now; Stage 4 removes calls.
     def set_clipboard(content, kind)
-      @rvim_clipboard = content
-      @rvim_clipboard_kind = kind
-      # legacy linewise flag for compatibility with v1's dd/p path
-      @rvim_clipboard_linewise = (kind == :line)
+      write_register(content, kind)
     end
 
     def move_cursor_to(line, byte)
@@ -909,54 +921,54 @@ module Rvim
     end
 
     private def rvim_paste_after(key, arg: 1)
-      case @rvim_clipboard_kind
-      when :line
-        paste_lines_after
-      when :char
-        paste_char_after
-      when :block
-        paste_block(after: true)
-      else
-        vi_paste_next(key, arg: arg)
+      entry = read_register(@pending_register)
+      consume_pending_register
+      return vi_paste_next(key, arg: arg) unless entry
+
+      case entry.kind
+      when :line then paste_lines_after(entry.text)
+      when :char then paste_char_after(entry.text)
+      when :block then paste_block(entry.text, after: true)
+      else vi_paste_next(key, arg: arg)
       end
     end
 
     private def rvim_paste_before(key, arg: 1)
-      case @rvim_clipboard_kind
-      when :line
-        paste_lines_before
-      when :char
-        paste_char_before
-      when :block
-        paste_block(after: false)
-      else
-        vi_paste_prev(key, arg: arg)
+      entry = read_register(@pending_register)
+      consume_pending_register
+      return vi_paste_prev(key, arg: arg) unless entry
+
+      case entry.kind
+      when :line then paste_lines_before(entry.text)
+      when :char then paste_char_before(entry.text)
+      when :block then paste_block(entry.text, after: false)
+      else vi_paste_prev(key, arg: arg)
       end
     end
 
-    private def paste_lines_after
-      return unless @rvim_clipboard
+    private def paste_lines_after(content)
+      return unless content
 
-      @rvim_clipboard.split("\n", -1).each_with_index do |line, i|
+      content.to_s.split("\n", -1).each_with_index do |line, i|
         @buffer_of_lines.insert(@line_index + 1 + i, String.new(line, encoding: encoding))
       end
       @line_index += 1
       @byte_pointer = 0
     end
 
-    private def paste_lines_before
-      return unless @rvim_clipboard
+    private def paste_lines_before(content)
+      return unless content
 
-      @rvim_clipboard.split("\n", -1).each_with_index do |line, i|
+      content.to_s.split("\n", -1).each_with_index do |line, i|
         @buffer_of_lines.insert(@line_index + i, String.new(line, encoding: encoding))
       end
       @byte_pointer = 0
     end
 
-    private def paste_char_after
-      return unless @rvim_clipboard
+    private def paste_char_after(content)
+      return unless content
 
-      lines = @rvim_clipboard.split("\n", -1)
+      lines = content.to_s.split("\n", -1)
       current = @buffer_of_lines[@line_index] || (+'')
       insert_at = current.bytesize.zero? ? 0 : @byte_pointer + 1
       insert_at = [insert_at, current.bytesize].min
@@ -984,33 +996,39 @@ module Rvim
       end
     end
 
-    private def paste_char_before
-      return unless @rvim_clipboard
+    private def paste_char_before(content)
+      return unless content
 
-      saved = @byte_pointer
-      @byte_pointer = saved - 1
+      @byte_pointer -= 1
       @byte_pointer = -1 if @byte_pointer.negative?
-      paste_char_after
+      paste_char_after(content)
     end
 
-    private def paste_block(after:)
-      return unless @rvim_clipboard
+    private def paste_block(content, after:)
+      return unless content
 
       base_line = @line_index
       base_col = @byte_pointer + (after ? 1 : 0)
-      Array(@rvim_clipboard).each_with_index do |chunk, i|
+      Array(content).each_with_index do |chunk, i|
         target_line = base_line + i
         @buffer_of_lines[target_line] ||= String.new('', encoding: encoding)
         line = @buffer_of_lines[target_line]
         col = [base_col, line.bytesize].min
         head = line.byteslice(0, col) || +''
-        # pad if cursor is past EOL on this row
         pad = col > line.bytesize ? ' ' * (col - line.bytesize) : ''
         tail = line.byteslice(col, line.bytesize - col) || +''
         @buffer_of_lines[target_line] = String.new(head + pad + chunk.to_s + tail, encoding: encoding)
       end
       @line_index = base_line
       @byte_pointer = base_col
+    end
+
+    def pending_register
+      @pending_register
+    end
+
+    def consume_pending_register
+      @pending_register = nil
     end
 
     private def rvim_z_prefix(key)
