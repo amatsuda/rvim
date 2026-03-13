@@ -415,9 +415,13 @@ module Rvim
       @registers.read(name || '"')
     end
 
-    # Backcompat for now; Stage 4 removes calls.
+    # Used by every operator (yank/delete/change) to record the captured
+    # text. Routes to @pending_register if set, else to the unnamed register.
+    # Always clears the pending slot afterwards.
     def set_clipboard(content, kind)
-      write_register(content, kind)
+      register = @pending_register
+      write_register(content, kind, register: register)
+      consume_pending_register
     end
 
     def move_cursor_to(line, byte)
