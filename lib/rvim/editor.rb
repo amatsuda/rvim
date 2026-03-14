@@ -405,11 +405,21 @@ module Rvim
     end
 
     def write_register(text, kind, register: nil)
-      @registers.write(register || '"', text, kind)
+      name = register || '"'
+      if name == '+'
+        Rvim::SystemClipboard.write(text.is_a?(Array) ? text.join("\n") : text.to_s)
+      end
+      @registers.write(name, text, kind)
     end
 
     def read_register(name = nil)
-      @registers.read(name || '"')
+      n = name || '"'
+      if n == '+'
+        text = Rvim::SystemClipboard.read
+        kind = text.end_with?("\n") ? :line : :char
+        return Rvim::RegisterEntry.new(text.chomp, kind)
+      end
+      @registers.read(n)
     end
 
     # Used by every operator (yank/delete/change) to record captured text.
