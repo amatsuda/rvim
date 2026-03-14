@@ -409,6 +409,10 @@ module Rvim
       if name == '+'
         Rvim::SystemClipboard.write(text.is_a?(Array) ? text.join("\n") : text.to_s)
       end
+      if name == '%'
+        @status_message = 'E354: Invalid register name: %'
+        return
+      end
       @registers.write(name, text, kind)
     end
 
@@ -418,6 +422,9 @@ module Rvim
         text = Rvim::SystemClipboard.read
         kind = text.end_with?("\n") ? :line : :char
         return Rvim::RegisterEntry.new(text.chomp, kind)
+      end
+      if n == '%'
+        return Rvim::RegisterEntry.new(@filepath.to_s, :char)
       end
       @registers.read(n)
     end
