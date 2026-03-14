@@ -48,6 +48,7 @@ module Rvim
              when 'q', 'quit' then :q
              when 'wq' then :wq
              when 'x' then :wq
+             when 'cq', 'cquit' then :cq
              when 'e', 'edit' then :e
              else verb_str.to_sym
              end
@@ -79,6 +80,8 @@ module Rvim
       when :wq
         execute_write(editor, parsed)
         editor.quit!
+      when :cq
+        editor.quit!(exit_code: 1)
       when :e
         if parsed.arg.nil? || parsed.arg.empty?
           editor.status_message = 'E32: No file name'

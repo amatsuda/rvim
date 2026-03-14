@@ -96,8 +96,13 @@ module Rvim
       @quit
     end
 
-    def quit!
+    def quit!(exit_code: 0)
       @quit = true
+      @exit_code = exit_code
+    end
+
+    def exit_code
+      @exit_code || 0
     end
 
     def buffer_of_lines
@@ -1114,6 +1119,7 @@ module Rvim
         screen&.teardown
         Reline::IOGate.deprep(otio) if otio
       end
+      editor&.exit_code || 0
     end
   end
 end

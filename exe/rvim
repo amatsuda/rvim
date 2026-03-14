@@ -3,4 +3,4 @@
 
 require 'rvim'
 
-Rvim::Editor.start(ARGV[0])
+exit Rvim::Editor.start(ARGV[0])
