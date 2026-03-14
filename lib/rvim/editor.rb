@@ -405,22 +405,24 @@ module Rvim
     end
 
     def write_register(text, kind, register: nil)
-      name = register || '"'
-      @registers.write(name, text, kind)
-      @registers.write_yank_history(text, kind) if @last_register_op == :yank
-      @registers.write_delete_history(text, kind) if @last_register_op == :delete
+      @registers.write(register || '"', text, kind)
     end
 
     def read_register(name = nil)
       @registers.read(name || '"')
     end
 
-    # Used by every operator (yank/delete/change) to record the captured
-    # text. Routes to @pending_register if set, else to the unnamed register.
-    # Always clears the pending slot afterwards.
-    def set_clipboard(content, kind)
-      register = @pending_register
-      write_register(content, kind, register: register)
+    # Used by every operator (yank/delete/change) to record captured text.
+    # Routes to @pending_register if set, else to the unnamed register, and
+    # updates numbered registers ("0 on yank, "1-"9 ring on delete/change).
+    def set_clipboard(content, kind, op: :yank)
+      write_register(content, kind, register: @pending_register)
+      case op
+      when :yank
+        @registers.write_yank_history(content, kind)
+      when :delete, :change
+        @registers.write_delete_history(content, kind)
+      end
       consume_pending_register
     end
 
@@ -856,7 +858,7 @@ module Rvim
     end
 
     private def vi_delete_meta_confirm(byte_pointer_diff)
-      capture_charwise(byte_pointer_diff)
+      capture_charwise(byte_pointer_diff, op: :delete)
       super
     end
 
@@ -872,7 +874,7 @@ module Rvim
     end
 
     private def vi_change_meta_confirm(byte_pointer_diff)
-      capture_charwise(byte_pointer_diff)
+      capture_charwise(byte_pointer_diff, op: :change)
       super
     end
 
@@ -888,11 +890,11 @@ module Rvim
     end
 
     private def vi_yank_confirm(byte_pointer_diff)
-      capture_charwise(byte_pointer_diff)
+      capture_charwise(byte_pointer_diff, op: :yank)
       super
     end
 
-    private def capture_charwise(byte_pointer_diff)
+    private def capture_charwise(byte_pointer_diff, op: :yank)
       return if byte_pointer_diff.zero?
 
       if byte_pointer_diff > 0
@@ -900,7 +902,7 @@ module Rvim
       else
         cut = current_line.byteslice(@byte_pointer + byte_pointer_diff, -byte_pointer_diff)
       end
-      set_clipboard(cut.to_s, :char)
+      set_clipboard(cut.to_s, :char, op: op)
     end
 
     private def delete_lines_linewise(count)
@@ -908,7 +910,7 @@ module Rvim
 
       count = [count, @buffer_of_lines.size - @line_index].min
       cut_lines = @buffer_of_lines.slice!(@line_index, count) || []
-      set_clipboard(cut_lines.join("\n"), :line)
+      set_clipboard(cut_lines.join("\n"), :line, op: :delete)
       if @buffer_of_lines.empty?
         @buffer_of_lines = [String.new(encoding: encoding)]
         @line_index = 0
@@ -921,13 +923,13 @@ module Rvim
     private def yank_lines_linewise(count)
       count = [count, @buffer_of_lines.size - @line_index].min
       text = @buffer_of_lines[@line_index, count].join("\n")
-      set_clipboard(text, :line)
+      set_clipboard(text, :line, op: :yank)
     end
 
     private def change_lines_linewise(count)
       count = [count, @buffer_of_lines.size - @line_index].min
       cut_lines = @buffer_of_lines.slice!(@line_index, count) || []
-      set_clipboard(cut_lines.join("\n"), :line)
+      set_clipboard(cut_lines.join("\n"), :line, op: :change)
       @buffer_of_lines.insert(@line_index, String.new(encoding: encoding))
       @byte_pointer = 0
       @config.editing_mode = :vi_insert

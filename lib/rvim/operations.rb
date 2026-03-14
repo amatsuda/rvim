@@ -4,26 +4,26 @@ module Rvim
   module Operations
     module_function
 
-    def yank(editor, sel)
+    def yank(editor, sel, op: :yank)
       buffer = editor.buffer_of_lines
 
       case sel.mode
       when :line
         text = buffer[sel.start_line..sel.end_line].join("\n")
-        editor.set_clipboard(text, :line)
+        editor.set_clipboard(text, :line, op: op)
       when :char
-        editor.set_clipboard(extract_char(buffer, sel), :char)
+        editor.set_clipboard(extract_char(buffer, sel), :char, op: op)
       when :block
         rows = []
         sel.each_segment(buffer) { |li, s, e| rows << buffer[li].byteslice(s, e - s).to_s }
-        editor.set_clipboard(rows, :block)
+        editor.set_clipboard(rows, :block, op: op)
       end
 
       editor.move_cursor_to(sel.start_line, sel.start_col)
     end
 
     def delete(editor, sel)
-      yank(editor, sel)
+      yank(editor, sel, op: :delete)
       buffer = editor.buffer_of_lines
 
       case sel.mode
@@ -40,7 +40,7 @@ module Rvim
 
     def change(editor, sel)
       mode = sel.mode
-      yank(editor, sel)
+      yank(editor, sel, op: :change)
       buffer = editor.buffer_of_lines
 
       case mode
