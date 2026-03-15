@@ -37,6 +37,9 @@ module Rvim
       @registers = Rvim::Registers.new
       @pending_register = nil
       @last_register_op = nil
+      @marks = Rvim::Marks.new
+      @jump_list = []
+      @jump_index = 0
       install_key_bindings
     end
 
@@ -67,6 +70,8 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_command, [?q.ord], :rvim_q_prefix)
       @config.add_default_key_binding_by_keymap(:vi_command, [?@.ord], :rvim_at_prefix)
       @config.add_default_key_binding_by_keymap(:vi_command, [?".ord], :rvim_register_prefix)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?m.ord], :rvim_mark_prefix)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?'.ord], :rvim_mark_jump_line)
     end
 
     def open(path)
@@ -199,6 +204,49 @@ module Rvim
         ch = reg_key.is_a?(Integer) ? reg_key.chr : reg_key.to_s
         @pending_register = ch if ch =~ /\A[a-zA-Z0-9"+%]\z/
       end
+    end
+
+    private def rvim_mark_prefix(key)
+      @waiting_proc = lambda do |reg_key, _sym|
+        @waiting_proc = nil
+        @marks.set(charify(reg_key), @line_index, @byte_pointer)
+      end
+    end
+
+    private def rvim_mark_jump_line(key)
+      @waiting_proc = lambda do |reg_key, _sym|
+        @waiting_proc = nil
+        pos = @marks.get(charify(reg_key), self)
+        next unless pos
+
+        line, _col = pos
+        line_text = @buffer_of_lines[line] || ''
+        target_col = first_non_whitespace_col(line_text)
+        move_cursor_to(line, target_col)
+      end
+    end
+
+    private def charify(key)
+      key.is_a?(Integer) ? key.chr : key.to_s
+    end
+
+    private def first_non_whitespace_col(line)
+      i = 0
+      i += 1 while i < line.bytesize && (line.byteslice(i, 1) == ' ' || line.byteslice(i, 1) == "\t")
+      i
+    end
+
+    # Special-mark hooks (Stage 5 fills these in).
+    def previous_jump_position
+      return nil if @jump_index <= 0
+
+      @jump_list[@jump_index - 1]
+    end
+
+    def visual_position(name)
+      return nil unless @last_visual
+
+      name == '<' ? @last_visual[:anchor] : @last_visual[:last_end]
     end
 
     private def rvim_q_prefix(key)
