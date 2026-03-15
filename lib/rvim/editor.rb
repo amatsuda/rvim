@@ -222,6 +222,7 @@ module Rvim
 
         line, _col = pos
         line_text = @buffer_of_lines[line] || ''
+        push_jump
         move_cursor_to(line, first_non_whitespace_col(line_text))
       end
     end
@@ -233,6 +234,7 @@ module Rvim
         next unless pos
 
         line, col = pos
+        push_jump
         move_cursor_to(line, col)
       end
     end
@@ -246,6 +248,17 @@ module Rvim
       i += 1 while i < line.bytesize && (line.byteslice(i, 1) == ' ' || line.byteslice(i, 1) == "\t")
       i
     end
+
+    JUMP_LIST_LIMIT = 100
+
+    def push_jump(line = @line_index, col = @byte_pointer)
+      @jump_list = @jump_list.first(@jump_index) if @jump_index < @jump_list.size
+      @jump_list << [line, col]
+      @jump_list.shift if @jump_list.size > JUMP_LIST_LIMIT
+      @jump_index = @jump_list.size
+    end
+
+    attr_reader :jump_list, :jump_index
 
     # Special-mark hooks (Stage 5 fills these in).
     def previous_jump_position
@@ -661,7 +674,10 @@ module Rvim
       @search_direction = direction
       @search_matches = matches
       target = Rvim::Search.next_match(matches, @line_index, @byte_pointer, direction)
-      move_cursor_to(target[0], target[1]) if target
+      if target
+        push_jump
+        move_cursor_to(target[0], target[1])
+      end
     end
 
     private def word_at_cursor
@@ -685,6 +701,7 @@ module Rvim
       @search_matches = Rvim::Search.scan(@buffer_of_lines, @search_pattern) if @search_matches.empty?
       target = Rvim::Search.next_match(@search_matches, @line_index, @byte_pointer, direction)
       if target
+        push_jump
         move_cursor_to(target[0], target[1])
       else
         @status_message = "E486: Pattern not found: #{@search_pattern}"
@@ -707,7 +724,10 @@ module Rvim
       @search_direction = direction
       @search_matches = matches
       target = Rvim::Search.next_match(matches, @line_index, @byte_pointer, direction, include_start: true)
-      move_cursor_to(target[0], target[1]) if target
+      if target
+        push_jump
+        move_cursor_to(target[0], target[1])
+      end
     end
 
     # Backcompat readers used by Screen for the prompt-mode rendering.
@@ -740,6 +760,7 @@ module Rvim
     end
 
     private def vi_to_history_line(key, arg: nil)
+      push_jump
       target = arg.is_a?(Integer) && arg > 0 ? arg - 1 : @buffer_of_lines.size - 1
       @line_index = target.clamp(0, @buffer_of_lines.size - 1)
       @byte_pointer = 0
@@ -866,6 +887,7 @@ module Rvim
         @waiting_proc = nil
         case key_for_proc
         when 'g', 'g'.ord
+          push_jump
           @line_index = 0
           @byte_pointer = 0
         when 'v', 'v'.ord

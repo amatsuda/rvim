@@ -91,6 +91,7 @@ module Rvim
       when :goto
         last = editor.buffer_of_lines.size - 1
         target = (parsed.line_number - 1).clamp(0, last)
+        editor.push_jump
         editor.instance_variable_set(:@line_index, target)
         editor.instance_variable_set(:@byte_pointer, 0)
       when :sub
