@@ -72,6 +72,7 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_command, [?".ord], :rvim_register_prefix)
       @config.add_default_key_binding_by_keymap(:vi_command, [?m.ord], :rvim_mark_prefix)
       @config.add_default_key_binding_by_keymap(:vi_command, [?'.ord], :rvim_mark_jump_line)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?`.ord], :rvim_mark_jump_exact)
     end
 
     def open(path)
@@ -221,8 +222,18 @@ module Rvim
 
         line, _col = pos
         line_text = @buffer_of_lines[line] || ''
-        target_col = first_non_whitespace_col(line_text)
-        move_cursor_to(line, target_col)
+        move_cursor_to(line, first_non_whitespace_col(line_text))
+      end
+    end
+
+    private def rvim_mark_jump_exact(key)
+      @waiting_proc = lambda do |reg_key, _sym|
+        @waiting_proc = nil
+        pos = @marks.get(charify(reg_key), self)
+        next unless pos
+
+        line, col = pos
+        move_cursor_to(line, col)
       end
     end
 
