@@ -73,6 +73,8 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_command, [?m.ord], :rvim_mark_prefix)
       @config.add_default_key_binding_by_keymap(:vi_command, [?'.ord], :rvim_mark_jump_line)
       @config.add_default_key_binding_by_keymap(:vi_command, [?`.ord], :rvim_mark_jump_exact)
+      @config.add_default_key_binding_by_keymap(:vi_command, [0x0F], :rvim_jump_back)    # Ctrl-O
+      @config.add_default_key_binding_by_keymap(:vi_command, [0x09], :rvim_jump_forward) # Ctrl-I (Tab)
     end
 
     def open(path)
@@ -247,6 +249,34 @@ module Rvim
       i = 0
       i += 1 while i < line.bytesize && (line.byteslice(i, 1) == ' ' || line.byteslice(i, 1) == "\t")
       i
+    end
+
+    private def rvim_jump_back(key, arg: 1)
+      arg.times do
+        if @jump_index == @jump_list.size
+          # First Ctrl-O from the tip: record current position so Ctrl-I can return.
+          @jump_list << [@line_index, @byte_pointer]
+        end
+        break if @jump_index <= 0
+
+        @jump_index -= 1
+        line, col = @jump_list[@jump_index]
+        @line_index = line.clamp(0, [@buffer_of_lines.size - 1, 0].max)
+        target = @buffer_of_lines[@line_index] || ''
+        @byte_pointer = col.clamp(0, target.bytesize)
+      end
+    end
+
+    private def rvim_jump_forward(key, arg: 1)
+      arg.times do
+        break if @jump_index >= @jump_list.size - 1
+
+        @jump_index += 1
+        line, col = @jump_list[@jump_index]
+        @line_index = line.clamp(0, [@buffer_of_lines.size - 1, 0].max)
+        target = @buffer_of_lines[@line_index] || ''
+        @byte_pointer = col.clamp(0, target.bytesize)
+      end
     end
 
     JUMP_LIST_LIMIT = 100
