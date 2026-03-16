@@ -125,6 +125,35 @@ module Rvim
 
     attr_reader :buffers, :current_buffer, :buffer_order
 
+    def next_buffer
+      cycle_buffer(+1)
+    end
+
+    def prev_buffer
+      cycle_buffer(-1)
+    end
+
+    def cycle_buffer(direction)
+      return if @buffer_order.size <= 1
+
+      idx = @buffer_order.index(@current_buffer.id) || 0
+      target_id = @buffer_order[(idx + direction) % @buffer_order.size]
+      swap_to_buffer(@buffers[target_id])
+    end
+
+    def switch_buffer_by(arg)
+      target = if arg =~ /\A\d+\z/
+                 @buffers[arg.to_i]
+               else
+                 @buffers.values.find { |b| b.display_name.include?(arg) }
+               end
+      if target
+        swap_to_buffer(target)
+      else
+        @status_message = "E94: No matching buffer for #{arg}"
+      end
+    end
+
     def save(path = nil)
       target = path || @filepath
       raise 'no file path' unless target

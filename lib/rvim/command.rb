@@ -50,6 +50,10 @@ module Rvim
              when 'x' then :wq
              when 'cq', 'cquit' then :cq
              when 'e', 'edit' then :e
+             when 'bn', 'bnext' then :bn
+             when 'bp', 'bprev', 'bprevious' then :bp
+             when 'b', 'buffer' then :b
+             when 'bd', 'bdelete' then :bd
              else verb_str.to_sym
              end
 
@@ -87,6 +91,16 @@ module Rvim
           editor.status_message = 'E32: No file name'
         else
           editor.open(parsed.arg)
+        end
+      when :bn
+        editor.next_buffer
+      when :bp
+        editor.prev_buffer
+      when :b
+        if parsed.arg.nil? || parsed.arg.empty?
+          editor.status_message = 'E32: No buffer specified'
+        else
+          editor.switch_buffer_by(parsed.arg)
         end
       when :goto
         last = editor.buffer_of_lines.size - 1
