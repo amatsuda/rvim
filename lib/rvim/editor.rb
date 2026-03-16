@@ -40,6 +40,10 @@ module Rvim
       @marks = Rvim::Marks.new
       @jump_list = []
       @jump_index = 0
+      @buffers = {}
+      @buffer_order = []
+      @next_buffer_id = 1
+      @current_buffer = nil
       install_key_bindings
     end
 
@@ -78,16 +82,48 @@ module Rvim
     end
 
     def open(path)
-      if File.exist?(path)
-        lines = File.readlines(path, chomp: true)
-        @buffer_of_lines = lines.empty? ? [+''] : lines.map { |l| String.new(l, encoding: encoding) }
-      else
-        @buffer_of_lines = [+'']
-      end
-      @filepath = path
-      @line_index = 0
-      @byte_pointer = 0
+      buf = find_or_create_buffer(path)
+      swap_to_buffer(buf)
     end
+
+    private def find_or_create_buffer(path)
+      existing = @buffers.values.find { |b| b.filepath == path } if path
+      return existing if existing
+
+      buf = Rvim::Buffer.new(@next_buffer_id, path, encoding: encoding)
+      @next_buffer_id += 1
+      @buffers[buf.id] = buf
+      @buffer_order << buf.id
+      buf
+    end
+
+    def swap_to_buffer(buf)
+      save_current_buffer if @current_buffer
+      @current_buffer = buf
+      @filepath = buf.filepath
+      @buffer_of_lines = buf.lines
+      @line_index = buf.line_index
+      @byte_pointer = buf.byte_pointer
+      @modified = buf.modified
+      @marks = buf.marks
+      @last_visual = buf.last_visual
+      @undo_redo_history = buf.undo_redo_history
+      @undo_redo_index = buf.undo_redo_index
+    end
+
+    private def save_current_buffer
+      @current_buffer.lines = @buffer_of_lines
+      @current_buffer.line_index = @line_index
+      @current_buffer.byte_pointer = @byte_pointer
+      @current_buffer.modified = @modified
+      @current_buffer.marks = @marks
+      @current_buffer.last_visual = @last_visual
+      @current_buffer.undo_redo_history = @undo_redo_history
+      @current_buffer.undo_redo_index = @undo_redo_index
+      @current_buffer.filepath = @filepath
+    end
+
+    attr_reader :buffers, :current_buffer, :buffer_order
 
     def save(path = nil)
       target = path || @filepath
