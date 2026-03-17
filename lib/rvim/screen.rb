@@ -10,11 +10,12 @@ module Rvim
     HOME = "\e[H"
     REVERSE_ON = "\e[7m"
     REVERSE_OFF = "\e[27m"
+    DIM_ON = "\e[2m"
+    DIM_OFF = "\e[22m"
     ERASE_LINE = "\e[2K"
 
     def initialize(editor)
       @editor = editor
-      @prev_lines = []
       @rows = 24
       @cols = 80
     end
@@ -42,40 +43,19 @@ module Rvim
 
     def render
       @rows, @cols = Reline::IOGate.get_screen_size
-      visible = visible_rows
-      adjust_scroll(visible)
+      layout_windows(@rows - 1, @cols)
 
-      sel = @editor.selection
-      matches = @editor.search_matches || []
       out = +HIDE_CURSOR
-      visible.times do |i|
-        idx = scroll_top + i
-        if idx < @editor.buffer_of_lines.size
-          raw = render_line(@editor.buffer_of_lines[idx])
-          rendered = if sel
-                       apply_selection_highlight(raw, idx, sel)
-                     elsif matches.any? { |l, _, _| l == idx }
-                       apply_search_highlight(raw, idx, matches)
-                     else
-                       truncate(raw, @cols)
-                     end
-        else
-          rendered = '~'
-        end
-        out << move_to(i + 1, 1) << ERASE_LINE << rendered
-      end
-
-      out << move_to(@rows - 1, 1) << ERASE_LINE << REVERSE_ON
-      out << truncate(status_line, @cols).ljust(@cols)
-      out << REVERSE_OFF
-
+      @editor.windows.each { |win| out << render_window(win) }
+      out << render_vertical_dividers
       out << move_to(@rows, 1) << ERASE_LINE << bottom_line
 
-      cursor_row = @editor.line_index - scroll_top + 1
-      cursor_col = display_column(@editor.buffer_of_lines[@editor.line_index] || '', @editor.byte_pointer) + 1
+      cw = @editor.current_window
       if @editor.prompt_mode
         out << move_to(@rows, @editor.prompt_buffer.length + 2)
-      else
+      elsif cw
+        cursor_row = cw.row + (@editor.line_index - cw.scroll_top) + 1
+        cursor_col = cw.col + display_column(@editor.buffer_of_lines[@editor.line_index] || '', @editor.byte_pointer) + 1
         out << move_to(cursor_row, cursor_col)
       end
       out << SHOW_CURSOR
@@ -86,43 +66,140 @@ module Rvim
 
     private
 
-    def visible_rows
-      [@rows - 2, 1].max
+    def layout_windows(total_rows, total_cols)
+      windows = @editor.windows
+      return if windows.empty?
+
+      if @editor.split_orientation == :vertical && windows.size > 1
+        layout_vertical(windows, total_rows, total_cols)
+      else
+        layout_horizontal(windows, total_rows, total_cols)
+      end
     end
 
-    def adjust_scroll(visible)
-      if @editor.line_index < scroll_top
-        self.scroll_top = @editor.line_index
-      elsif @editor.line_index >= scroll_top + visible
-        self.scroll_top = @editor.line_index - visible + 1
+    def layout_horizontal(windows, total_rows, total_cols)
+      n = windows.size
+      per = total_rows / n
+      remainder = total_rows - per * n
+      row = 0
+      windows.each_with_index do |win, i|
+        win.row = row
+        win.col = 0
+        win.height = per + (i < remainder ? 1 : 0)
+        win.width = total_cols
+        row += win.height
       end
-      self.scroll_top = 0 if scroll_top.negative?
+    end
+
+    def layout_vertical(windows, total_rows, total_cols)
+      n = windows.size
+      # Reserve n-1 columns for dividers.
+      content_cols = total_cols - (n - 1)
+      per = content_cols / n
+      remainder = content_cols - per * n
+      col = 0
+      windows.each_with_index do |win, i|
+        win.row = 0
+        win.col = col
+        win.height = total_rows
+        win.width = per + (i < remainder ? 1 : 0)
+        col += win.width + 1 # +1 for the divider
+      end
+    end
+
+    def render_window(win)
+      buffer = win.buffer
+      content_rows = win.height - 1
+      adjust_window_scroll(win, content_rows)
+      is_current = (win.equal?(@editor.current_window))
+
+      out = +''
+      content_rows.times do |i|
+        idx = win.scroll_top + i
+        line = if idx < buffer.lines.size
+                 render_line(buffer.lines[idx])
+               else
+                 '~'
+               end
+        rendered = if is_current
+                     apply_current_highlights(line, idx, win.width)
+                   else
+                     truncate(line, win.width)
+                   end
+        out << move_to(win.row + i + 1, win.col + 1)
+        out << rendered.ljust(win.width)
+      end
+
+      # Per-window status row at the bottom of the window.
+      out << move_to(win.row + win.height, win.col + 1)
+      out << (is_current ? REVERSE_ON : DIM_ON + REVERSE_ON)
+      out << truncate(window_status(win, is_current), win.width).ljust(win.width)
+      out << REVERSE_OFF
+      out << DIM_OFF unless is_current
+      out
+    end
+
+    def render_vertical_dividers
+      return '' unless @editor.split_orientation == :vertical
+      return '' if @editor.windows.size < 2
+
+      out = +''
+      @editor.windows[0..-2].each do |win|
+        col = win.col + win.width + 1
+        win.height.times do |i|
+          out << move_to(win.row + i + 1, col) << '│'
+        end
+      end
+      out
+    end
+
+    def adjust_window_scroll(win, visible)
+      buffer = win.buffer
+      cursor_line = (win == @editor.current_window) ? @editor.line_index : buffer.line_index
+      if cursor_line < win.scroll_top
+        win.scroll_top = cursor_line
+      elsif cursor_line >= win.scroll_top + visible
+        win.scroll_top = cursor_line - visible + 1
+      end
+      win.scroll_top = 0 if win.scroll_top.negative?
+    end
+
+    def apply_current_highlights(line, idx, width)
+      sel = @editor.selection
+      matches = @editor.search_matches || []
+      if sel
+        apply_selection_highlight(line, idx, sel, width)
+      elsif matches.any? { |l, _, _| l == idx }
+        apply_search_highlight(line, idx, matches, width)
+      else
+        truncate(line, width)
+      end
     end
 
     def render_line(line)
       line.gsub("\t", '        ')
     end
 
-    def apply_selection_highlight(line, line_index, sel)
+    def apply_selection_highlight(line, line_index, sel, width)
       case sel.mode
       when :line
         if line_index.between?(sel.start_line, sel.end_line)
-          REVERSE_ON + truncate(line, @cols).ljust(@cols) + REVERSE_OFF
+          REVERSE_ON + truncate(line, width).ljust(width) + REVERSE_OFF
         else
-          truncate(line, @cols)
+          truncate(line, width)
         end
       when :char
         first, last = char_segment_bounds(line, line_index, sel)
-        return truncate(line, @cols) unless first
+        return truncate(line, width) unless first
 
-        splice_highlight(line, first, last)
+        splice_highlight(line, first, last, width)
       when :block
         if line_index.between?(sel.start_line, sel.end_line)
           first = [sel.start_col, line.bytesize].min
           last = [sel.end_col + 1, line.bytesize].min
-          splice_highlight(line, first, last)
+          splice_highlight(line, first, last, width)
         else
-          truncate(line, @cols)
+          truncate(line, width)
         end
       end
     end
@@ -135,9 +212,7 @@ module Rvim
       [first, [last, line.bytesize].min]
     end
 
-    def apply_search_highlight(line, line_index, matches)
-      # Splice reverse-video around each match's [byte_start..byte_end] range,
-      # right-to-left so earlier indices stay valid.
+    def apply_search_highlight(line, line_index, matches, width)
       ranges = matches.select { |l, _, _| l == line_index }.map { |_, s, e| [s, e] }
       out = line.dup
       ranges.sort_by { |s, _| -s }.each do |s, e|
@@ -148,28 +223,29 @@ module Rvim
         tail = out.byteslice(last, out.bytesize - last) || +''
         out = head + REVERSE_ON + mid + REVERSE_OFF + tail
       end
-      truncate(out, @cols + ranges.size * (REVERSE_ON.bytesize + REVERSE_OFF.bytesize))
+      truncate(out, width + ranges.size * (REVERSE_ON.bytesize + REVERSE_OFF.bytesize))
     end
 
-    def splice_highlight(line, first, last)
+    def splice_highlight(line, first, last, width)
       first = [first, line.bytesize].min
       last = [last, line.bytesize].min
       head = line.byteslice(0, first) || ''
       mid = line.byteslice(first, last - first) || ''
       tail = line.byteslice(last, line.bytesize - last) || ''
-      truncate(head + REVERSE_ON + mid + REVERSE_OFF + tail, @cols + REVERSE_ON.size + REVERSE_OFF.size)
+      truncate(head + REVERSE_ON + mid + REVERSE_OFF + tail, width + REVERSE_ON.size + REVERSE_OFF.size)
     end
 
-    def status_line
-      mode = mode_label
-      name = @editor.filepath || '[No Name]'
-      modified = @editor.modified ? ' [+]' : ''
-      recording = @editor.recording_macro ? "  recording @#{@editor.recording_macro}" : ''
-      total = @editor.buffer_of_lines.size
-      ln = @editor.line_index + 1
-      col = @editor.byte_pointer + 1
+    def window_status(win, is_current)
+      buffer = win.buffer
+      mode = is_current ? mode_label : ''
+      name = buffer.display_name
+      modified = (is_current ? @editor.modified : buffer.modified) ? ' [+]' : ''
+      recording = is_current && @editor.recording_macro ? "  recording @#{@editor.recording_macro}" : ''
+      total = (is_current ? @editor.buffer_of_lines : buffer.lines).size
+      ln = (is_current ? @editor.line_index : buffer.line_index) + 1
+      col = (is_current ? @editor.byte_pointer : buffer.byte_pointer) + 1
       pct = total.zero? ? 0 : (ln * 100 / total)
-      " #{mode} #{name}#{modified}    #{ln},#{col}    #{pct}%#{recording}"
+      " #{mode} #{name}#{modified}    #{ln},#{col}    #{pct}%#{recording}".lstrip.then { |s| " #{s}" }
     end
 
     def mode_label
