@@ -82,6 +82,7 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_command, [?`.ord], :rvim_mark_jump_exact)
       @config.add_default_key_binding_by_keymap(:vi_command, [0x0F], :rvim_jump_back)    # Ctrl-O
       @config.add_default_key_binding_by_keymap(:vi_command, [0x09], :rvim_jump_forward) # Ctrl-I (Tab)
+      @config.add_default_key_binding_by_keymap(:vi_command, [0x17], :rvim_window_prefix) # Ctrl-W
     end
 
     def open(path)
@@ -126,6 +127,56 @@ module Rvim
     end
 
     attr_reader :windows, :current_window, :split_orientation
+
+    def split_horizontal(buffer = nil)
+      return mixed_split_error if @split_orientation == :vertical && @windows.size > 1
+
+      @split_orientation = :horizontal
+      add_split(buffer)
+    end
+
+    def split_vertical(buffer = nil)
+      return mixed_split_error if @split_orientation == :horizontal && @windows.size > 1
+
+      @split_orientation = :vertical
+      add_split(buffer)
+    end
+
+    private def add_split(buffer)
+      target_buffer = buffer || @current_buffer
+      win = Rvim::Window.new(target_buffer)
+      win.scroll_top = @current_window&.scroll_top || 0
+      idx = @windows.index(@current_window) || (@windows.size - 1)
+      @windows.insert(idx + 1, win)
+      @current_window = win
+    end
+
+    private def mixed_split_error
+      @status_message = 'E36: Not enough room (mixed splits not supported)'
+    end
+
+    private def rvim_window_prefix(key)
+      @waiting_proc = lambda do |k, _sym|
+        @waiting_proc = nil
+        ch = k.is_a?(Integer) ? k.chr : k.to_s
+        case ch
+        when 's', 'S' then split_horizontal
+        when 'v', 'V' then split_vertical
+        when 'h' then focus_window(:left)
+        when 'j' then focus_window(:down)
+        when 'k' then focus_window(:up)
+        when 'l' then focus_window(:right)
+        when 'w', "\x17" then focus_next_window
+        when 'c' then close_current_window
+        end
+      end
+    end
+
+    # Stages 6/8 implement these; Stage 5 leaves them as no-ops/stubs so the
+    # binding dispatch is in place.
+    def focus_window(_dir); end
+    def focus_next_window; end
+    def close_current_window; end
 
     private def save_current_buffer
       @current_buffer.lines = @buffer_of_lines

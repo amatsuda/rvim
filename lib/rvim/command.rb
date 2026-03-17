@@ -54,6 +54,8 @@ module Rvim
              when 'bp', 'bprev', 'bprevious' then :bp
              when 'b', 'buffer' then :b
              when 'bd', 'bdelete' then :bd
+             when 'sp', 'split' then :sp
+             when 'vsp', 'vsplit' then :vsp
              else verb_str.to_sym
              end
 
@@ -104,6 +106,16 @@ module Rvim
         end
       when :bd
         editor.delete_current_buffer(force: parsed.bang)
+      when :sp
+        if parsed.arg && !parsed.arg.empty?
+          editor.open(parsed.arg)
+        end
+        editor.split_horizontal
+      when :vsp
+        if parsed.arg && !parsed.arg.empty?
+          editor.open(parsed.arg)
+        end
+        editor.split_vertical
       when :goto
         last = editor.buffer_of_lines.size - 1
         target = (parsed.line_number - 1).clamp(0, last)
