@@ -44,6 +44,9 @@ module Rvim
       @buffer_order = []
       @next_buffer_id = 1
       @current_buffer = nil
+      @windows = []
+      @current_window = nil
+      @split_orientation = nil
       install_key_bindings
     end
 
@@ -109,7 +112,20 @@ module Rvim
       @last_visual = buf.last_visual
       @undo_redo_history = buf.undo_redo_history
       @undo_redo_index = buf.undo_redo_index
+      ensure_current_window(buf)
     end
+
+    private def ensure_current_window(buf)
+      if @windows.empty?
+        win = Rvim::Window.new(buf)
+        @windows << win
+        @current_window = win
+      else
+        @current_window.buffer = buf if @current_window
+      end
+    end
+
+    attr_reader :windows, :current_window, :split_orientation
 
     private def save_current_buffer
       @current_buffer.lines = @buffer_of_lines

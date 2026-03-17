@@ -14,10 +14,17 @@ module Rvim
 
     def initialize(editor)
       @editor = editor
-      @scroll_top = 0
       @prev_lines = []
       @rows = 24
       @cols = 80
+    end
+
+    def scroll_top
+      @editor.current_window&.scroll_top || 0
+    end
+
+    def scroll_top=(value)
+      @editor.current_window.scroll_top = value if @editor.current_window
     end
 
     def setup
@@ -42,7 +49,7 @@ module Rvim
       matches = @editor.search_matches || []
       out = +HIDE_CURSOR
       visible.times do |i|
-        idx = @scroll_top + i
+        idx = scroll_top + i
         if idx < @editor.buffer_of_lines.size
           raw = render_line(@editor.buffer_of_lines[idx])
           rendered = if sel
@@ -64,7 +71,7 @@ module Rvim
 
       out << move_to(@rows, 1) << ERASE_LINE << bottom_line
 
-      cursor_row = @editor.line_index - @scroll_top + 1
+      cursor_row = @editor.line_index - scroll_top + 1
       cursor_col = display_column(@editor.buffer_of_lines[@editor.line_index] || '', @editor.byte_pointer) + 1
       if @editor.prompt_mode
         out << move_to(@rows, @editor.prompt_buffer.length + 2)
@@ -84,12 +91,12 @@ module Rvim
     end
 
     def adjust_scroll(visible)
-      if @editor.line_index < @scroll_top
-        @scroll_top = @editor.line_index
-      elsif @editor.line_index >= @scroll_top + visible
-        @scroll_top = @editor.line_index - visible + 1
+      if @editor.line_index < scroll_top
+        self.scroll_top = @editor.line_index
+      elsif @editor.line_index >= scroll_top + visible
+        self.scroll_top = @editor.line_index - visible + 1
       end
-      @scroll_top = 0 if @scroll_top.negative?
+      self.scroll_top = 0 if scroll_top.negative?
     end
 
     def render_line(line)
