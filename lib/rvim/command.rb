@@ -102,6 +102,8 @@ module Rvim
         else
           editor.switch_buffer_by(parsed.arg)
         end
+      when :bd
+        editor.delete_current_buffer(force: parsed.bang)
       when :goto
         last = editor.buffer_of_lines.size - 1
         target = (parsed.line_number - 1).clamp(0, last)

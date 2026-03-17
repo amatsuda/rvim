@@ -141,6 +141,35 @@ module Rvim
       swap_to_buffer(@buffers[target_id])
     end
 
+    def delete_current_buffer(force: false)
+      return unless @current_buffer
+
+      save_current_buffer
+      if @current_buffer.modified && !force
+        @status_message = 'E89: No write since last change (add ! to override)'
+        return
+      end
+
+      victim_id = @current_buffer.id
+      idx = @buffer_order.index(victim_id)
+      @buffer_order.delete(victim_id)
+      @buffers.delete(victim_id)
+
+      if @buffer_order.empty?
+        # Open an empty scratch buffer so we always have something to display.
+        @current_buffer = nil
+        scratch = Rvim::Buffer.new(@next_buffer_id, nil, encoding: encoding)
+        @next_buffer_id += 1
+        @buffers[scratch.id] = scratch
+        @buffer_order << scratch.id
+        swap_to_buffer(scratch)
+      else
+        fallback_id = @buffer_order[idx - 1] || @buffer_order.first
+        @current_buffer = nil
+        swap_to_buffer(@buffers[fallback_id])
+      end
+    end
+
     def switch_buffer_by(arg)
       target = if arg =~ /\A\d+\z/
                  @buffers[arg.to_i]
