@@ -38,6 +38,7 @@ module Rvim
       @pending_register = nil
       @last_register_op = nil
       @marks = Rvim::Marks.new
+      @global_marks = Rvim::GlobalMarks.new
       @jump_list = []
       @jump_index = 0
       @buffers = {}
@@ -416,33 +417,58 @@ module Rvim
     private def rvim_mark_prefix(key)
       @waiting_proc = lambda do |reg_key, _sym|
         @waiting_proc = nil
-        @marks.set(charify(reg_key), @line_index, @byte_pointer)
+        ch = charify(reg_key)
+        if ch =~ /\A[A-Z]\z/
+          @global_marks.set(ch, @current_buffer&.id, @line_index, @byte_pointer)
+        else
+          @marks.set(ch, @line_index, @byte_pointer)
+        end
       end
+    end
+
+    def global_mark(name)
+      entry = @global_marks.get(name)
+      return nil unless entry
+
+      buffer_id, line, col = entry
+      [buffer_id, line, col]
     end
 
     private def rvim_mark_jump_line(key)
       @waiting_proc = lambda do |reg_key, _sym|
         @waiting_proc = nil
-        pos = @marks.get(charify(reg_key), self)
-        next unless pos
-
-        line, _col = pos
-        line_text = @buffer_of_lines[line] || ''
-        push_jump
-        move_cursor_to(line, first_non_whitespace_col(line_text))
+        jump_to_mark(charify(reg_key), line_only: true)
       end
     end
 
     private def rvim_mark_jump_exact(key)
       @waiting_proc = lambda do |reg_key, _sym|
         @waiting_proc = nil
-        pos = @marks.get(charify(reg_key), self)
-        next unless pos
-
-        line, col = pos
-        push_jump
-        move_cursor_to(line, col)
+        jump_to_mark(charify(reg_key), line_only: false)
       end
+    end
+
+    private def jump_to_mark(name, line_only:)
+      pos = @marks.get(name, self)
+      return unless pos
+
+      line, col, target_buffer = if pos.size == 3
+                                   bid, l, c = pos
+                                   [l, c, @buffers[bid]]
+                                 else
+                                   [pos[0], pos[1], nil]
+                                 end
+
+      push_jump
+      if target_buffer && target_buffer != @current_buffer
+        swap_to_buffer(target_buffer)
+      end
+
+      if line_only
+        line_text = @buffer_of_lines[line] || ''
+        col = first_non_whitespace_col(line_text)
+      end
+      move_cursor_to(line, col)
     end
 
     private def charify(key)
