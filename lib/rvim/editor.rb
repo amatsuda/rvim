@@ -172,11 +172,54 @@ module Rvim
       end
     end
 
-    # Stages 6/8 implement these; Stage 5 leaves them as no-ops/stubs so the
-    # binding dispatch is in place.
-    def focus_window(_dir); end
-    def focus_next_window; end
-    def close_current_window; end
+    def focus_window(direction)
+      return if @windows.size < 2
+
+      idx = @windows.index(@current_window) || 0
+      target_idx = case direction
+                   when :down, :right then idx + 1
+                   when :up, :left    then idx - 1
+                   end
+      return if target_idx.nil? || target_idx < 0 || target_idx >= @windows.size
+
+      activate_window(@windows[target_idx])
+    end
+
+    def focus_next_window
+      return if @windows.size < 2
+
+      idx = @windows.index(@current_window) || 0
+      activate_window(@windows[(idx + 1) % @windows.size])
+    end
+
+    def close_current_window
+      return if @windows.size < 2
+
+      victim = @current_window
+      idx = @windows.index(victim)
+      @windows.delete(victim)
+      @current_window = @windows[idx] || @windows.last
+      @split_orientation = nil if @windows.size == 1
+      activate_window(@current_window) if @current_window
+    end
+
+    private def activate_window(win)
+      return unless win
+
+      save_current_buffer if @current_buffer
+      @current_window = win
+      buf = win.buffer
+      @current_buffer = buf
+      @filepath = buf.filepath
+      @buffer_of_lines = buf.lines
+      @line_index = buf.line_index
+      @byte_pointer = buf.byte_pointer
+      @modified = buf.modified
+      @marks = buf.marks
+      @last_visual = buf.last_visual
+      @undo_redo_history = buf.undo_redo_history
+      @undo_redo_index = buf.undo_redo_index
+    end
 
     private def save_current_buffer
       @current_buffer.lines = @buffer_of_lines
