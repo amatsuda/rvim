@@ -46,6 +46,7 @@ module Rvim
       verb = case verb_str
              when 'w', 'write' then :w
              when 'q', 'quit' then :q
+             when 'qa', 'qall', 'quitall' then :qa
              when 'wq' then :wq
              when 'x' then :wq
              when 'cq', 'cquit' then :cq
@@ -83,6 +84,8 @@ module Rvim
         execute_write(editor, parsed)
       when :q
         execute_quit(editor, parsed)
+      when :qa
+        execute_quit_all(editor, parsed)
       when :wq
         execute_write(editor, parsed)
         editor.quit!
@@ -142,11 +145,31 @@ module Rvim
     end
 
     def self.execute_quit(editor, parsed)
-      if editor.modified && !parsed.bang
+      if editor.windows.size > 1
+        editor.close_current_window
+        return
+      end
+
+      if any_modified?(editor) && !parsed.bang
         editor.status_message = 'E37: No write since last change (add ! to override)'
       else
         editor.quit!
       end
+    end
+
+    def self.execute_quit_all(editor, parsed)
+      if any_modified?(editor) && !parsed.bang
+        editor.status_message = 'E37: No write since last change (add ! to override)'
+      else
+        editor.quit!
+      end
+    end
+
+    def self.any_modified?(editor)
+      editor.send(:save_current_buffer) if editor.current_buffer
+      return true if editor.modified
+
+      editor.buffers.values.any?(&:modified)
     end
 
     def self.execute_substitute(editor, parsed)
