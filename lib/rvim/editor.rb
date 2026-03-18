@@ -1427,9 +1427,15 @@ module Rvim
       end
     end
 
-    def self.start(filepath = nil)
+    def self.start(*filepaths)
       editor = new(Reline.core.config)
-      editor.open(filepath) if filepath
+      filepaths = filepaths.flatten.compact
+      filepaths.each { |path| editor.open(path) }
+      # Land on the first file the user passed, mirroring vim's `vim a b c`
+      # behavior of opening all into the buffer list with the first active.
+      if (first = filepaths.first) && (buf = editor.buffers.values.find { |b| b.filepath == first })
+        editor.swap_to_buffer(buf)
+      end
       screen = Rvim::Screen.new(editor)
       editor.screen = screen
 
