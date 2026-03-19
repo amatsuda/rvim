@@ -48,8 +48,11 @@ module Rvim
       @windows = []
       @current_window = nil
       @split_orientation = nil
+      @settings = Rvim::Settings.new
       install_key_bindings
     end
+
+    attr_reader :settings
 
     attr_reader :search_pattern, :search_direction, :search_matches
 
