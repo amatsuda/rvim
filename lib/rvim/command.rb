@@ -2,7 +2,9 @@
 
 module Rvim
   class Command
-    Parsed = Struct.new(:verb, :arg, :bang, :line_number, :sub, :range, keyword_init: true)
+    Parsed = Struct.new(:verb, :arg, :bang, :line_number, :sub, :range, :set_options, keyword_init: true)
+
+    SET_TOKEN_RE = /\A(no)?(\w+)(?:=(\S+))?\??\z/
 
     SUBSTITUTE_RE = %r{
       \A
@@ -57,10 +59,33 @@ module Rvim
              when 'bd', 'bdelete' then :bd
              when 'sp', 'split' then :sp
              when 'vsp', 'vsplit' then :vsp
+             when 'set', 'se' then :set
              else verb_str.to_sym
              end
 
+      if verb == :set
+        set_options = parse_set(arg)
+        return Parsed.new(verb: :set, arg: arg, bang: bang, line_number: nil, set_options: set_options)
+      end
+
       Parsed.new(verb: verb, arg: arg, bang: bang, line_number: nil)
+    end
+
+    def self.parse_set(args)
+      args.to_s.split(/\s+/).map do |tok|
+        m = tok.match(SET_TOKEN_RE)
+        next unless m
+
+        name = m[2]
+        if m[1] == 'no'
+          [name, false]
+        elsif m[3]
+          val = m[3].match?(/\A\d+\z/) ? m[3].to_i : m[3]
+          [name, val]
+        else
+          [name, true]
+        end
+      end.compact
     end
 
     def self.parse_range(token)
@@ -109,6 +134,8 @@ module Rvim
         end
       when :bd
         editor.delete_current_buffer(force: parsed.bang)
+      when :set
+        execute_set(editor, parsed)
       when :sp
         if parsed.arg && !parsed.arg.empty?
           editor.open(parsed.arg)
@@ -163,6 +190,18 @@ module Rvim
       else
         editor.quit!
       end
+    end
+
+    def self.execute_set(editor, parsed)
+      messages = []
+      Array(parsed.set_options).each do |name, value|
+        if editor.settings.known?(name)
+          editor.settings.set(name, value)
+        else
+          messages << "E518: Unknown option: #{name}"
+        end
+      end
+      editor.status_message = messages.join('; ') unless messages.empty?
     end
 
     def self.any_modified?(editor)
