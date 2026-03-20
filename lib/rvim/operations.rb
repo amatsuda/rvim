@@ -106,7 +106,7 @@ module Rvim
     end
 
     def shift_right(editor, sel, count: 1)
-      shiftwidth = 2
+      shiftwidth = editor.settings.get(:shiftwidth)
       indent = ' ' * (shiftwidth * count)
       (sel.start_line..sel.end_line).each do |i|
         line = editor.buffer_of_lines[i]
@@ -116,7 +116,7 @@ module Rvim
     end
 
     def shift_left(editor, sel, count: 1)
-      shiftwidth = 2
+      shiftwidth = editor.settings.get(:shiftwidth)
       strip = shiftwidth * count
       (sel.start_line..sel.end_line).each do |i|
         line = editor.buffer_of_lines[i]
