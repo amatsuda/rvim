@@ -54,8 +54,9 @@ module Rvim
       if @editor.prompt_mode
         out << move_to(@rows, @editor.prompt_buffer.length + 2)
       elsif cw
+        gw = gutter_width(cw.buffer)
         cursor_row = cw.row + (@editor.line_index - cw.scroll_top) + 1
-        cursor_col = cw.col + display_column(@editor.buffer_of_lines[@editor.line_index] || '', @editor.byte_pointer) + 1
+        cursor_col = cw.col + gw + display_column(@editor.buffer_of_lines[@editor.line_index] || '', @editor.byte_pointer) + 1
         out << move_to(cursor_row, cursor_col)
       end
       out << SHOW_CURSOR
@@ -112,6 +113,9 @@ module Rvim
       content_rows = win.height - 1
       adjust_window_scroll(win, content_rows)
       is_current = (win.equal?(@editor.current_window))
+      gw = gutter_width(buffer)
+      content_width = win.width - gw
+      cursor_idx = is_current ? @editor.line_index : buffer.line_index
 
       out = +''
       content_rows.times do |i|
@@ -121,13 +125,14 @@ module Rvim
                else
                  '~'
                end
+        gutter = gutter_text(idx, cursor_idx, buffer.lines.size, gw, idx < buffer.lines.size)
         rendered = if is_current
-                     apply_current_highlights(line, idx, win.width)
+                     apply_current_highlights(line, idx, content_width)
                    else
-                     truncate(line, win.width)
+                     truncate(line, content_width)
                    end
         out << move_to(win.row + i + 1, win.col + 1)
-        out << rendered.ljust(win.width)
+        out << gutter << rendered.ljust(content_width)
       end
 
       # Per-window status row at the bottom of the window.
@@ -151,6 +156,26 @@ module Rvim
         end
       end
       out
+    end
+
+    def gutter_width(buffer)
+      return 0 unless @editor.settings.get(:number) || @editor.settings.get(:relativenumber)
+
+      digits = Math.log10([buffer.lines.size, 1].max).floor + 1
+      [digits.clamp(2, 6) + 1, 4].max
+    end
+
+    def gutter_text(idx, cursor_idx, total, gw, has_line)
+      return '' if gw.zero?
+
+      number = if !has_line
+                 ''
+               elsif @editor.settings.get(:relativenumber) && idx != cursor_idx
+                 (idx - cursor_idx).abs.to_s
+               else
+                 (idx + 1).to_s
+               end
+      DIM_ON + number.rjust(gw - 1) + ' ' + DIM_OFF
     end
 
     def adjust_window_scroll(win, visible)
