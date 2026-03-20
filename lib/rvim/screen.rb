@@ -166,7 +166,8 @@ module Rvim
 
     def apply_current_highlights(line, idx, width)
       sel = @editor.selection
-      matches = @editor.search_matches || []
+      hl = @editor.settings.get(:hlsearch) || @editor.prompt_mode == :search_forward || @editor.prompt_mode == :search_backward
+      matches = hl ? (@editor.search_matches || []) : []
       if sel
         apply_selection_highlight(line, idx, sel, width)
       elsif matches.any? { |l, _, _| l == idx }
