@@ -190,7 +190,8 @@ module Rvim
       win = @current_window
       return unless win
 
-      page = [win.height - 2, 1].max # leave 2 rows of context like vim
+      content_rows = [win.height - 1, 1].max # status row at bottom of window
+      page = [content_rows - 2, 1].max # leave 2 rows of context like vim
       delta = page * count * direction
       target = (@line_index + delta).clamp(0, [@buffer_of_lines.size - 1, 0].max)
       return if target == @line_index
@@ -199,6 +200,15 @@ module Rvim
       @line_index = target
       target_line = @buffer_of_lines[@line_index] || ''
       @byte_pointer = first_non_whitespace_col(target_line).clamp(0, target_line.bytesize)
+
+      # Position the destination line per vim convention:
+      # - Ctrl-F (forward): new cursor line is at the TOP of the new page
+      # - Ctrl-B (backward): new cursor line is at the BOTTOM of the new page
+      if direction.positive?
+        win.scroll_top = target
+      else
+        win.scroll_top = [target - content_rows + 1, 0].max
+      end
     end
 
     def focus_window(direction)
