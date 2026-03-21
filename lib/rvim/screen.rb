@@ -198,7 +198,37 @@ module Rvim
       elsif matches.any? { |l, _, _| l == idx }
         apply_search_highlight(line, idx, matches, width)
       else
-        truncate(line, width)
+        apply_syntax_highlight(line, width)
+      end
+    end
+
+    def apply_syntax_highlight(line, width)
+      lang = current_language
+      return truncate(line, width) unless lang
+
+      segments = Rvim::Syntax.highlight(line, lang)
+      return truncate(line, width) if segments.empty?
+
+      out = line.dup
+      segments.sort_by { |s, _e, _c| -s }.each do |s, e, color|
+        head = out.byteslice(0, s) || +''
+        mid = out.byteslice(s, e - s + 1) || +''
+        tail = out.byteslice(e + 1, out.bytesize - e - 1) || +''
+        out = head + Rvim::Syntax::COLORS[color] + mid + Rvim::Syntax::RESET + tail
+      end
+      truncate(out, width + segments.size * (Rvim::Syntax::COLORS[:default].bytesize + Rvim::Syntax::RESET.bytesize))
+    end
+
+    def current_language
+      buf = @editor.current_window&.buffer
+      return nil unless buf
+
+      setting = @editor.settings.get(:syntax)
+      case setting
+      when :off, false then nil
+      when :auto, true then Rvim::Syntax.detect_language(buf.filepath)
+      when Symbol then setting
+      when String then setting.to_sym
       end
     end
 
