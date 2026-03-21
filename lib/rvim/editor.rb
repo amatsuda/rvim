@@ -87,6 +87,8 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_command, [0x0F], :rvim_jump_back)    # Ctrl-O
       @config.add_default_key_binding_by_keymap(:vi_command, [0x09], :rvim_jump_forward) # Ctrl-I (Tab)
       @config.add_default_key_binding_by_keymap(:vi_command, [0x17], :rvim_window_prefix) # Ctrl-W
+      @config.add_default_key_binding_by_keymap(:vi_command, [0x06], :rvim_page_down)     # Ctrl-F
+      @config.add_default_key_binding_by_keymap(:vi_command, [0x02], :rvim_page_up)       # Ctrl-B
     end
 
     def open(path)
@@ -174,6 +176,29 @@ module Rvim
         when 'c' then close_current_window
         end
       end
+    end
+
+    private def rvim_page_down(key, arg: 1)
+      page_jump(+1, arg)
+    end
+
+    private def rvim_page_up(key, arg: 1)
+      page_jump(-1, arg)
+    end
+
+    private def page_jump(direction, count)
+      win = @current_window
+      return unless win
+
+      page = [win.height - 2, 1].max # leave 2 rows of context like vim
+      delta = page * count * direction
+      target = (@line_index + delta).clamp(0, [@buffer_of_lines.size - 1, 0].max)
+      return if target == @line_index
+
+      push_jump
+      @line_index = target
+      target_line = @buffer_of_lines[@line_index] || ''
+      @byte_pointer = first_non_whitespace_col(target_line).clamp(0, target_line.bytesize)
     end
 
     def focus_window(direction)
