@@ -68,6 +68,7 @@ module Rvim
       case File.extname(filepath)
       when '.rb', '.gemspec', '.rake' then :ruby
       when '.md', '.markdown' then :markdown
+      when '.json' then :json
       end
     end
   end
