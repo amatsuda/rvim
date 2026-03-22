@@ -49,6 +49,7 @@ module Rvim
       @current_window = nil
       @split_orientation = nil
       @settings = Rvim::Settings.new
+      @settings.editor = self
       install_key_bindings
     end
 

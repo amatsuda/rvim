@@ -60,12 +60,13 @@ module Rvim
              when 'sp', 'split' then :sp
              when 'vsp', 'vsplit' then :vsp
              when 'set', 'se' then :set
+             when 'setlocal', 'setl' then :setlocal
              else verb_str.to_sym
              end
 
-      if verb == :set
+      if verb == :set || verb == :setlocal
         set_options = parse_set(arg)
-        return Parsed.new(verb: :set, arg: arg, bang: bang, line_number: nil, set_options: set_options)
+        return Parsed.new(verb: verb, arg: arg, bang: bang, line_number: nil, set_options: set_options)
       end
 
       Parsed.new(verb: verb, arg: arg, bang: bang, line_number: nil)
@@ -135,7 +136,9 @@ module Rvim
       when :bd
         editor.delete_current_buffer(force: parsed.bang)
       when :set
-        execute_set(editor, parsed)
+        execute_set(editor, parsed, local: false)
+      when :setlocal
+        execute_set(editor, parsed, local: true)
       when :sp
         if parsed.arg && !parsed.arg.empty?
           editor.open(parsed.arg)
@@ -192,11 +195,12 @@ module Rvim
       end
     end
 
-    def self.execute_set(editor, parsed)
+    def self.execute_set(editor, parsed, local: false)
       messages = []
+      target_buffer = local ? editor.current_buffer : nil
       Array(parsed.set_options).each do |name, value|
         if editor.settings.known?(name)
-          editor.settings.set(name, value)
+          editor.settings.set(name, value, buffer: target_buffer)
         else
           messages << "E518: Unknown option: #{name}"
         end

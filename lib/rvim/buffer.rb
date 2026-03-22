@@ -5,6 +5,7 @@ module Rvim
     attr_accessor :id, :filepath, :lines, :modified
     attr_accessor :marks, :line_index, :byte_pointer
     attr_accessor :undo_redo_history, :undo_redo_index, :last_visual
+    attr_accessor :local_settings
 
     def initialize(id, filepath = nil, encoding: Encoding::UTF_8)
       @id = id
@@ -22,6 +23,7 @@ module Rvim
       @undo_redo_history = [[[String.new('', encoding: encoding)], 0, 0]]
       @undo_redo_index = 0
       @last_visual = nil
+      @local_settings = {}
     end
 
     def display_name

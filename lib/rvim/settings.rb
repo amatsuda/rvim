@@ -22,15 +22,28 @@ module Rvim
 
     def initialize
       @options = DEFAULTS.dup
+      @editor = nil
     end
 
-    def get(name)
-      @options[normalize(name)]
-    end
+    attr_accessor :editor
 
-    def set(name, value)
+    def get(name, buffer: :current)
       key = normalize(name)
-      @options[key] = value
+      buf = buffer == :current ? @editor&.current_buffer : buffer
+      if buf && buf.respond_to?(:local_settings) && buf.local_settings.key?(key)
+        buf.local_settings[key]
+      else
+        @options[key]
+      end
+    end
+
+    def set(name, value, buffer: nil)
+      key = normalize(name)
+      if buffer
+        buffer.local_settings[key] = value
+      else
+        @options[key] = value
+      end
       key
     end
 
