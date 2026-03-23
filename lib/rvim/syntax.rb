@@ -69,6 +69,7 @@ module Rvim
       when '.rb', '.gemspec', '.rake' then :ruby
       when '.md', '.markdown' then :markdown
       when '.json' then :json
+      when '.sh', '.bash', '.zsh', '.ksh' then :shell
       end
     end
   end
