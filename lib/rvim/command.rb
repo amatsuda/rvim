@@ -61,6 +61,7 @@ module Rvim
              when 'vsp', 'vsplit' then :vsp
              when 'set', 'se' then :set
              when 'setlocal', 'setl' then :setlocal
+             when 'ls', 'buffers', 'files' then :ls
              else verb_str.to_sym
              end
 
@@ -139,6 +140,8 @@ module Rvim
         execute_set(editor, parsed, local: false)
       when :setlocal
         execute_set(editor, parsed, local: true)
+      when :ls
+        editor.show_list(format_buffers(editor))
       when :sp
         if parsed.arg && !parsed.arg.empty?
           editor.open(parsed.arg)
@@ -193,6 +196,17 @@ module Rvim
       else
         editor.quit!
       end
+    end
+
+    def self.format_buffers(editor)
+      header = '  N  flags  Name'
+      rows = editor.buffer_order.map do |id|
+        b = editor.buffers[id]
+        cur = (id == editor.current_buffer&.id) ? '%' : ' '
+        mod = b.modified ? '+' : ' '
+        format('%s %2d  %s     %s', cur, id, mod, b.display_name)
+      end
+      [header, *rows]
     end
 
     def self.execute_set(editor, parsed, local: false)

@@ -133,7 +133,22 @@ module Rvim
       end
     end
 
-    attr_reader :windows, :current_window, :split_orientation
+    attr_reader :windows, :current_window, :split_orientation, :list_view
+
+    def show_list(lines)
+      @list_view = Rvim::ListView.new(lines.compact)
+      @prompt_mode = :listing
+    end
+
+    def dismiss_list
+      @list_view = nil
+      @prompt_mode = nil
+    end
+
+    def list_rows
+      base = @screen ? @screen.list_overlay_rows : 6
+      [base, 4].max
+    end
 
     def split_horizontal(buffer = nil)
       return mixed_split_error if @split_orientation == :vertical && @windows.size > 1
@@ -382,6 +397,11 @@ module Rvim
     end
 
     def update(key)
+      if @prompt_mode == :listing
+        process_listing_key(key)
+        return
+      end
+
       pre_idle = idle_for_recording?
       pre_buffer = @buffer_of_lines.map(&:dup)
       record_change_key(key, pre_idle) unless @replaying
@@ -863,6 +883,24 @@ module Rvim
       enter_visual(:block)
     end
 
+    private def process_listing_key(key)
+      ch = key.char
+      case ch
+      when ' ', "\r", "\n", 'f', "\x06"
+        if @list_view.more?(list_rows)
+          @list_view.advance!(list_rows)
+        else
+          dismiss_list
+        end
+      when 'q', "\e", "\x03"
+        dismiss_list
+      else
+        # Any other key dismisses the list and re-dispatches to normal handling.
+        dismiss_list
+        update(key)
+      end
+    end
+
     private def process_prompt_key(key)
       ch = key.char
       if ch.nil?
@@ -899,8 +937,9 @@ module Rvim
       case @prompt_mode
       when :ex
         parsed = Rvim::Command.parse(@prompt_buffer)
+        @prompt_mode = nil
+        @prompt_buffer = +''
         Rvim::Command.execute(self, parsed) if parsed
-        reset_prompt
       when :search_forward, :search_backward
         commit_search
       else

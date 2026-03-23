@@ -43,11 +43,15 @@ module Rvim
 
     def render
       @rows, @cols = Reline::IOGate.get_screen_size
-      layout_windows(@rows - 1, @cols)
+      reserved = @editor.prompt_mode == :listing ? list_overlay_rows + 1 : 1
+      layout_windows(@rows - reserved, @cols)
 
       out = +HIDE_CURSOR
       @editor.windows.each { |win| out << render_window(win) }
       out << render_vertical_dividers
+      if @editor.prompt_mode == :listing
+        out << render_listing_overlay
+      end
       out << move_to(@rows, 1) << ERASE_LINE << bottom_line
 
       cw = @editor.current_window
@@ -143,6 +147,28 @@ module Rvim
       out << DIM_OFF unless is_current
       out
     end
+
+    def list_overlay_rows
+      [(@rows / 2).to_i, 4].max
+    end
+
+    def render_listing_overlay
+      view = @editor.list_view
+      return '' unless view
+
+      out = +''
+      rows = list_overlay_rows
+      content_rows = rows - 1
+      page = view.page(rows)
+      start_row = @rows - rows
+      content_rows.times do |i|
+        line = page[i] || ''
+        out << move_to(start_row + i, 1) << ERASE_LINE << truncate(line, @cols)
+      end
+      out
+    end
+
+    attr_reader :rows
 
     def render_vertical_dividers
       return '' unless @editor.split_orientation == :vertical
@@ -324,6 +350,9 @@ module Rvim
       when :ex then ":#{@editor.prompt_buffer}"
       when :search_forward then "/#{@editor.prompt_buffer}"
       when :search_backward then "?#{@editor.prompt_buffer}"
+      when :listing
+        view = @editor.list_view
+        view && view.more?(list_overlay_rows) ? '-- More --' : 'Press ENTER or type command to continue'
       else
         @editor.status_message ? @editor.status_message.to_s : ''
       end
