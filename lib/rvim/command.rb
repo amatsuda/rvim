@@ -64,6 +64,7 @@ module Rvim
              when 'ls', 'buffers', 'files' then :ls
              when 'marks' then :marks
              when 'jumps' then :jumps
+             when 'registers', 'reg', 'display' then :registers
              else verb_str.to_sym
              end
 
@@ -148,6 +149,8 @@ module Rvim
         editor.show_list(format_marks(editor))
       when :jumps
         editor.show_list(format_jumps(editor))
+      when :registers
+        editor.show_list(format_registers(editor))
       when :sp
         if parsed.arg && !parsed.arg.empty?
           editor.open(parsed.arg)
@@ -202,6 +205,30 @@ module Rvim
       else
         editor.quit!
       end
+    end
+
+    KIND_TAGS = { char: 'c', line: 'l', block: 'b' }.freeze
+
+    def self.format_registers(editor)
+      header = 'type  name  content'
+      table = editor.instance_variable_get(:@registers).instance_variable_get(:@table) || {}
+      rows = []
+      # Order: " (unnamed), "0-"9 (numbered), "a-"z (named)
+      ordered_keys = ['"', *('0'..'9'), *('a'..'z')].select { |k| table[k] }
+      ordered_keys.each do |name|
+        entry = table[name]
+        next unless entry
+
+        kind = KIND_TAGS[entry.kind] || '?'
+        text = entry.text.is_a?(Array) ? entry.text.join("\\n") : entry.text.to_s
+        preview = text.gsub("\n", '\\n')[0, 60]
+        rows << format('   %s   "%s   %s', kind, name, preview)
+      end
+      # Add "% if filepath set
+      if editor.filepath
+        rows << format('   c   "%%   %s', editor.filepath[0, 60])
+      end
+      [header, *rows]
     end
 
     def self.format_jumps(editor)
