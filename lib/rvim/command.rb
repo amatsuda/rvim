@@ -63,6 +63,7 @@ module Rvim
              when 'setlocal', 'setl' then :setlocal
              when 'ls', 'buffers', 'files' then :ls
              when 'marks' then :marks
+             when 'jumps' then :jumps
              else verb_str.to_sym
              end
 
@@ -145,6 +146,8 @@ module Rvim
         editor.show_list(format_buffers(editor))
       when :marks
         editor.show_list(format_marks(editor))
+      when :jumps
+        editor.show_list(format_jumps(editor))
       when :sp
         if parsed.arg && !parsed.arg.empty?
           editor.open(parsed.arg)
@@ -199,6 +202,18 @@ module Rvim
       else
         editor.quit!
       end
+    end
+
+    def self.format_jumps(editor)
+      header = ' jump line  col  text'
+      jumps = editor.jump_list || []
+      idx = editor.jump_index || 0
+      rows = jumps.each_with_index.map do |(line, col), i|
+        marker = (i == idx) ? '>' : ' '
+        text = (editor.buffer_of_lines[line] || '').lstrip[0, 60]
+        format('%s %4d  %4d  %4d  %s', marker, jumps.size - i, line + 1, col, text)
+      end
+      [header, *rows]
     end
 
     def self.format_marks(editor)
