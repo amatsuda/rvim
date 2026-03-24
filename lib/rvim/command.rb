@@ -62,6 +62,7 @@ module Rvim
              when 'set', 'se' then :set
              when 'setlocal', 'setl' then :setlocal
              when 'ls', 'buffers', 'files' then :ls
+             when 'marks' then :marks
              else verb_str.to_sym
              end
 
@@ -142,6 +143,8 @@ module Rvim
         execute_set(editor, parsed, local: true)
       when :ls
         editor.show_list(format_buffers(editor))
+      when :marks
+        editor.show_list(format_marks(editor))
       when :sp
         if parsed.arg && !parsed.arg.empty?
           editor.open(parsed.arg)
@@ -196,6 +199,25 @@ module Rvim
       else
         editor.quit!
       end
+    end
+
+    def self.format_marks(editor)
+      header = 'mark  line  col  file/text'
+      rows = []
+      # Local marks (a-z) — fetch from current buffer
+      local = editor.instance_variable_get(:@marks).instance_variable_get(:@table)
+      local.sort.each do |name, (line, col)|
+        text = editor.buffer_of_lines[line].to_s.lstrip[0, 60]
+        rows << format(' %s   %4d  %4d  %s', name, line + 1, col, text)
+      end
+      # Global marks (A-Z)
+      global = editor.instance_variable_get(:@global_marks).instance_variable_get(:@table)
+      global.sort.each do |name, (buf_id, line, col)|
+        buf = editor.buffers[buf_id]
+        info = buf ? buf.display_name : "(buffer #{buf_id})"
+        rows << format(' %s   %4d  %4d  %s', name, line + 1, col, info)
+      end
+      [header, *rows]
     end
 
     def self.format_buffers(editor)
