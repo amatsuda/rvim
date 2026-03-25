@@ -1285,6 +1285,32 @@ module Rvim
       end
     end
 
+    def tab_new(path = nil)
+      buf = if path && !path.empty?
+              find_or_create_buffer(path)
+            else
+              create_empty_buffer
+            end
+      win = Rvim::Window.new(buf)
+      tab = Rvim::Tab.new(win)
+
+      save_current_tab_state
+      @tabs.insert(@current_tab_index + 1, tab)
+      @current_tab_index += 1
+      @windows = tab.windows
+      @current_window = win
+      @split_orientation = nil
+      activate_window(win)
+    end
+
+    private def create_empty_buffer
+      buf = Rvim::Buffer.new(@next_buffer_id, nil, encoding: encoding)
+      @next_buffer_id += 1
+      @buffers[buf.id] = buf
+      @buffer_order << buf.id
+      buf
+    end
+
     def tab_advance(arg = nil)
       return if @tabs.size < 2
 

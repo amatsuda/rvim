@@ -67,6 +67,7 @@ module Rvim
              when 'registers', 'reg', 'display' then :registers
              when 'tabnext', 'tabn' then :tabnext
              when 'tabprev', 'tabp', 'tabprevious', 'tabNext' then :tabprev
+             when 'tabnew', 'tabe', 'tabedit' then :tabnew
              else verb_str.to_sym
              end
 
@@ -157,6 +158,8 @@ module Rvim
         editor.tab_advance
       when :tabprev
         editor.tab_retreat
+      when :tabnew
+        editor.tab_new(parsed.arg)
       when :sp
         if parsed.arg && !parsed.arg.empty?
           editor.open(parsed.arg)
