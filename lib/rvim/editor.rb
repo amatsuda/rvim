@@ -48,6 +48,8 @@ module Rvim
       @windows = []
       @current_window = nil
       @split_orientation = nil
+      @tabs = []
+      @current_tab_index = 0
       @settings = Rvim::Settings.new
       @settings.editor = self
       install_key_bindings
@@ -131,6 +133,50 @@ module Rvim
       else
         @current_window.buffer = buf if @current_window
       end
+      ensure_current_tab
+    end
+
+    private def ensure_current_tab
+      return unless @tabs.empty? && @current_window
+
+      tab = Rvim::Tab.new(@current_window)
+      tab.windows = @windows
+      tab.split_orientation = @split_orientation
+      @tabs << tab
+      @current_tab_index = 0
+    end
+
+    attr_reader :tabs, :current_tab_index
+
+    def current_tab
+      @tabs[@current_tab_index]
+    end
+
+    def swap_to_tab(idx)
+      return if idx < 0 || idx >= @tabs.size || idx == @current_tab_index
+
+      save_current_tab_state
+      @current_tab_index = idx
+      load_current_tab_state
+    end
+
+    private def save_current_tab_state
+      tab = @tabs[@current_tab_index]
+      return unless tab
+
+      tab.windows = @windows
+      tab.current_window = @current_window
+      tab.split_orientation = @split_orientation
+    end
+
+    private def load_current_tab_state
+      tab = @tabs[@current_tab_index]
+      return unless tab
+
+      @windows = tab.windows
+      @current_window = tab.current_window
+      @split_orientation = tab.split_orientation
+      activate_window(@current_window) if @current_window
     end
 
     attr_reader :windows, :current_window, :split_orientation, :list_view
