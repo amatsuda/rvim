@@ -65,6 +65,8 @@ module Rvim
              when 'marks' then :marks
              when 'jumps' then :jumps
              when 'registers', 'reg', 'display' then :registers
+             when 'tabnext', 'tabn' then :tabnext
+             when 'tabprev', 'tabp', 'tabprevious', 'tabNext' then :tabprev
              else verb_str.to_sym
              end
 
@@ -151,6 +153,10 @@ module Rvim
         editor.show_list(format_jumps(editor))
       when :registers
         editor.show_list(format_registers(editor))
+      when :tabnext
+        editor.tab_advance
+      when :tabprev
+        editor.tab_retreat
       when :sp
         if parsed.arg && !parsed.arg.empty?
           editor.open(parsed.arg)

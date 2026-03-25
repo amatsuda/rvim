@@ -1266,7 +1266,8 @@ module Rvim
       true
     end
 
-    private def rvim_g_prefix(key)
+    private def rvim_g_prefix(key, arg: nil)
+      saved_arg = arg
       @waiting_proc = lambda do |key_for_proc, _sym|
         @waiting_proc = nil
         case key_for_proc
@@ -1276,8 +1277,34 @@ module Rvim
           @byte_pointer = 0
         when 'v', 'v'.ord
           reselect_last_visual
+        when 't', 't'.ord
+          tab_advance(saved_arg)
+        when 'T', 'T'.ord
+          tab_retreat(saved_arg)
         end
       end
+    end
+
+    def tab_advance(arg = nil)
+      return if @tabs.size < 2
+
+      target = if arg.is_a?(Integer) && arg > 0
+                 (arg - 1).clamp(0, @tabs.size - 1)
+               else
+                 (@current_tab_index + 1) % @tabs.size
+               end
+      swap_to_tab(target)
+    end
+
+    def tab_retreat(arg = nil)
+      return if @tabs.size < 2
+
+      target = if arg.is_a?(Integer) && arg > 0
+                 (@current_tab_index - arg) % @tabs.size
+               else
+                 (@current_tab_index - 1) % @tabs.size
+               end
+      swap_to_tab(target)
     end
 
     private def reselect_last_visual
