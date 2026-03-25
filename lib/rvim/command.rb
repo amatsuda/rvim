@@ -68,6 +68,8 @@ module Rvim
              when 'tabnext', 'tabn' then :tabnext
              when 'tabprev', 'tabp', 'tabprevious', 'tabNext' then :tabprev
              when 'tabnew', 'tabe', 'tabedit' then :tabnew
+             when 'tabclose', 'tabc' then :tabclose
+             when 'tabonly', 'tabo' then :tabonly
              else verb_str.to_sym
              end
 
@@ -160,6 +162,10 @@ module Rvim
         editor.tab_retreat
       when :tabnew
         editor.tab_new(parsed.arg)
+      when :tabclose
+        editor.tab_close
+      when :tabonly
+        editor.tab_only
       when :sp
         if parsed.arg && !parsed.arg.empty?
           editor.open(parsed.arg)

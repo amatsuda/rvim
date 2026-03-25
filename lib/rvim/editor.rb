@@ -1311,6 +1311,28 @@ module Rvim
       buf
     end
 
+    def tab_close
+      if @tabs.size <= 1
+        @status_message = 'E784: Cannot close last tab page'
+        return
+      end
+
+      save_current_tab_state
+      @tabs.delete_at(@current_tab_index)
+      @current_tab_index = [@current_tab_index, @tabs.size - 1].min.clamp(0, @tabs.size - 1)
+      load_current_tab_state
+    end
+
+    def tab_only
+      return if @tabs.size <= 1
+
+      save_current_tab_state
+      keeper = @tabs[@current_tab_index]
+      @tabs = [keeper]
+      @current_tab_index = 0
+      load_current_tab_state
+    end
+
     def tab_advance(arg = nil)
       return if @tabs.size < 2
 
