@@ -207,6 +207,12 @@ module Rvim
         return
       end
 
+      # Last window in the current tab. If more tabs exist, close the tab.
+      if editor.tabs.size > 1
+        editor.tab_close
+        return
+      end
+
       if any_modified?(editor) && !parsed.bang
         editor.status_message = 'E37: No write since last change (add ! to override)'
       else
