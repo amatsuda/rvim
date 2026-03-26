@@ -44,9 +44,14 @@ module Rvim
     def render
       @rows, @cols = Reline::IOGate.get_screen_size
       reserved = @editor.prompt_mode == :listing ? list_overlay_rows + 1 : 1
-      layout_windows(@rows - reserved, @cols)
+      reserved_top = @editor.tabs.size > 1 ? 1 : 0
+      layout_windows(@rows - reserved - reserved_top, @cols)
+      if reserved_top.positive?
+        @editor.windows.each { |w| w.row += reserved_top }
+      end
 
       out = +HIDE_CURSOR
+      out << render_tabline if reserved_top.positive?
       @editor.windows.each { |win| out << render_window(win) }
       out << render_vertical_dividers
       if @editor.prompt_mode == :listing
@@ -146,6 +151,22 @@ module Rvim
       out << REVERSE_OFF
       out << DIM_OFF unless is_current
       out
+    end
+
+    def render_tabline
+      tabs = @editor.tabs
+      return '' if tabs.size < 2
+
+      parts = tabs.each_with_index.map do |tab, i|
+        label = " #{i + 1}: #{tab.display_name} "
+        if i == @editor.current_tab_index
+          REVERSE_ON + label + REVERSE_OFF
+        else
+          DIM_ON + label + DIM_OFF
+        end
+      end
+      tabline = parts.join('|')
+      move_to(1, 1) + ERASE_LINE + truncate(tabline, @cols + 200)
     end
 
     def list_overlay_rows
