@@ -91,11 +91,15 @@ module Rvim
       n = windows.size
       per = total_rows / n
       remainder = total_rows - per * n
+      sizes = windows.each_with_index.map do |win, i|
+        per + (i < remainder ? 1 : 0) + win.extra_rows
+      end
+      sizes = clamp_sizes(sizes, total_rows, min: 2)
       row = 0
       windows.each_with_index do |win, i|
         win.row = row
         win.col = 0
-        win.height = per + (i < remainder ? 1 : 0)
+        win.height = sizes[i]
         win.width = total_cols
         row += win.height
       end
@@ -103,18 +107,45 @@ module Rvim
 
     def layout_vertical(windows, total_rows, total_cols)
       n = windows.size
-      # Reserve n-1 columns for dividers.
       content_cols = total_cols - (n - 1)
       per = content_cols / n
       remainder = content_cols - per * n
+      sizes = windows.each_with_index.map do |win, i|
+        per + (i < remainder ? 1 : 0) + win.extra_cols
+      end
+      sizes = clamp_sizes(sizes, content_cols, min: 4)
       col = 0
       windows.each_with_index do |win, i|
         win.row = 0
         win.col = col
         win.height = total_rows
-        win.width = per + (i < remainder ? 1 : 0)
-        col += win.width + 1 # +1 for the divider
+        win.width = sizes[i]
+        col += win.width + 1
       end
+    end
+
+    # Adjusts a list of sizes so each is at least `min` and the total matches `target`.
+    # When extras push the total past target, take from oversized windows; when extras
+    # pull below the minimum, give from oversized windows.
+    def clamp_sizes(sizes, target, min:)
+      sizes = sizes.map { |s| s < min ? min : s }
+      total = sizes.sum
+      diff = total - target
+      while diff != 0
+        if diff > 0
+          # Shrink the largest window
+          idx = sizes.index(sizes.max)
+          break if sizes[idx] <= min
+
+          sizes[idx] -= 1
+          diff -= 1
+        else
+          idx = sizes.index(sizes.max)
+          sizes[idx] += 1
+          diff += 1
+        end
+      end
+      sizes
     end
 
     def render_window(win)
