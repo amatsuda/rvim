@@ -70,6 +70,8 @@ module Rvim
              when 'tabnew', 'tabe', 'tabedit' then :tabnew
              when 'tabclose', 'tabc' then :tabclose
              when 'tabonly', 'tabo' then :tabonly
+             when 'resize', 'res' then :resize
+             when 'vertical' then :vertical
              else verb_str.to_sym
              end
 
@@ -166,6 +168,14 @@ module Rvim
         editor.tab_close
       when :tabonly
         editor.tab_only
+      when :resize
+        execute_resize(editor, parsed, vertical: false)
+      when :vertical
+        # :vertical resize N — parsed.arg should start with "resize"
+        if parsed.arg.to_s.strip.start_with?('resize', 'res')
+          inner = parsed.arg.to_s.sub(/\A(resize|res)\s*/, '')
+          execute_resize(editor, Parsed.new(verb: :resize, arg: inner, bang: false, line_number: nil), vertical: true)
+        end
       when :sp
         if parsed.arg && !parsed.arg.empty?
           editor.open(parsed.arg)
@@ -281,6 +291,18 @@ module Rvim
         rows << format(' %s   %4d  %4d  %s', name, line + 1, col, info)
       end
       [header, *rows]
+    end
+
+    def self.execute_resize(editor, parsed, vertical: false)
+      arg = parsed.arg.to_s.strip
+      return if arg.empty?
+
+      axis = vertical ? :width : :height
+      if arg.start_with?('+', '-')
+        editor.resize_current(axis, arg.to_i)
+      else
+        editor.resize_to(axis, arg.to_i)
+      end
     end
 
     def self.format_buffers(editor)
