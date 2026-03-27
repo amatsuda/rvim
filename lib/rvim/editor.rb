@@ -236,8 +236,56 @@ module Rvim
         when 'l' then focus_window(:right)
         when 'w', "\x17" then focus_next_window
         when 'c' then close_current_window
+        when '+' then resize_current(:height, +1)
+        when '-' then resize_current(:height, -1)
+        when '>' then resize_current(:width, +1)
+        when '<' then resize_current(:width, -1)
+        when '=' then equalize_windows
         end
       end
+    end
+
+    def resize_current(axis, delta)
+      return if @windows.size < 2
+
+      attr = axis == :height ? :extra_rows : :extra_cols
+      cur = @current_window
+      idx = @windows.index(cur) || 0
+      neighbor = @windows[idx + 1] || @windows[idx - 1]
+      return unless neighbor
+
+      cur.send("#{attr}=", cur.send(attr) + delta)
+      neighbor.send("#{attr}=", neighbor.send(attr) - delta)
+    end
+
+    def equalize_windows
+      @windows.each do |w|
+        w.extra_rows = 0
+        w.extra_cols = 0
+      end
+    end
+
+    def resize_to(axis, target)
+      return if @windows.size < 2
+
+      attr = axis == :height ? :extra_rows : :extra_cols
+      total = axis == :height ? content_rows_total : @cols_for_resize
+      total ||= @windows.sum { |w| axis == :height ? w.height : w.width }
+      baseline = total / @windows.size
+      delta = target - baseline
+      cur = @current_window
+      neighbor = @windows[(@windows.index(cur) || 0) + 1] || @windows[(@windows.index(cur) || 0) - 1]
+      return unless neighbor
+
+      old_extra = cur.send(attr)
+      cur.send("#{attr}=", delta)
+      neighbor.send("#{attr}=", neighbor.send(attr) - (delta - old_extra))
+    end
+
+    private def content_rows_total
+      return nil unless @screen
+
+      @screen.respond_to?(:rows) ? (@screen.rows - 1) : nil
     end
 
     private def rvim_page_down(key, arg: 1)
