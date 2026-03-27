@@ -107,6 +107,10 @@ module Rvim
       @next_buffer_id += 1
       @buffers[buf.id] = buf
       @buffer_order << buf.id
+
+      ft = Rvim::Syntax.detect_language(path)
+      Rvim::FileType.run(ft, buf, self) if ft
+
       buf
     end
 
