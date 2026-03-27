@@ -70,6 +70,7 @@ module Rvim
              when 'tabnew', 'tabe', 'tabedit' then :tabnew
              when 'tabclose', 'tabc' then :tabclose
              when 'tabonly', 'tabo' then :tabonly
+             when 'tabmove', 'tabm' then :tabmove
              when 'resize', 'res' then :resize
              when 'vertical' then :vertical
              else verb_str.to_sym
@@ -168,6 +169,8 @@ module Rvim
         editor.tab_close
       when :tabonly
         editor.tab_only
+      when :tabmove
+        execute_tabmove(editor, parsed)
       when :resize
         execute_resize(editor, parsed, vertical: false)
       when :vertical
@@ -291,6 +294,21 @@ module Rvim
         rows << format(' %s   %4d  %4d  %s', name, line + 1, col, info)
       end
       [header, *rows]
+    end
+
+    def self.execute_tabmove(editor, parsed)
+      arg = parsed.arg.to_s.strip
+      return if editor.tabs.size <= 1
+
+      src = editor.current_tab_index
+      dst = if arg.empty?
+              editor.tabs.size - 1
+            elsif arg.start_with?('+', '-')
+              src + arg.to_i
+            else
+              arg.to_i
+            end
+      editor.tab_move(dst)
     end
 
     def self.execute_resize(editor, parsed, vertical: false)
