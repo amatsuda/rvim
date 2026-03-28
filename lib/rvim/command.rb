@@ -126,7 +126,7 @@ module Rvim
         execute_quit_all(editor, parsed)
       when :wq
         execute_write(editor, parsed)
-        editor.quit!
+        execute_quit(editor, parsed)
       when :cq
         editor.quit!(exit_code: 1)
       when :e
