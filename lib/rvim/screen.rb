@@ -64,8 +64,11 @@ module Rvim
         out << move_to(@rows, @editor.prompt_buffer.length + 2)
       elsif cw
         gw = gutter_width(cw.buffer)
-        cursor_row = cw.row + (@editor.line_index - cw.scroll_top) + 1
-        cursor_col = cw.col + gw + display_column(@editor.buffer_of_lines[@editor.line_index] || '', @editor.byte_pointer) + 1
+        content_width = cw.width - gw
+        wrap_on = @editor.settings.get(:wrap)
+        display_row_offset, display_col = cursor_display_position(cw, content_width, wrap_on)
+        cursor_row = cw.row + display_row_offset + 1
+        cursor_col = cw.col + gw + display_col + 1
         out << move_to(cursor_row, cursor_col)
       end
       out << SHOW_CURSOR
@@ -156,21 +159,25 @@ module Rvim
       gw = gutter_width(buffer)
       content_width = win.width - gw
       cursor_idx = is_current ? @editor.line_index : buffer.line_index
+      wrap_on = @editor.settings.get(:wrap)
+
+      display_rows = build_display_rows(buffer, win.scroll_top, content_rows, content_width, wrap_on)
 
       out = +''
-      content_rows.times do |i|
-        idx = win.scroll_top + i
-        line = if idx < buffer.lines.size
-                 render_line(buffer.lines[idx])
-               else
-                 '~'
-               end
-        gutter = gutter_text(idx, cursor_idx, buffer.lines.size, gw, idx < buffer.lines.size)
-        rendered = if is_current
-                     apply_current_highlights(line, idx, content_width)
-                   else
-                     truncate(line, content_width)
-                   end
+      display_rows.each_with_index do |row, i|
+        line_idx, byte_off, segment = row
+        if line_idx.nil?
+          gutter = ' ' * gw
+          rendered = '~'
+        else
+          gutter = byte_off.zero? ? gutter_text(line_idx, cursor_idx, buffer.lines.size, gw, true) : (' ' * gw)
+          full_line = render_line(buffer.lines[line_idx])
+          rendered = if is_current
+                       apply_current_highlights_segment(full_line, line_idx, byte_off, segment, content_width)
+                     else
+                       truncate(segment, content_width)
+                     end
+        end
         out << move_to(win.row + i + 1, win.col + 1)
         out << gutter << rendered.ljust(content_width)
       end
@@ -182,6 +189,103 @@ module Rvim
       out << REVERSE_OFF
       out << DIM_OFF unless is_current
       out
+    end
+
+    # Returns Array<[line_idx_or_nil, byte_offset_within_line, segment_text]>
+    def build_display_rows(buffer, scroll_top, content_rows, content_width, wrap_on)
+      rows = []
+      line_idx = scroll_top
+      while rows.size < content_rows && line_idx < buffer.lines.size
+        line = render_line(buffer.lines[line_idx])
+        segments = wrap_on ? split_line_segments(line, content_width) : [[0, line]]
+        segments.each do |off, seg|
+          rows << [line_idx, off, seg]
+          break if rows.size >= content_rows
+        end
+        line_idx += 1
+      end
+      rows << [nil, 0, '~'] while rows.size < content_rows
+      rows
+    end
+
+    # Split a line into [byte_offset, segment_text] pairs. Each segment's
+    # display width is at most max_width.
+    def split_line_segments(line, max_width)
+      return [[0, line]] if max_width <= 0
+
+      segments = []
+      offset = 0
+      total = line.bytesize
+      while offset < total
+        seg = take_display_width(line, offset, max_width)
+        bytes = seg.bytesize
+        if bytes.zero?
+          # Defensive: if a single char doesn't fit, take one char anyway.
+          ch = line.byteslice(offset, total - offset).each_char.first || ''
+          bytes = ch.bytesize
+          seg = ch
+        end
+        segments << [offset, seg]
+        offset += bytes
+      end
+      segments << [0, ''] if segments.empty?
+      segments
+    end
+
+    def take_display_width(line, byte_offset, max_width)
+      out = +''
+      current = 0
+      remaining = line.byteslice(byte_offset, line.bytesize - byte_offset) || ''
+      remaining.each_char do |c|
+        cw = Reline::Unicode.calculate_width(c)
+        break if current + cw > max_width
+
+        out << c
+        current += cw
+      end
+      out
+    end
+
+    # Highlight a specific segment of a buffer line. byte_off is the segment's
+    # starting position within the full rendered line.
+    #
+    # For v1.13 Stage 1, when a line wraps (byte_off > 0), we render the segment
+    # with syntax highlighting only — selection/search highlights would need
+    # segment-local index arithmetic that's deferred. For non-wrapped lines
+    # (byte_off == 0 AND segment is the full line) we fall through to the
+    # existing apply_current_highlights which handles all three highlight types.
+    def apply_current_highlights_segment(full_line, line_idx, byte_off, segment, content_width)
+      if byte_off.zero? && segment.bytesize == full_line.bytesize
+        apply_current_highlights(full_line, line_idx, content_width)
+      else
+        apply_syntax_highlight(segment, content_width)
+      end
+    end
+
+    def cursor_display_position(win, content_width, wrap_on)
+      buffer = win.buffer
+      cursor_line = @editor.line_index
+      cursor_byte = @editor.byte_pointer
+
+      unless wrap_on
+        line_text = render_line(buffer.lines[cursor_line] || '')
+        return [cursor_line - win.scroll_top, display_column(line_text, cursor_byte)]
+      end
+
+      display_row = 0
+      (win.scroll_top...cursor_line).each do |li|
+        next if li >= buffer.lines.size
+
+        line = render_line(buffer.lines[li] || '')
+        display_row += split_line_segments(line, content_width).size
+      end
+
+      cursor_line_text = render_line(buffer.lines[cursor_line] || '')
+      segments = split_line_segments(cursor_line_text, content_width)
+      seg_idx = (segments.size - 1).downto(0).find { |i| segments[i][0] <= cursor_byte } || 0
+      seg_offset, seg_text = segments[seg_idx]
+      byte_in_seg = cursor_byte - seg_offset
+      [display_row + seg_idx, display_column(seg_text, byte_in_seg)]
     end
 
     def render_tabline

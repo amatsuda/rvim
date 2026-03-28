@@ -8,6 +8,7 @@ module Rvim
       number: false,
       relativenumber: false,
       syntax: :auto,
+      wrap: true,
     }.freeze
 
     ALIASES = {
