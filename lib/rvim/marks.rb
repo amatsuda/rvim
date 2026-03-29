@@ -25,6 +25,14 @@ module Rvim
         editor.previous_jump_position
       when '<', '>'
         editor.visual_position(name)
+      when '.'
+        editor.last_change_pos
+      when '^'
+        editor.last_insert_pos
+      when '['
+        editor.last_yank_range_start
+      when ']'
+        editor.last_yank_range_end
       when /\A[a-z]\z/
         @table[name]
       when /\A[A-Z]\z/

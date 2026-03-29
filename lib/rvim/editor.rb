@@ -39,6 +39,9 @@ module Rvim
       @last_register_op = nil
       @marks = Rvim::Marks.new
       @global_marks = Rvim::GlobalMarks.new
+      @last_change_pos = nil
+      @last_insert_pos = nil
+      @last_yank_range = nil
       @jump_list = []
       @jump_index = 0
       @buffers = {}
@@ -502,6 +505,7 @@ module Rvim
 
       pre_idle = idle_for_recording?
       pre_buffer = @buffer_of_lines.map(&:dup)
+      pre_mode = editing_mode_label
       record_change_key(key, pre_idle) unless @replaying
       record_macro_key(key) unless @replaying
 
@@ -523,7 +527,17 @@ module Rvim
         @modified = true if pre_buffer != @buffer_of_lines
       end
 
+      capture_special_marks(pre_buffer, pre_mode)
       freeze_change_if_settled(pre_buffer) unless @replaying
+    end
+
+    private def capture_special_marks(pre_buffer, pre_mode)
+      if pre_buffer != @buffer_of_lines
+        @last_change_pos = [@line_index, @byte_pointer]
+      end
+      if pre_mode == :vi_insert && editing_mode_label == :vi_command
+        @last_insert_pos = [@line_index, @byte_pointer]
+      end
     end
 
     private def idle_for_recording?
@@ -682,6 +696,16 @@ module Rvim
       return nil if @jump_index <= 0
 
       @jump_list[@jump_index - 1]
+    end
+
+    attr_reader :last_change_pos, :last_insert_pos
+
+    def last_yank_range_start
+      @last_yank_range&.dig(:start)
+    end
+
+    def last_yank_range_end
+      @last_yank_range&.dig(:end)
     end
 
     def visual_position(name)
@@ -926,6 +950,7 @@ module Rvim
     # Used by every operator (yank/delete/change) to record captured text.
     # Routes to @pending_register if set, else to the unnamed register, and
     # updates numbered registers ("0 on yank, "1-"9 ring on delete/change).
+    # Also records the last yank/change region for the '[' and ']' marks.
     def set_clipboard(content, kind, op: :yank)
       write_register(content, kind, register: @pending_register)
       case op
@@ -934,6 +959,13 @@ module Rvim
       when :delete, :change
         @registers.write_delete_history(content, kind)
       end
+      # Record region: cursor at this point is the start of the affected area
+      # (operators move the cursor to the start). We approximate end with the
+      # same point — refined when we have explicit region tracking.
+      @last_yank_range = {
+        start: [@line_index, @byte_pointer],
+        end: [@line_index, @byte_pointer],
+      }
       consume_pending_register
     end
 
