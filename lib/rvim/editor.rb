@@ -1365,8 +1365,25 @@ module Rvim
           tab_advance(saved_arg)
         when 'T', 'T'.ord
           tab_retreat(saved_arg)
+        when 'n', 'n'.ord
+          select_next_search_match(:forward)
+        when 'N', 'N'.ord
+          select_next_search_match(:backward)
         end
       end
+    end
+
+    def select_next_search_match(direction)
+      return unless @search_pattern && !@search_matches.empty?
+
+      target = Rvim::Search.next_match(@search_matches, @line_index, @byte_pointer, direction)
+      return unless target
+
+      line, byte_start, byte_end = target
+      push_jump
+      @visual_mode = :char
+      @visual_anchor = [line, byte_start]
+      move_cursor_to(line, byte_end)
     end
 
     def tab_new(path = nil)
