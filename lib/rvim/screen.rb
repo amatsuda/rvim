@@ -175,17 +175,17 @@ module Rvim
           rendered = if is_current
                        apply_current_highlights_segment(full_line, line_idx, byte_off, segment, content_width)
                      else
-                       truncate(segment, content_width)
+                       truncate_to_width(segment, content_width)
                      end
         end
         out << move_to(win.row + i + 1, win.col + 1)
-        out << gutter << rendered.ljust(content_width)
+        out << gutter << pad_render_to_width(rendered, content_width)
       end
 
       # Per-window status row at the bottom of the window.
       out << move_to(win.row + win.height, win.col + 1)
       out << (is_current ? REVERSE_ON : DIM_ON + REVERSE_ON)
-      out << truncate(window_status(win, is_current), win.width).ljust(win.width)
+      out << pad_to_width(truncate_to_width(window_status(win, is_current), win.width), win.width)
       out << REVERSE_OFF
       out << DIM_OFF unless is_current
       out
@@ -519,9 +519,40 @@ module Rvim
     end
 
     def truncate(str, width)
+      # Char-count truncation. Used by ANSI-splice helpers that compute their
+      # own inflated widths to account for escape bytes. New code should prefer
+      # truncate_to_width for pure text.
       return str if str.length <= width
 
       str[0, width]
+    end
+
+    # Display-width-aware truncation. Walks chars, summing Reline::Unicode
+    # widths, and stops when the next char would overflow.
+    def truncate_to_width(str, width)
+      take_display_width(str, 0, width)
+    end
+
+    # Display-width-aware padding to exactly `width` cells. Truncates if too
+    # wide, pads with spaces if too narrow.
+    def pad_to_width(str, width)
+      out = truncate_to_width(str, width)
+      current = Reline::Unicode.calculate_width(out)
+      out + (' ' * (width - current))
+    end
+
+    # For rendered strings that may contain ANSI escape sequences (highlights):
+    # pad with spaces so the visible content reaches `width`. Doesn't try to
+    # truncate (caller already did that with the right ANSI-aware budget).
+    def pad_render_to_width(str, width)
+      visible = visible_width(str)
+      str + (' ' * [width - visible, 0].max)
+    end
+
+    # Display width of a string ignoring ANSI escape sequences.
+    def visible_width(str)
+      no_ansi = str.gsub(/\e\[[\d;]*[a-zA-Z]/, '')
+      Reline::Unicode.calculate_width(no_ansi)
     end
 
     def move_to(row, col)
