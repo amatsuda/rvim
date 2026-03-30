@@ -55,8 +55,15 @@ module Rvim
       @current_tab_index = 0
       @settings = Rvim::Settings.new
       @settings.editor = self
+      @ex_history = []
+      @history_cursor = nil
+      @history_pending = nil
       install_key_bindings
     end
+
+    EX_HISTORY_MAX = 100
+
+    attr_reader :ex_history
 
     attr_reader :settings
 
@@ -1070,6 +1077,12 @@ module Rvim
         cancel_prompt
         return
       end
+
+      if ch.is_a?(String) && ch.bytesize > 1 && ch.start_with?("\e")
+        handle_prompt_escape_sequence(key)
+        return
+      end
+
       case ch
       when "\r", "\n"
         execute_prompt
@@ -1084,10 +1097,59 @@ module Rvim
         else
           @prompt_buffer.chop!
         end
+        clear_history_cursor
       else
         @prompt_buffer << ch.to_s
+        clear_history_cursor
       end
       refresh_incremental_search
+    end
+
+    private def handle_prompt_escape_sequence(key)
+      return unless @prompt_mode == :ex
+
+      case key.method_symbol
+      when :ed_prev_history
+        history_recall(-1)
+      when :ed_next_history
+        history_recall(+1)
+      end
+    end
+
+    private def history_recall(direction)
+      return if @ex_history.empty?
+
+      if @history_cursor.nil?
+        @history_pending = @prompt_buffer.dup
+        @history_cursor = direction < 0 ? @ex_history.size - 1 : 0
+      else
+        @history_cursor += direction
+      end
+
+      if @history_cursor < 0
+        @history_cursor = 0
+      elsif @history_cursor >= @ex_history.size
+        # Stepped past newest — restore the in-progress draft
+        @history_cursor = nil
+        @prompt_buffer = (@history_pending || +'').dup
+        @history_pending = nil
+        return
+      end
+
+      @prompt_buffer = @ex_history[@history_cursor].dup
+    end
+
+    private def clear_history_cursor
+      @history_cursor = nil
+      @history_pending = nil
+    end
+
+    private def push_ex_history(line)
+      return if line.nil? || line.strip.empty?
+      return if @ex_history.last == line
+
+      @ex_history << line
+      @ex_history.shift while @ex_history.size > EX_HISTORY_MAX
     end
 
     private def refresh_incremental_search
@@ -1111,6 +1173,8 @@ module Rvim
     private def execute_prompt
       case @prompt_mode
       when :ex
+        push_ex_history(@prompt_buffer.dup)
+        clear_history_cursor
         parsed = Rvim::Command.parse(@prompt_buffer)
         @prompt_mode = nil
         @prompt_buffer = +''
@@ -1125,6 +1189,7 @@ module Rvim
     private def cancel_prompt
       was_search = @prompt_mode == :search_forward || @prompt_mode == :search_backward
       reset_prompt
+      clear_history_cursor
       @status_message = nil
       # Clear the incremental highlight if we cancel mid-search; preserve any
       # previously committed @search_pattern by re-scanning for it.
@@ -1142,6 +1207,7 @@ module Rvim
       @prompt_mode = :ex
       @prompt_buffer = +''
       @status_message = nil
+      clear_history_cursor
     end
 
     private def rvim_enter_search_forward(key)

@@ -79,6 +79,7 @@ module Rvim
              when 'resize', 'res' then :resize
              when 'vertical' then :vertical
              when 'source', 'so' then :source
+             when 'history', 'his' then :history
              else verb_str.to_sym
              end
 
@@ -209,6 +210,8 @@ module Rvim
         else
           editor.source(parsed.arg)
         end
+      when :history
+        editor.show_list(format_history(editor))
       else
         editor.status_message = "E492: Not an editor command: #{parsed.verb}"
       end
@@ -333,6 +336,15 @@ module Rvim
       else
         editor.resize_to(axis, arg.to_i)
       end
+    end
+
+    def self.format_history(editor)
+      header = '      #  cmd'
+      hist = editor.ex_history
+      rows = hist.each_with_index.map do |line, i|
+        format('%7d  %s', i + 1, line)
+      end
+      ['Command Line History', header, *rows]
     end
 
     def self.format_buffers(editor)
