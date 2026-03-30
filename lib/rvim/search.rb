@@ -4,8 +4,8 @@ module Rvim
   module Search
     module_function
 
-    def scan(buffer_of_lines, pattern_str)
-      pattern = compile(pattern_str)
+    def scan(buffer_of_lines, pattern_str, ignorecase: false)
+      pattern = compile(pattern_str, ignorecase: ignorecase)
       return [] unless pattern
 
       out = []
@@ -47,12 +47,19 @@ module Rvim
       end
     end
 
-    def compile(pattern_str)
+    def compile(pattern_str, ignorecase: false)
       return nil if pattern_str.nil? || pattern_str.empty?
 
-      Regexp.new(pattern_str)
+      Regexp.new(pattern_str, ignorecase ? Regexp::IGNORECASE : 0)
     rescue RegexpError
       nil
+    end
+
+    def effective_ignorecase(pattern_str, ignorecase:, smartcase:)
+      return false unless ignorecase
+      return true unless smartcase
+
+      !pattern_str.to_s.match?(/[A-Z]/)
     end
   end
 end

@@ -4,17 +4,21 @@ module Rvim
   class Settings
     DEFAULTS = {
       hlsearch: true,
+      ignorecase: false,
       shiftwidth: 2,
       number: false,
       relativenumber: false,
+      smartcase: false,
       syntax: :auto,
       wrap: true,
     }.freeze
 
     ALIASES = {
       'hls' => :hlsearch,
+      'ic' => :ignorecase,
       'nu' => :number,
       'rnu' => :relativenumber,
+      'scs' => :smartcase,
       'sw' => :shiftwidth,
       'syn' => :syntax,
     }.freeze

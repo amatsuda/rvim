@@ -1093,7 +1093,19 @@ module Rvim
     private def refresh_incremental_search
       return unless @prompt_mode == :search_forward || @prompt_mode == :search_backward
 
-      @search_matches = Rvim::Search.scan(@buffer_of_lines, @prompt_buffer)
+      @search_matches = scan_pattern(@prompt_buffer)
+    end
+
+    private def scan_pattern(pattern_str)
+      Rvim::Search.scan(@buffer_of_lines, pattern_str, ignorecase: ignorecase_for(pattern_str))
+    end
+
+    private def ignorecase_for(pattern_str)
+      Rvim::Search.effective_ignorecase(
+        pattern_str,
+        ignorecase: @settings.get(:ignorecase),
+        smartcase: @settings.get(:smartcase),
+      )
     end
 
     private def execute_prompt
@@ -1117,7 +1129,7 @@ module Rvim
       # Clear the incremental highlight if we cancel mid-search; preserve any
       # previously committed @search_pattern by re-scanning for it.
       if was_search
-        @search_matches = @search_pattern ? Rvim::Search.scan(@buffer_of_lines, @search_pattern) : []
+        @search_matches = @search_pattern ? scan_pattern(@search_pattern) : []
       end
     end
 
@@ -1166,7 +1178,7 @@ module Rvim
       return unless word
 
       pattern = "\\b#{Regexp.escape(word)}\\b"
-      matches = Rvim::Search.scan(@buffer_of_lines, pattern)
+      matches = scan_pattern(pattern)
       if matches.empty?
         @status_message = "E486: Pattern not found: #{word}"
         return
@@ -1199,7 +1211,7 @@ module Rvim
     private def jump_to_search(direction)
       return unless @search_pattern
 
-      @search_matches = Rvim::Search.scan(@buffer_of_lines, @search_pattern) if @search_matches.empty?
+      @search_matches = scan_pattern(@search_pattern) if @search_matches.empty?
       target = Rvim::Search.next_match(@search_matches, @line_index, @byte_pointer, direction)
       if target
         push_jump
@@ -1215,7 +1227,7 @@ module Rvim
       reset_prompt
       return if pattern.empty?
 
-      matches = Rvim::Search.scan(@buffer_of_lines, pattern)
+      matches = scan_pattern(pattern)
       if matches.empty?
         @status_message = "E486: Pattern not found: #{pattern}"
         return

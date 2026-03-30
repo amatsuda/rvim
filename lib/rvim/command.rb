@@ -28,7 +28,12 @@ module Rvim
         return Parsed.new(
           verb: :sub,
           range: parse_range(m[:range]),
-          sub: { pattern: m[:pat], replacement: m[:rep], global: m[:flags].to_s.include?('g') },
+          sub: {
+            pattern: m[:pat],
+            replacement: m[:rep],
+            global: m[:flags].to_s.include?('g'),
+            ignorecase: m[:flags].to_s.include?('i'),
+          },
           arg: nil,
           bang: false,
           line_number: nil,
@@ -363,7 +368,8 @@ module Rvim
 
     def self.execute_substitute(editor, parsed)
       sub = parsed.sub
-      pattern = compile_sub_pattern(sub[:pattern])
+      pattern_ic = sub[:ignorecase] || effective_sub_ignorecase(editor, sub[:pattern])
+      pattern = compile_sub_pattern(sub[:pattern], ignorecase: pattern_ic)
       unless pattern
         editor.status_message = "E383: Invalid search string: #{sub[:pattern]}"
         return
@@ -399,10 +405,18 @@ module Rvim
       editor.status_message = "#{count} substitution#{count == 1 ? '' : 's'} on #{lines} line#{lines == 1 ? '' : 's'}"
     end
 
-    def self.compile_sub_pattern(str)
-      Regexp.new(str)
+    def self.compile_sub_pattern(str, ignorecase: false)
+      Regexp.new(str, ignorecase ? Regexp::IGNORECASE : 0)
     rescue RegexpError
       nil
+    end
+
+    def self.effective_sub_ignorecase(editor, pattern_str)
+      Rvim::Search.effective_ignorecase(
+        pattern_str,
+        ignorecase: editor.settings.get(:ignorecase),
+        smartcase: editor.settings.get(:smartcase),
+      )
     end
 
     def self.resolve_sub_range(editor, range)
