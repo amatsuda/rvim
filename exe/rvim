@@ -3,4 +3,25 @@
 
 require 'rvim'
 
-exit Rvim::Editor.start(*ARGV)
+argv = ARGV.dup
+norc = false
+i = 0
+while i < argv.size
+  case argv[i]
+  when '--norc'
+    norc = true
+    argv.delete_at(i)
+  when '-u'
+    if argv[i + 1] == 'NONE'
+      norc = true
+      argv.delete_at(i + 1)
+      argv.delete_at(i)
+    else
+      i += 1
+    end
+  else
+    i += 1
+  end
+end
+
+exit Rvim::Editor.start(*argv, norc: norc)
