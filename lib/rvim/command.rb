@@ -73,6 +73,7 @@ module Rvim
              when 'tabmove', 'tabm' then :tabmove
              when 'resize', 'res' then :resize
              when 'vertical' then :vertical
+             when 'source', 'so' then :source
              else verb_str.to_sym
              end
 
@@ -197,6 +198,12 @@ module Rvim
         editor.instance_variable_set(:@byte_pointer, 0)
       when :sub
         execute_substitute(editor, parsed)
+      when :source
+        if parsed.arg.nil? || parsed.arg.empty?
+          editor.status_message = 'E471: Argument required'
+        else
+          editor.source(parsed.arg)
+        end
       else
         editor.status_message = "E492: Not an editor command: #{parsed.verb}"
       end

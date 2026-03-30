@@ -102,6 +102,39 @@ module Rvim
       swap_to_buffer(buf)
     end
 
+    SOURCE_MAX_DEPTH = 10
+
+    def source(path, depth: 0)
+      expanded = File.expand_path(path.to_s)
+      unless File.exist?(expanded)
+        @status_message = "E484: Can't open file #{path}"
+        return false
+      end
+      if depth > SOURCE_MAX_DEPTH
+        @status_message = "E22: Scripts nested too deep"
+        return false
+      end
+
+      File.foreach(expanded) do |line|
+        line = line.chomp
+        next if line.strip.empty?
+        next if line.lstrip.start_with?('"', '#')
+
+        parsed = Rvim::Command.parse(line)
+        next unless parsed
+
+        if parsed.verb == :source || parsed.verb == :so
+          source(parsed.arg.to_s, depth: depth + 1) unless parsed.arg.to_s.empty?
+        else
+          Rvim::Command.execute(self, parsed)
+        end
+      end
+      true
+    rescue => e
+      @status_message = "E: source #{path}: #{e.message}"
+      false
+    end
+
     private def find_or_create_buffer(path)
       existing = @buffers.values.find { |b| b.filepath == path } if path
       return existing if existing
