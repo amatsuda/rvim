@@ -80,6 +80,26 @@ module Rvim
              when 'vertical' then :vertical
              when 'source', 'so' then :source
              when 'history', 'his' then :history
+             when 'map' then :map
+             when 'nmap' then :nmap
+             when 'vmap' then :vmap
+             when 'imap' then :imap
+             when 'omap' then :omap
+             when 'noremap', 'no' then :noremap
+             when 'nnoremap', 'nn' then :nnoremap
+             when 'vnoremap', 'vn' then :vnoremap
+             when 'inoremap', 'ino' then :inoremap
+             when 'onoremap', 'ono' then :onoremap
+             when 'unmap', 'unm' then :unmap
+             when 'nunmap', 'nun' then :nunmap
+             when 'vunmap', 'vu' then :vunmap
+             when 'iunmap', 'iu' then :iunmap
+             when 'ounmap', 'ou' then :ounmap
+             when 'mapclear', 'mapc' then :mapclear
+             when 'nmapclear', 'nmapc' then :nmapclear
+             when 'vmapclear', 'vmapc' then :vmapclear
+             when 'imapclear', 'imapc' then :imapclear
+             when 'omapclear', 'omapc' then :omapclear
              else verb_str.to_sym
              end
 
@@ -212,9 +232,48 @@ module Rvim
         end
       when :history
         editor.show_list(format_history(editor))
+      when :map, :nmap, :vmap, :imap, :omap,
+           :noremap, :nnoremap, :vnoremap, :inoremap, :onoremap
+        execute_map(editor, parsed)
+      when :unmap, :nunmap, :vunmap, :iunmap, :ounmap
+        execute_unmap(editor, parsed)
+      when :mapclear, :nmapclear, :vmapclear, :imapclear, :omapclear
+        execute_mapclear(editor, parsed)
       else
         editor.status_message = "E492: Not an editor command: #{parsed.verb}"
       end
+    end
+
+    def self.execute_map(editor, parsed)
+      arg = parsed.arg.to_s.strip
+      lhs_raw, rhs_raw = arg.split(/\s+/, 2)
+      if lhs_raw.nil? || lhs_raw.empty? || rhs_raw.nil? || rhs_raw.empty?
+        editor.status_message = 'E474: Invalid argument: usage: :map lhs rhs'
+        return
+      end
+
+      lhs = Rvim::Keymap.expand(lhs_raw)
+      rhs = Rvim::Keymap.expand(rhs_raw)
+      modes = Rvim::Keymap.modes_for(parsed.verb)
+      recursive = !Rvim::Keymap.noremap?(parsed.verb)
+      editor.keymap.add(modes, lhs, rhs, recursive: recursive)
+    end
+
+    def self.execute_unmap(editor, parsed)
+      arg = parsed.arg.to_s.strip
+      if arg.empty?
+        editor.status_message = 'E474: Invalid argument: usage: :unmap lhs'
+        return
+      end
+
+      lhs = Rvim::Keymap.expand(arg)
+      modes = Rvim::Keymap.modes_for(parsed.verb)
+      editor.keymap.remove(modes, lhs)
+    end
+
+    def self.execute_mapclear(editor, parsed)
+      modes = Rvim::Keymap.modes_for(parsed.verb)
+      editor.keymap.clear(modes)
     end
 
     def self.execute_write(editor, parsed)

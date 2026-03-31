@@ -126,4 +126,75 @@ class TestCommand < Test::Unit::TestCase
     Rvim::Command.execute(editor, Rvim::Command.parse(':s/foo/bar/g'))
     assert_equal 'bar bar bar', editor.buffer_of_lines[0]
   end
+
+  def test_parse_nmap
+    parsed = Rvim::Command.parse(':nmap Y y$')
+    assert_equal :nmap, parsed.verb
+    assert_equal 'Y y$', parsed.arg
+  end
+
+  def test_parse_inoremap
+    parsed = Rvim::Command.parse(':inoremap jk <Esc>')
+    assert_equal :inoremap, parsed.verb
+    assert_equal 'jk <Esc>', parsed.arg
+  end
+
+  def test_execute_nmap_registers_in_normal_mode
+    editor = Rvim::Editor.new(Reline.core.config)
+    Rvim::Command.execute(editor, Rvim::Command.parse(':nmap Y y$'))
+    result, mapping = editor.keymap.lookup(:normal, 'Y')
+    assert_equal :exact, result
+    assert_equal 'y$', mapping.rhs
+    assert_equal true, mapping.recursive
+  end
+
+  def test_execute_inoremap_registers_non_recursive
+    editor = Rvim::Editor.new(Reline.core.config)
+    Rvim::Command.execute(editor, Rvim::Command.parse(':inoremap jk <Esc>'))
+    result, mapping = editor.keymap.lookup(:insert, 'jk')
+    assert_equal :exact, result
+    assert_equal "\e", mapping.rhs
+    assert_equal false, mapping.recursive
+  end
+
+  def test_execute_map_registers_in_three_modes
+    editor = Rvim::Editor.new(Reline.core.config)
+    Rvim::Command.execute(editor, Rvim::Command.parse(':map Y y$'))
+    %i[normal visual op_pending].each do |mode|
+      result, _ = editor.keymap.lookup(mode, 'Y')
+      assert_equal :exact, result, "expected :exact for #{mode}"
+    end
+    result, _ = editor.keymap.lookup(:insert, 'Y')
+    assert_equal :none, result
+  end
+
+  def test_execute_unmap
+    editor = Rvim::Editor.new(Reline.core.config)
+    Rvim::Command.execute(editor, Rvim::Command.parse(':nmap Y y$'))
+    Rvim::Command.execute(editor, Rvim::Command.parse(':nunmap Y'))
+    result, _ = editor.keymap.lookup(:normal, 'Y')
+    assert_equal :none, result
+  end
+
+  def test_execute_mapclear
+    editor = Rvim::Editor.new(Reline.core.config)
+    Rvim::Command.execute(editor, Rvim::Command.parse(':nmap Y y$'))
+    Rvim::Command.execute(editor, Rvim::Command.parse(':nmap X x'))
+    Rvim::Command.execute(editor, Rvim::Command.parse(':nmapclear'))
+    assert_equal true, editor.keymap.empty?(:normal)
+  end
+
+  def test_execute_map_missing_rhs_sets_status
+    editor = Rvim::Editor.new(Reline.core.config)
+    Rvim::Command.execute(editor, Rvim::Command.parse(':nmap Y'))
+    assert_match(/E474/, editor.status_message.to_s)
+  end
+
+  def test_execute_map_with_leader
+    editor = Rvim::Editor.new(Reline.core.config)
+    Rvim::Command.execute(editor, Rvim::Command.parse(':nmap <leader>w :w<CR>'))
+    result, mapping = editor.keymap.lookup(:normal, "\\w")
+    assert_equal :exact, result
+    assert_equal ":w\r", mapping.rhs
+  end
 end

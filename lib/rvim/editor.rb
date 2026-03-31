@@ -58,12 +58,18 @@ module Rvim
       @ex_history = []
       @history_cursor = nil
       @history_pending = nil
+      @keymap = Rvim::Keymap.new
+      @map_pending_keys = +''
+      @map_recursion_depth = 0
+      @map_noremap_active = false
       install_key_bindings
     end
 
     EX_HISTORY_MAX = 100
 
     attr_reader :ex_history
+
+    attr_reader :keymap
 
     attr_reader :settings
 
