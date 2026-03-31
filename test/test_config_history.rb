@@ -2,6 +2,7 @@
 
 require_relative 'test_helper'
 require 'tempfile'
+require 'tmpdir'
 
 class TestSourceCommand < Test::Unit::TestCase
   def setup
@@ -151,5 +152,63 @@ class TestExHistory < Test::Unit::TestCase
     assert_equal 'foo', @editor.prompt_buffer
     @editor.send(:process_prompt_key, k("\e[B", :ed_next_history))
     assert_equal 'bar', @editor.prompt_buffer
+  end
+end
+
+class TestInitVim < Test::Unit::TestCase
+  def setup
+    @editor = Rvim::Editor.new(Reline.core.config)
+  end
+
+  def test_source_runs_init_vim_content
+    f = Tempfile.new(['init', '.vim'])
+    f.write("set number\nset shiftwidth=8\n")
+    f.close
+    @editor.source(f.path)
+    assert_equal true, @editor.settings.get(:number)
+    assert_equal 8, @editor.settings.get(:shiftwidth)
+  ensure
+    f&.unlink
+  end
+
+  def test_init_vim_overrides_rvimrc_when_sourced_second
+    rvimrc = Tempfile.new(['rc', '.rvimrc'])
+    rvimrc.write("set shiftwidth=2\n")
+    rvimrc.close
+    init_vim = Tempfile.new(['init', '.vim'])
+    init_vim.write("set shiftwidth=8\n")
+    init_vim.close
+    @editor.source(rvimrc.path)
+    @editor.source(init_vim.path)
+    assert_equal 8, @editor.settings.get(:shiftwidth)
+  ensure
+    rvimrc&.unlink
+    init_vim&.unlink
+  end
+
+  def test_init_vim_path_uses_xdg_config_home
+    Dir.mktmpdir do |dir|
+      saved = ENV['XDG_CONFIG_HOME']
+      ENV['XDG_CONFIG_HOME'] = dir
+      assert_equal File.join(dir, 'rvim', 'init.vim'), Rvim::Editor.init_vim_path
+    ensure
+      ENV['XDG_CONFIG_HOME'] = saved
+    end
+  end
+
+  def test_init_vim_path_falls_back_to_dot_config
+    saved = ENV['XDG_CONFIG_HOME']
+    ENV['XDG_CONFIG_HOME'] = nil
+    assert_equal File.expand_path('~/.config/rvim/init.vim'), Rvim::Editor.init_vim_path
+  ensure
+    ENV['XDG_CONFIG_HOME'] = saved
+  end
+
+  def test_init_vim_path_treats_empty_xdg_as_unset
+    saved = ENV['XDG_CONFIG_HOME']
+    ENV['XDG_CONFIG_HOME'] = ''
+    assert_equal File.expand_path('~/.config/rvim/init.vim'), Rvim::Editor.init_vim_path
+  ensure
+    ENV['XDG_CONFIG_HOME'] = saved
   end
 end

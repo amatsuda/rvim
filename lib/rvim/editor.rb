@@ -1854,13 +1854,20 @@ module Rvim
 
     RVIMRC_PATH = '~/.rvimrc'
 
+    def self.init_vim_path
+      base = ENV['XDG_CONFIG_HOME']
+      base = File.expand_path('~/.config') if base.nil? || base.empty?
+      File.join(base, 'rvim', 'init.vim')
+    end
+
     def self.start(*filepaths, norc: false)
       editor = new(Reline.core.config)
       filepaths = filepaths.flatten.compact
       filepaths.each { |path| editor.open(path) }
       unless norc
-        rc = File.expand_path(RVIMRC_PATH)
-        editor.source(rc) if File.exist?(rc)
+        [File.expand_path(RVIMRC_PATH), init_vim_path].each do |rc|
+          editor.source(rc) if File.exist?(rc)
+        end
       end
       # Land on the first file the user passed, mirroring vim's `vim a b c`
       # behavior of opening all into the buffer list with the first active.
