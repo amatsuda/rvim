@@ -62,7 +62,14 @@ module Rvim
       @map_pending_keys = +''
       @map_recursion_depth = 0
       @map_noremap_active = false
+      @let_vars = {}
       install_key_bindings
+    end
+
+    attr_reader :let_vars
+
+    def mapleader
+      @let_vars['mapleader'] || '\\'
     end
 
     EX_HISTORY_MAX = 100

@@ -43,13 +43,13 @@ module Rvim
       (@table[mode] || {}).each { |lhs, mapping| yield lhs, mapping }
     end
 
-    def self.expand(str)
+    def self.expand(str, leader: '\\')
       out = +''
       i = 0
       while i < str.length
         if str[i] == '<' && (close = str.index('>', i))
           tag = str[(i + 1)...close]
-          out << expand_tag(tag)
+          out << expand_tag(tag, leader: leader)
           i = close + 1
         else
           out << str[i]
@@ -59,7 +59,7 @@ module Rvim
       out
     end
 
-    def self.expand_tag(tag)
+    def self.expand_tag(tag, leader: '\\')
       case tag.downcase
       when 'cr', 'enter', 'return' then "\r"
       when 'esc' then "\e"
@@ -68,7 +68,19 @@ module Rvim
       when 'bs' then "\x7f"
       when 'lt' then '<'
       when 'gt' then '>'
-      when 'leader' then '\\'
+      when 'nl', 'lf' then "\n"
+      when 'nul' then "\x00"
+      when 'up' then "\e[A"
+      when 'down' then "\e[B"
+      when 'right' then "\e[C"
+      when 'left' then "\e[D"
+      when 'home' then "\e[H"
+      when 'end' then "\e[F"
+      when 'pageup' then "\e[5~"
+      when 'pagedown' then "\e[6~"
+      when 'insert' then "\e[2~"
+      when 'delete', 'del' then "\e[3~"
+      when 'leader' then leader
       when /\Ac-(.)\z/i
         ch = Regexp.last_match(1)
         (ch.upcase.ord & 0x1f).chr
@@ -77,6 +89,48 @@ module Rvim
       else
         "<#{tag}>"
       end
+    end
+
+    REVERSE_TAGS = {
+      "\r" => '<CR>',
+      "\e" => '<Esc>',
+      "\t" => '<Tab>',
+      "\x7f" => '<BS>',
+      "\n" => '<NL>',
+      "\x00" => '<Nul>',
+      "\e[A" => '<Up>',
+      "\e[B" => '<Down>',
+      "\e[C" => '<Right>',
+      "\e[D" => '<Left>',
+      "\e[H" => '<Home>',
+      "\e[F" => '<End>',
+      "\e[5~" => '<PageUp>',
+      "\e[6~" => '<PageDown>',
+      "\e[2~" => '<Insert>',
+      "\e[3~" => '<Delete>',
+    }.freeze
+
+    REVERSE_KEYS_LONG_FIRST = REVERSE_TAGS.keys.sort_by { |k| -k.bytesize }.freeze
+
+    def self.render(str)
+      out = +''
+      i = 0
+      while i < str.bytesize
+        matched = REVERSE_KEYS_LONG_FIRST.find { |k| str.byteslice(i, k.bytesize) == k }
+        if matched
+          out << REVERSE_TAGS[matched]
+          i += matched.bytesize
+        else
+          ch = str.byteslice(i, 1)
+          if ch && ch.bytes.first < 0x20
+            out << format('<C-%s>', (ch.bytes.first | 0x40).chr)
+          else
+            out << ch.to_s
+          end
+          i += 1
+        end
+      end
+      out
     end
 
     MODES_FOR_VERB = {

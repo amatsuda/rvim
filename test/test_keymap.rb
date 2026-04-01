@@ -39,6 +39,56 @@ class TestKeymapExpand < Test::Unit::TestCase
     assert_equal '\\', Rvim::Keymap.expand('<leader>')
   end
 
+  def test_expand_leader_takes_kwarg
+    assert_equal ',', Rvim::Keymap.expand('<leader>', leader: ',')
+    assert_equal ',w', Rvim::Keymap.expand('<leader>w', leader: ',')
+  end
+
+  def test_expand_arrow_keys
+    assert_equal "\e[A", Rvim::Keymap.expand('<Up>')
+    assert_equal "\e[B", Rvim::Keymap.expand('<Down>')
+    assert_equal "\e[C", Rvim::Keymap.expand('<Right>')
+    assert_equal "\e[D", Rvim::Keymap.expand('<Left>')
+  end
+
+  def test_expand_navigation_keys
+    assert_equal "\e[H", Rvim::Keymap.expand('<Home>')
+    assert_equal "\e[F", Rvim::Keymap.expand('<End>')
+    assert_equal "\e[5~", Rvim::Keymap.expand('<PageUp>')
+    assert_equal "\e[6~", Rvim::Keymap.expand('<PageDown>')
+    assert_equal "\e[2~", Rvim::Keymap.expand('<Insert>')
+    assert_equal "\e[3~", Rvim::Keymap.expand('<Delete>')
+  end
+
+  def test_expand_nl_nul
+    assert_equal "\n", Rvim::Keymap.expand('<NL>')
+    assert_equal "\n", Rvim::Keymap.expand('<LF>')
+    assert_equal "\x00", Rvim::Keymap.expand('<Nul>')
+  end
+end
+
+class TestKeymapRender < Test::Unit::TestCase
+  def test_render_passes_through_printable
+    assert_equal 'y$', Rvim::Keymap.render('y$')
+  end
+
+  def test_render_special_keys
+    assert_equal '<Esc>', Rvim::Keymap.render("\e")
+    assert_equal '<CR>', Rvim::Keymap.render("\r")
+    assert_equal ':w<CR>', Rvim::Keymap.render(":w\r")
+  end
+
+  def test_render_arrow_keys_long_first
+    # \e on its own would be <Esc>, but \e[A should fully match <Up>.
+    assert_equal '<Up>', Rvim::Keymap.render("\e[A")
+    assert_equal '<Down>', Rvim::Keymap.render("\e[B")
+  end
+
+  def test_render_control_chars
+    assert_equal '<C-A>', Rvim::Keymap.render("\x01")
+    assert_equal '<C-X>', Rvim::Keymap.render("\x18")
+  end
+
   def test_expand_combined
     assert_equal "\\w", Rvim::Keymap.expand('<leader>w')
     assert_equal ":w\r", Rvim::Keymap.expand(':w<CR>')

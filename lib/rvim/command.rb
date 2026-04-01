@@ -100,6 +100,7 @@ module Rvim
              when 'vmapclear', 'vmapc' then :vmapclear
              when 'imapclear', 'imapc' then :imapclear
              when 'omapclear', 'omapc' then :omapclear
+             when 'let' then :let
              else verb_str.to_sym
              end
 
@@ -239,6 +240,8 @@ module Rvim
         execute_unmap(editor, parsed)
       when :mapclear, :nmapclear, :vmapclear, :imapclear, :omapclear
         execute_mapclear(editor, parsed)
+      when :let
+        execute_let(editor, parsed)
       else
         editor.status_message = "E492: Not an editor command: #{parsed.verb}"
       end
@@ -246,15 +249,22 @@ module Rvim
 
     def self.execute_map(editor, parsed)
       arg = parsed.arg.to_s.strip
-      lhs_raw, rhs_raw = arg.split(/\s+/, 2)
-      if lhs_raw.nil? || lhs_raw.empty? || rhs_raw.nil? || rhs_raw.empty?
-        editor.status_message = 'E474: Invalid argument: usage: :map lhs rhs'
+      modes = Rvim::Keymap.modes_for(parsed.verb)
+
+      if arg.empty?
+        editor.show_list(format_mappings(editor, modes))
         return
       end
 
-      lhs = Rvim::Keymap.expand(lhs_raw)
-      rhs = Rvim::Keymap.expand(rhs_raw)
-      modes = Rvim::Keymap.modes_for(parsed.verb)
+      lhs_raw, rhs_raw = arg.split(/\s+/, 2)
+      if rhs_raw.nil? || rhs_raw.empty?
+        lhs = Rvim::Keymap.expand(lhs_raw, leader: editor.mapleader)
+        editor.show_list(format_mappings(editor, modes, lhs_filter: lhs))
+        return
+      end
+
+      lhs = Rvim::Keymap.expand(lhs_raw, leader: editor.mapleader)
+      rhs = Rvim::Keymap.expand(rhs_raw, leader: editor.mapleader)
       recursive = !Rvim::Keymap.noremap?(parsed.verb)
       editor.keymap.add(modes, lhs, rhs, recursive: recursive)
     end
@@ -266,9 +276,58 @@ module Rvim
         return
       end
 
-      lhs = Rvim::Keymap.expand(arg)
+      lhs = Rvim::Keymap.expand(arg, leader: editor.mapleader)
       modes = Rvim::Keymap.modes_for(parsed.verb)
       editor.keymap.remove(modes, lhs)
+    end
+
+    MODE_TAGS = {
+      normal: 'n',
+      visual: 'v',
+      insert: 'i',
+      op_pending: 'o',
+    }.freeze
+
+    def self.format_mappings(editor, modes, lhs_filter: nil)
+      header = '   mode  lhs                rhs'
+      rows = []
+      modes.each do |mode|
+        editor.keymap.each(mode) do |lhs, mapping|
+          next if lhs_filter && lhs != lhs_filter
+
+          tag = MODE_TAGS[mode] || ' '
+          marker = mapping.recursive ? ' ' : '*'
+          rows << format(
+            '   %s%s    %-18s %s',
+            tag,
+            marker,
+            Rvim::Keymap.render(lhs),
+            Rvim::Keymap.render(mapping.rhs),
+          )
+        end
+      end
+      ['Mappings', header, *rows]
+    end
+
+    LET_RE = /\A(?<name>\w+)\s*=\s*(?<value>.*)\z/.freeze
+
+    def self.execute_let(editor, parsed)
+      arg = parsed.arg.to_s.strip
+      m = LET_RE.match(arg)
+      unless m
+        editor.status_message = 'E121: Undefined variable: usage :let name = value'
+        return
+      end
+
+      raw = m[:value].strip
+      value = if raw.start_with?("'") && raw.end_with?("'") && raw.length >= 2
+                raw[1..-2]
+              elsif raw.start_with?('"') && raw.end_with?('"') && raw.length >= 2
+                raw[1..-2]
+              else
+                raw
+              end
+      editor.let_vars[m[:name]] = value
     end
 
     def self.execute_mapclear(editor, parsed)

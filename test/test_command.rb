@@ -184,10 +184,12 @@ class TestCommand < Test::Unit::TestCase
     assert_equal true, editor.keymap.empty?(:normal)
   end
 
-  def test_execute_map_missing_rhs_sets_status
+  def test_execute_nmap_lhs_only_shows_listing
     editor = Rvim::Editor.new(Reline.core.config)
+    Rvim::Command.execute(editor, Rvim::Command.parse(':nmap Y y$'))
     Rvim::Command.execute(editor, Rvim::Command.parse(':nmap Y'))
-    assert_match(/E474/, editor.status_message.to_s)
+    assert_not_nil editor.list_view
+    refute editor.list_view.lines.find { |l| l.include?('Y') }.nil?
   end
 
   def test_execute_map_with_leader
@@ -196,5 +198,89 @@ class TestCommand < Test::Unit::TestCase
     result, mapping = editor.keymap.lookup(:normal, "\\w")
     assert_equal :exact, result
     assert_equal ":w\r", mapping.rhs
+  end
+
+  def test_let_mapleader_double_quoted
+    editor = Rvim::Editor.new(Reline.core.config)
+    Rvim::Command.execute(editor, Rvim::Command.parse(':let mapleader = ","'))
+    assert_equal ',', editor.let_vars['mapleader']
+    assert_equal ',', editor.mapleader
+  end
+
+  def test_let_mapleader_single_quoted
+    editor = Rvim::Editor.new(Reline.core.config)
+    Rvim::Command.execute(editor, Rvim::Command.parse(":let mapleader = ' '"))
+    assert_equal ' ', editor.mapleader
+  end
+
+  def test_let_mapleader_no_quotes
+    editor = Rvim::Editor.new(Reline.core.config)
+    Rvim::Command.execute(editor, Rvim::Command.parse(':let mapleader = ;'))
+    assert_equal ';', editor.mapleader
+  end
+
+  def test_mapping_after_let_uses_new_leader
+    editor = Rvim::Editor.new(Reline.core.config)
+    Rvim::Command.execute(editor, Rvim::Command.parse(':let mapleader = ","'))
+    Rvim::Command.execute(editor, Rvim::Command.parse(':nmap <leader>w :w<CR>'))
+    result, _ = editor.keymap.lookup(:normal, ',w')
+    assert_equal :exact, result
+    # And the old backslash leader should NOT be registered
+    result, _ = editor.keymap.lookup(:normal, "\\w")
+    assert_equal :none, result
+  end
+
+  def test_mapping_before_let_keeps_old_leader
+    editor = Rvim::Editor.new(Reline.core.config)
+    Rvim::Command.execute(editor, Rvim::Command.parse(':nmap <leader>a aaa'))
+    Rvim::Command.execute(editor, Rvim::Command.parse(':let mapleader = ","'))
+    Rvim::Command.execute(editor, Rvim::Command.parse(':nmap <leader>b bbb'))
+    result, _ = editor.keymap.lookup(:normal, "\\a")
+    assert_equal :exact, result
+    result, _ = editor.keymap.lookup(:normal, ',b')
+    assert_equal :exact, result
+  end
+
+  def test_let_invalid_arg_sets_status
+    editor = Rvim::Editor.new(Reline.core.config)
+    Rvim::Command.execute(editor, Rvim::Command.parse(':let foo'))
+    assert_match(/E121/, editor.status_message.to_s)
+  end
+
+  def test_map_no_args_lists_all_modes
+    editor = Rvim::Editor.new(Reline.core.config)
+    Rvim::Command.execute(editor, Rvim::Command.parse(':nmap Y y$'))
+    Rvim::Command.execute(editor, Rvim::Command.parse(':inoremap jk <Esc>'))
+    Rvim::Command.execute(editor, Rvim::Command.parse(':nmap'))
+    refute_nil editor.list_view
+    body = editor.list_view.lines.join("\n")
+    assert_match(/Y/, body)
+    refute_match(/jk/, body) # nmap mode-only filter excludes insert mappings
+  end
+
+  def test_imap_no_args_lists_insert_only
+    editor = Rvim::Editor.new(Reline.core.config)
+    Rvim::Command.execute(editor, Rvim::Command.parse(':nmap Y y$'))
+    Rvim::Command.execute(editor, Rvim::Command.parse(':inoremap jk <Esc>'))
+    Rvim::Command.execute(editor, Rvim::Command.parse(':imap'))
+    body = editor.list_view.lines.join("\n")
+    assert_match(/jk/, body)
+    refute_match(/Y/, body)
+  end
+
+  def test_listing_renders_nonprintable_rhs_as_tags
+    editor = Rvim::Editor.new(Reline.core.config)
+    Rvim::Command.execute(editor, Rvim::Command.parse(':inoremap jk <Esc>'))
+    Rvim::Command.execute(editor, Rvim::Command.parse(':imap'))
+    body = editor.list_view.lines.join("\n")
+    assert_match(/<Esc>/, body)
+  end
+
+  def test_listing_marks_noremap_with_asterisk
+    editor = Rvim::Editor.new(Reline.core.config)
+    Rvim::Command.execute(editor, Rvim::Command.parse(':inoremap jk <Esc>'))
+    Rvim::Command.execute(editor, Rvim::Command.parse(':imap'))
+    body = editor.list_view.lines.join("\n")
+    assert_match(/i\*/, body)
   end
 end

@@ -92,6 +92,27 @@ class TestKeymapDispatch < Test::Unit::TestCase
     assert_equal 'jk', @editor.prompt_buffer
   end
 
+  def test_let_mapleader_then_mapping_uses_comma
+    Rvim::Command.execute(@editor, Rvim::Command.parse(':let mapleader = ","'))
+    Rvim::Command.execute(@editor, Rvim::Command.parse(':nmap <leader>x x'))
+    @editor.instance_variable_set(:@buffer_of_lines, [+'abc'])
+    @editor.instance_variable_set(:@line_index, 0)
+    @editor.instance_variable_set(:@byte_pointer, 0)
+    send_keys(',', 'x')
+    assert_equal 'bc', @editor.buffer_of_lines[0]
+  end
+
+  def test_arrow_key_lhs_in_mapping
+    @editor.instance_variable_set(:@buffer_of_lines, [+'one', +'two', +'three'])
+    @editor.instance_variable_set(:@line_index, 1)
+    @editor.instance_variable_set(:@byte_pointer, 0)
+    Rvim::Command.execute(@editor, Rvim::Command.parse(':nmap <Up> gg'))
+    # Reline emits arrow keys as a single char string "\e[A"
+    @editor.update(Reline::Key.new("\e[A", :ed_prev_history, false))
+    # gg → first line
+    assert_equal 0, @editor.line_index
+  end
+
   def test_init_vim_loaded_mappings
     f = Tempfile.new(['init', '.vim'])
     f.write("nmap Y y$\ninoremap jk <Esc>\n")
