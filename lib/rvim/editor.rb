@@ -549,6 +549,11 @@ module Rvim
         return
       end
 
+      if mapping_eligible?
+        decision = route_through_mappings(key)
+        return if decision == :consumed
+      end
+
       pre_idle = idle_for_recording?
       pre_buffer = @buffer_of_lines.map(&:dup)
       pre_mode = editing_mode_label
@@ -575,6 +580,112 @@ module Rvim
 
       capture_special_marks(pre_buffer, pre_mode)
       freeze_change_if_settled(pre_buffer) unless @replaying
+    end
+
+    MAXMAPDEPTH = 1000
+
+    private def mapping_eligible?
+      return false if @map_noremap_active
+      return false if @replaying
+      return false if @prompt_mode
+      return false if @list_view
+      return false if @waiting_proc
+      return false if @rvim_text_object_pending
+      return false if @rvim_visual_textobj_pending
+
+      true
+    end
+
+    private def route_through_mappings(key)
+      ch = key.char
+      return :fall_through unless ch.is_a?(String) && ch.bytesize >= 1
+
+      mode = current_mapping_mode
+      return :fall_through if mode.nil?
+
+      candidate = @map_pending_keys + ch
+      result, mapping = @keymap.lookup(mode, candidate)
+
+      case result
+      when :exact
+        @map_pending_keys = +''
+        expand_mapping(mapping)
+        :consumed
+      when :prefix
+        @map_pending_keys = candidate
+        :consumed
+      else
+        if @map_pending_keys.empty?
+          :fall_through
+        else
+          flush_pending_with(ch)
+          :consumed
+        end
+      end
+    end
+
+    private def current_mapping_mode
+      return :visual if @visual_mode
+      return :op_pending if operator_pending?
+      return :insert if editing_mode_label == :vi_insert
+
+      :normal
+    end
+
+    private def flush_pending_with(current_char)
+      sequence = @map_pending_keys + current_char
+      @map_pending_keys = +''
+      @map_noremap_active = true
+      begin
+        sequence.each_char do |c|
+          dispatch_synthesized_key(c)
+        end
+      ensure
+        @map_noremap_active = false
+      end
+    end
+
+    private def expand_mapping(mapping)
+      @map_recursion_depth += 1
+      if @map_recursion_depth > MAXMAPDEPTH
+        @status_message = 'E223: recursive mapping'
+        @map_recursion_depth = 0
+        @map_pending_keys = +''
+        return
+      end
+
+      begin
+        if mapping.recursive
+          mapping.rhs.each_char { |c| dispatch_synthesized_key(c) }
+        else
+          @map_noremap_active = true
+          begin
+            mapping.rhs.each_char { |c| dispatch_synthesized_key(c) }
+          ensure
+            @map_noremap_active = false
+          end
+        end
+      ensure
+        @map_recursion_depth -= 1
+      end
+    end
+
+    private def dispatch_synthesized_key(ch)
+      key = synthesize_key(ch)
+      update(key)
+    end
+
+    private def synthesize_key(ch)
+      sym = nil
+      bytes = ch.bytes
+      if bytes.size == 1
+        result = @config.key_bindings.get(bytes)
+        sym = case result
+              when Symbol then result
+              when Array then result.first
+              end
+      end
+      Reline::Key.new(ch, sym, false)
     end
 
     private def capture_special_marks(pre_buffer, pre_mode)
