@@ -115,6 +115,8 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_command, [0x17], :rvim_window_prefix) # Ctrl-W
       @config.add_default_key_binding_by_keymap(:vi_command, [0x06], :rvim_page_down)     # Ctrl-F
       @config.add_default_key_binding_by_keymap(:vi_command, [0x02], :rvim_page_up)       # Ctrl-B
+      @config.add_default_key_binding_by_keymap(:vi_command, [0x01], :rvim_increment)     # Ctrl-A
+      @config.add_default_key_binding_by_keymap(:vi_command, [0x18], :rvim_decrement)     # Ctrl-X
     end
 
     def open(path)
@@ -354,6 +356,49 @@ module Rvim
 
     private def rvim_page_up(key, arg: 1)
       page_jump(-1, arg)
+    end
+
+    private def rvim_increment(key, arg: 1)
+      modify_number_at_cursor(+arg)
+    end
+
+    private def rvim_decrement(key, arg: 1)
+      modify_number_at_cursor(-arg)
+    end
+
+    private def modify_number_at_cursor(delta)
+      line = @buffer_of_lines[@line_index] || ''
+      return if line.empty?
+
+      start = [@byte_pointer, line.bytesize - 1].min
+      if line.byteslice(start, 1) !~ /\d/
+        pos = start + 1
+        pos += 1 while pos < line.bytesize && line.byteslice(pos, 1) !~ /\d/
+        return if pos >= line.bytesize
+
+        start = pos
+      else
+        start -= 1 while start > 0 && line.byteslice(start - 1, 1) =~ /\d/
+      end
+
+      ending = start
+      ending += 1 while ending < line.bytesize && line.byteslice(ending, 1) =~ /\d/
+
+      has_minus = false
+      if start > 0 && line.byteslice(start - 1, 1) == '-'
+        has_minus = start == 1 || line.byteslice(start - 2, 1) !~ /\w/
+      end
+      num_start = has_minus ? start - 1 : start
+
+      digits = line.byteslice(num_start, ending - num_start)
+      new_value = digits.to_i + delta
+      new_text = new_value.to_s
+
+      before = line.byteslice(0, num_start)
+      after = line.byteslice(ending, line.bytesize - ending)
+      @buffer_of_lines[@line_index] = String.new(before + new_text + after, encoding: encoding)
+      @byte_pointer = (before + new_text).bytesize - 1
+      @modified = true
     end
 
     private def page_jump(direction, count)
