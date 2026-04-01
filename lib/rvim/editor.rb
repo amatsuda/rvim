@@ -63,8 +63,11 @@ module Rvim
       @map_recursion_depth = 0
       @map_noremap_active = false
       @let_vars = {}
+      @folds = Rvim::Folds.new
       install_key_bindings
     end
+
+    attr_reader :folds
 
     attr_reader :let_vars
 
@@ -117,6 +120,7 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_command, [0x02], :rvim_page_up)       # Ctrl-B
       @config.add_default_key_binding_by_keymap(:vi_command, [0x01], :rvim_increment)     # Ctrl-A
       @config.add_default_key_binding_by_keymap(:vi_command, [0x18], :rvim_decrement)     # Ctrl-X
+      @config.add_default_key_binding_by_keymap(:vi_command, [?z.ord], :rvim_fold_prefix)
     end
 
     def open(path)
@@ -184,6 +188,7 @@ module Rvim
       @last_visual = buf.last_visual
       @undo_redo_history = buf.undo_redo_history
       @undo_redo_index = buf.undo_redo_index
+      @folds = buf.folds
       ensure_current_window(buf)
     end
 
@@ -366,6 +371,38 @@ module Rvim
       modify_number_at_cursor(-arg)
     end
 
+    private def rvim_fold_prefix(key, arg: nil)
+      count = arg
+      @waiting_proc = lambda do |k, _sym|
+        @waiting_proc = nil
+        ch = k.is_a?(Integer) ? k.chr : k.to_s
+        case ch
+        when 'f' then create_fold_at_cursor(count || 1)
+        when 'd' then @folds.remove(@line_index)
+        when 'E' then @folds.clear
+        when 'o' then @folds.open(@line_index)
+        when 'c' then @folds.close(@line_index)
+        when 'a' then @folds.toggle(@line_index)
+        when 'M' then @folds.close_all
+        when 'R' then @folds.open_all
+        end
+      end
+    end
+
+    def create_fold_at_cursor(line_count)
+      start_line = @line_index
+      end_line = [start_line + line_count - 1, @buffer_of_lines.size - 1].min
+      return if end_line < start_line
+
+      @folds.add(start_line, end_line, closed: true)
+    end
+
+    def create_fold_over(start_line, end_line)
+      lo = [start_line, end_line].min.clamp(0, @buffer_of_lines.size - 1)
+      hi = [start_line, end_line].max.clamp(0, @buffer_of_lines.size - 1)
+      @folds.add(lo, hi, closed: true)
+    end
+
     private def modify_number_at_cursor(delta)
       line = @buffer_of_lines[@line_index] || ''
       return if line.empty?
@@ -473,6 +510,7 @@ module Rvim
       @last_visual = buf.last_visual
       @undo_redo_history = buf.undo_redo_history
       @undo_redo_index = buf.undo_redo_index
+      @folds = buf.folds
     end
 
     private def save_current_buffer
@@ -485,6 +523,7 @@ module Rvim
       @current_buffer.undo_redo_history = @undo_redo_history
       @current_buffer.undo_redo_index = @undo_redo_index
       @current_buffer.filepath = @filepath
+      @current_buffer.folds = @folds
     end
 
     attr_reader :buffers, :current_buffer, :buffer_order
@@ -1122,6 +1161,19 @@ module Rvim
           @modified = true
         end
         exit_visual
+        return true
+      when 'z'
+        sel = selection
+        exit_visual
+        if sel
+          start_line = sel.start_line
+          end_line = sel.end_line
+          @waiting_proc = lambda do |k, _sym|
+            @waiting_proc = nil
+            ch2 = k.is_a?(Integer) ? k.chr : k.to_s
+            create_fold_over(start_line, end_line) if ch2 == 'f'
+          end
+        end
         return true
       end
       false

@@ -101,6 +101,7 @@ module Rvim
              when 'imapclear', 'imapc' then :imapclear
              when 'omapclear', 'omapc' then :omapclear
              when 'let' then :let
+             when 'fold', 'fo' then :fold
              else verb_str.to_sym
              end
 
@@ -242,6 +243,8 @@ module Rvim
         execute_mapclear(editor, parsed)
       when :let
         execute_let(editor, parsed)
+      when :fold
+        execute_fold(editor, parsed)
       else
         editor.status_message = "E492: Not an editor command: #{parsed.verb}"
       end
@@ -307,6 +310,21 @@ module Rvim
         end
       end
       ['Mappings', header, *rows]
+    end
+
+    def self.execute_fold(editor, parsed)
+      arg = parsed.arg.to_s.strip
+      if arg.empty?
+        editor.create_fold_at_cursor(1)
+        return
+      end
+
+      a, b = arg.split(/[,\s]+/, 2).map { |t| t.to_i }
+      if a && b && a >= 1 && b >= 1
+        editor.create_fold_over(a - 1, b - 1)
+      else
+        editor.status_message = 'E471: Argument required: :fold N,M'
+      end
     end
 
     LET_RE = /\A(?<name>\w+)\s*=\s*(?<value>.*)\z/.freeze
