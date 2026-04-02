@@ -230,6 +230,45 @@ class TestFoldOperationsViaEditor < Test::Unit::TestCase
     end
   end
 
+  def test_j_skips_closed_fold
+    @editor.instance_variable_set(:@line_index, 1)
+    fire_zf(4) # fold lines 1..4
+    @editor.instance_variable_set(:@line_index, 0)
+    @editor.send(:ed_next_history, nil) # j
+    # j from 0 lands on 1 — fold start, visible
+    assert_equal 1, @editor.line_index
+    @editor.send(:ed_next_history, nil) # j again
+    # Should skip past the closed fold to line 5
+    assert_equal 5, @editor.line_index
+  end
+
+  def test_k_jumps_to_fold_start
+    @editor.instance_variable_set(:@line_index, 1)
+    fire_zf(4) # fold 1..4
+    @editor.instance_variable_set(:@line_index, 5)
+    @editor.send(:ed_prev_history, nil) # k
+    # k from 5 should land on fold start (line 1), not 4 which is hidden
+    assert_equal 1, @editor.line_index
+  end
+
+  def test_G_clamps_to_fold_start_when_target_hidden
+    @editor.instance_variable_set(:@line_index, 5)
+    fire_zf(4) # fold 5..8
+    @editor.instance_variable_set(:@line_index, 0)
+    @editor.send(:vi_to_history_line, nil, arg: 7) # G to line 7 (0-based 6)
+    # Line 6 is hidden inside fold 5..8 — should snap to start (5)
+    assert_equal 5, @editor.line_index
+  end
+
+  def test_goto_ex_clamps_to_fold_start
+    @editor.instance_variable_set(:@line_index, 5)
+    fire_zf(4) # fold 5..8
+    @editor.instance_variable_set(:@line_index, 0)
+    Rvim::Command.execute(@editor, Rvim::Command.parse(':7'))
+    # :7 → 0-based 6, hidden in fold 5..8 → snap to 5
+    assert_equal 5, @editor.line_index
+  end
+
   def test_buffer_swap_preserves_folds
     file_a = Tempfile.new(['a', '.txt'])
     file_a.write((1..10).map { |i| "a#{i}" }.join("\n"))

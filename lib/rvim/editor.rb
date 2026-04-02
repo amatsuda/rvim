@@ -1545,6 +1545,7 @@ module Rvim
 
         cursor = current_byte_pointer_cursor
         @line_index -= 1
+        skip_into_fold(:up)
         calculate_nearest_cursor(cursor)
       end
     end
@@ -1555,6 +1556,7 @@ module Rvim
 
         cursor = current_byte_pointer_cursor
         @line_index += 1
+        skip_into_fold(:down)
         calculate_nearest_cursor(cursor)
       end
     end
@@ -1563,7 +1565,28 @@ module Rvim
       push_jump
       target = arg.is_a?(Integer) && arg > 0 ? arg - 1 : @buffer_of_lines.size - 1
       @line_index = target.clamp(0, @buffer_of_lines.size - 1)
+      snap_to_visible
       @byte_pointer = 0
+    end
+
+    private def skip_into_fold(direction)
+      f = @folds.at_line(@line_index)
+      return unless f && f.closed && @line_index != f.start_line
+
+      if direction == :down
+        @line_index = [f.end_line + 1, @buffer_of_lines.size - 1].min
+        # If end_line+1 itself lands in another closed fold, snap to that fold's start
+        snap_to_visible
+      else
+        @line_index = f.start_line
+      end
+    end
+
+    private def snap_to_visible
+      f = @folds.at_line(@line_index)
+      return unless f && f.closed && @line_index != f.start_line
+
+      @line_index = f.start_line
     end
 
     private def vi_next_word(key, arg: 1)

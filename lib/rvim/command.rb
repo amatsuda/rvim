@@ -223,6 +223,7 @@ module Rvim
         target = (parsed.line_number - 1).clamp(0, last)
         editor.push_jump
         editor.instance_variable_set(:@line_index, target)
+        editor.send(:snap_to_visible)
         editor.instance_variable_set(:@byte_pointer, 0)
       when :sub
         execute_substitute(editor, parsed)
