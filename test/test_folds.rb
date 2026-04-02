@@ -3,6 +3,8 @@
 require_relative 'test_helper'
 require 'tempfile'
 
+FakeBuffer = Struct.new(:lines, :folds)
+
 class TestFoldsStorage < Test::Unit::TestCase
   def setup
     @folds = Rvim::Folds.new
@@ -193,6 +195,39 @@ class TestFoldOperationsViaEditor < Test::Unit::TestCase
     assert_not_nil f
     assert_equal 2, f.start_line # converted from 1-based
     assert_equal 4, f.end_line
+  end
+
+  def test_render_skips_hidden_and_shows_placeholder
+    @editor.instance_variable_set(:@line_index, 1)
+    fire_zf(4) # fold lines 1..4 (0-based)
+    # Make a buffer object with the same folds and lines
+    buf = FakeBuffer.new(@editor.buffer_of_lines, @editor.folds)
+    screen = Rvim::Screen.new(@editor)
+    rows = screen.send(:build_display_rows, buf, 0, 10, 80, false)
+    # Row 0: line 0
+    assert_equal 0, rows[0][0]
+    assert_equal false, rows[0][3]
+    # Row 1: fold placeholder (line_idx=1, is_fold=true)
+    assert_equal 1, rows[1][0]
+    assert_equal true, rows[1][3]
+    assert_match(/\+-- +4 lines:/, rows[1][2])
+    # Row 2: line 5 (lines 2..4 are hidden)
+    assert_equal 5, rows[2][0]
+    assert_equal false, rows[2][3]
+  end
+
+  def test_render_open_fold_shows_all_lines
+    @editor.instance_variable_set(:@line_index, 1)
+    fire_zf(4)
+    fire_z('o') # open the fold
+    buf = FakeBuffer.new(@editor.buffer_of_lines, @editor.folds)
+    screen = Rvim::Screen.new(@editor)
+    rows = screen.send(:build_display_rows, buf, 0, 10, 80, false)
+    # All physical lines visible 0..9 (no fold placeholders)
+    rows.first(10).each_with_index do |r, i|
+      assert_equal i, r[0]
+      assert_equal false, r[3]
+    end
   end
 
   def test_buffer_swap_preserves_folds

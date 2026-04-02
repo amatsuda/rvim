@@ -165,10 +165,13 @@ module Rvim
 
       out = +''
       display_rows.each_with_index do |row, i|
-        line_idx, byte_off, segment = row
+        line_idx, byte_off, segment, is_fold = row
         if line_idx.nil?
           gutter = ' ' * gw
           rendered = '~'
+        elsif is_fold
+          gutter = gutter_text(line_idx, cursor_idx, buffer.lines.size, gw, true)
+          rendered = truncate_to_width(segment, content_width)
         else
           gutter = byte_off.zero? ? gutter_text(line_idx, cursor_idx, buffer.lines.size, gw, true) : (' ' * gw)
           full_line = render_line(buffer.lines[line_idx])
@@ -191,21 +194,41 @@ module Rvim
       out
     end
 
-    # Returns Array<[line_idx_or_nil, byte_offset_within_line, segment_text]>
+    # Returns Array<[line_idx_or_nil, byte_offset_within_line, segment_text, is_fold]>
     def build_display_rows(buffer, scroll_top, content_rows, content_width, wrap_on)
       rows = []
       line_idx = scroll_top
+      folds = buffer.folds
       while rows.size < content_rows && line_idx < buffer.lines.size
+        if folds.hidden?(line_idx)
+          line_idx += 1
+          next
+        end
+
+        fold = folds.at_line(line_idx)
+        if fold && fold.closed && fold.start_line == line_idx
+          rows << [line_idx, 0, fold_placeholder(buffer, fold, content_width), true]
+          line_idx = fold.end_line + 1
+          next
+        end
+
         line = render_line(buffer.lines[line_idx])
         segments = wrap_on ? split_line_segments(line, content_width) : [[0, line]]
         segments.each do |off, seg|
-          rows << [line_idx, off, seg]
+          rows << [line_idx, off, seg, false]
           break if rows.size >= content_rows
         end
         line_idx += 1
       end
-      rows << [nil, 0, '~'] while rows.size < content_rows
+      rows << [nil, 0, '~', false] while rows.size < content_rows
       rows
+    end
+
+    def fold_placeholder(buffer, fold, content_width)
+      n = fold.end_line - fold.start_line + 1
+      first = buffer.lines[fold.start_line].to_s.lstrip
+      str = format('+--%4d lines: %s', n, first)
+      truncate_to_width(str, content_width)
     end
 
     # Split a line into [byte_offset, segment_text] pairs. Each segment's
