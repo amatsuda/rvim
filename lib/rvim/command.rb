@@ -18,6 +18,8 @@ module Rvim
       \z
     }x
 
+    FILTER_RE = /\A(?<range>%|\d+(?:,\d+)?|'<,'>)?!(?<cmd>.*)\z/.freeze
+
     def self.parse(input)
       str = input.to_s.dup
       str = str[1..] if str.start_with?(':')
@@ -40,6 +42,14 @@ module Rvim
         )
       end
 
+      if (m = FILTER_RE.match(str))
+        if m[:range]
+          return Parsed.new(verb: :filter, range: parse_range(m[:range]), arg: m[:cmd], bang: false, line_number: nil)
+        else
+          return Parsed.new(verb: :bang, arg: m[:cmd], bang: false, line_number: nil)
+        end
+      end
+
       if str.match?(/\A\d+\z/)
         return Parsed.new(verb: :goto, arg: nil, bang: false, line_number: str.to_i)
       end
@@ -58,6 +68,7 @@ module Rvim
              when 'x' then :wq
              when 'cq', 'cquit' then :cq
              when 'e', 'edit' then :e
+             when 'r', 'read' then :r
              when 'bn', 'bnext' then :bn
              when 'bp', 'bprev', 'bprevious' then :bp
              when 'b', 'buffer' then :b
@@ -246,6 +257,12 @@ module Rvim
         execute_let(editor, parsed)
       when :fold
         execute_fold(editor, parsed)
+      when :bang
+        execute_bang(editor, parsed)
+      when :filter
+        execute_filter(editor, parsed)
+      when :r
+        execute_read(editor, parsed)
       else
         editor.status_message = "E492: Not an editor command: #{parsed.verb}"
       end
@@ -311,6 +328,65 @@ module Rvim
         end
       end
       ['Mappings', header, *rows]
+    end
+
+    def self.execute_bang(editor, parsed)
+      result = Rvim::Filter.run(parsed.arg.to_s)
+      if result.success?
+        lines = result.stdout.chomp("\n").split("\n", -1)
+        lines = ['(no output)'] if lines.empty? || lines == ['']
+        editor.show_list(lines)
+      else
+        editor.status_message = filter_error_status(result)
+      end
+    end
+
+    def self.execute_filter(editor, parsed)
+      start_line, end_line = resolve_sub_range(editor, parsed.range)
+      input = editor.buffer_of_lines[start_line..end_line].join("\n")
+      result = Rvim::Filter.run(parsed.arg.to_s, input: input)
+      unless result.success?
+        editor.status_message = filter_error_status(result)
+        return
+      end
+
+      out_lines = result.stdout.chomp("\n").split("\n", -1)
+      out_lines = [''] if out_lines.empty?
+      editor.replace_line_range(start_line, end_line, out_lines)
+    end
+
+    def self.execute_read(editor, parsed)
+      arg = parsed.arg.to_s.strip
+      if arg.empty?
+        editor.status_message = 'E32: No file name'
+        return
+      end
+
+      if arg.start_with?('!')
+        cmd = arg.sub(/\A!\s*/, '')
+        result = Rvim::Filter.run(cmd)
+        unless result.success?
+          editor.status_message = filter_error_status(result)
+          return
+        end
+
+        out_lines = result.stdout.chomp("\n").split("\n", -1)
+        editor.insert_lines_after(editor.line_index, out_lines)
+      else
+        unless File.exist?(arg)
+          editor.status_message = "E484: Can't open file #{arg}"
+          return
+        end
+
+        out_lines = File.readlines(arg, chomp: true)
+        editor.insert_lines_after(editor.line_index, out_lines)
+      end
+    end
+
+    def self.filter_error_status(result)
+      msg = result.stderr.lines.first&.chomp
+      msg = "exit #{result.status.exitstatus}" if msg.nil? || msg.empty?
+      "E: filter: #{msg[0, 60]}"
     end
 
     def self.execute_fold(editor, parsed)

@@ -586,6 +586,31 @@ module Rvim
       end
     end
 
+    def replace_line_range(start_line, end_line, new_lines)
+      return if @buffer_of_lines.empty?
+
+      lo = start_line.clamp(0, @buffer_of_lines.size - 1)
+      hi = end_line.clamp(0, @buffer_of_lines.size - 1)
+      replacement = new_lines.map { |l| String.new(l, encoding: encoding) }
+      @buffer_of_lines[lo..hi] = replacement
+      @line_index = lo.clamp(0, [@buffer_of_lines.size - 1, 0].max)
+      @byte_pointer = 0
+      @modified = true
+      @folds&.shift_after(lo, replacement.size - (hi - lo + 1))
+    end
+
+    def insert_lines_after(line_index, new_lines)
+      return if new_lines.empty?
+
+      idx = line_index.clamp(-1, @buffer_of_lines.size - 1)
+      additions = new_lines.map { |l| String.new(l, encoding: encoding) }
+      @buffer_of_lines.insert(idx + 1, *additions)
+      @line_index = idx + 1
+      @byte_pointer = 0
+      @modified = true
+      @folds&.shift_after(idx, additions.size)
+    end
+
     def save(path = nil)
       target = path || @filepath
       raise 'no file path' unless target
