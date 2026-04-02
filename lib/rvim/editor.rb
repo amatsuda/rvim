@@ -64,6 +64,12 @@ module Rvim
       @map_noremap_active = false
       @let_vars = {}
       @folds = Rvim::Folds.new
+      @completion_active = false
+      @completion_candidates = []
+      @completion_index = 0
+      @completion_base = +''
+      @completion_base_byte = 0
+      @completion_line_index = 0
       install_key_bindings
     end
 
@@ -121,6 +127,8 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_command, [0x01], :rvim_increment)     # Ctrl-A
       @config.add_default_key_binding_by_keymap(:vi_command, [0x18], :rvim_decrement)     # Ctrl-X
       @config.add_default_key_binding_by_keymap(:vi_command, [?z.ord], :rvim_fold_prefix)
+      @config.add_default_key_binding_by_keymap(:vi_insert, [0x0E], :rvim_complete_next) # Ctrl-N
+      @config.add_default_key_binding_by_keymap(:vi_insert, [0x10], :rvim_complete_prev) # Ctrl-P
     end
 
     def open(path)
@@ -362,6 +370,80 @@ module Rvim
     private def rvim_page_up(key, arg: 1)
       page_jump(-1, arg)
     end
+
+    private def rvim_complete_next(key, arg: 1)
+      step_completion(+1)
+    end
+
+    private def rvim_complete_prev(key, arg: 1)
+      step_completion(-1)
+    end
+
+    private def step_completion(delta)
+      if @completion_active
+        return if @completion_candidates.empty?
+
+        @completion_index = (@completion_index + delta) % @completion_candidates.size
+        replace_completion_with(@completion_candidates[@completion_index])
+        update_completion_status
+      else
+        start_completion(delta)
+      end
+    end
+
+    private def start_completion(delta)
+      line = @buffer_of_lines[@line_index] || ''
+      base = Rvim::Completion.base_at(line, @byte_pointer)
+      candidates = Rvim::Completion.candidates(@buffer_of_lines, base)
+      if candidates.empty?
+        @status_message = 'Pattern not found'
+        return
+      end
+
+      @completion_active = true
+      @completion_candidates = candidates
+      @completion_index = delta < 0 ? candidates.size - 1 : 0
+      @completion_base = base
+      @completion_base_byte = Rvim::Completion.base_start(line, @byte_pointer)
+      @completion_line_index = @line_index
+      replace_completion_with(@completion_candidates[@completion_index])
+      update_completion_status
+    end
+
+    private def replace_completion_with(word)
+      line = @buffer_of_lines[@completion_line_index] || ''
+      head = line.byteslice(0, @completion_base_byte) || +''
+      # Compute current end of the inserted word: head + previously inserted portion.
+      # We know the previously inserted span was the most-recent candidate or the
+      # original base. byte_pointer should point at end of that span.
+      tail = line.byteslice(@byte_pointer, line.bytesize - @byte_pointer) || +''
+      new_line = String.new(head + word + tail, encoding: encoding)
+      @buffer_of_lines[@completion_line_index] = new_line
+      @byte_pointer = (head + word).bytesize
+      @modified = true
+    end
+
+    private def update_completion_status
+      n = @completion_index + 1
+      total = @completion_candidates.size
+      @status_message = "match #{n} of #{total}: #{@completion_candidates[@completion_index]}"
+    end
+
+    private def cancel_completion
+      @completion_active = false
+      @completion_candidates = []
+      @completion_index = 0
+      @completion_base = +''
+      @completion_base_byte = 0
+      @completion_line_index = 0
+    end
+
+    private def completion_key?(key)
+      sym = key.method_symbol
+      sym == :rvim_complete_next || sym == :rvim_complete_prev
+    end
+
+    attr_reader :completion_active, :completion_candidates, :completion_index
 
     private def rvim_increment(key, arg: 1)
       modify_number_at_cursor(+arg)
@@ -663,6 +745,10 @@ module Rvim
       if @prompt_mode == :listing
         process_listing_key(key)
         return
+      end
+
+      if @completion_active && !completion_key?(key)
+        cancel_completion
       end
 
       if mapping_eligible?
