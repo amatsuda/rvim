@@ -70,8 +70,11 @@ module Rvim
       @completion_base = +''
       @completion_base_byte = 0
       @completion_line_index = 0
+      @autocommands = Rvim::Autocommands.new
       install_key_bindings
     end
+
+    attr_reader :autocommands
 
     attr_reader :folds
 
@@ -132,8 +135,14 @@ module Rvim
     end
 
     def open(path)
+      is_new = path && !@buffers.values.find { |b| b.filepath == path }
       buf = find_or_create_buffer(path)
       swap_to_buffer(buf)
+      if is_new
+        @autocommands&.fire(:bufread, path.to_s, self)
+        ft = Rvim::Syntax.detect_language(path)
+        @autocommands&.fire(:filetype, ft.to_s, self) if ft
+      end
     end
 
     SOURCE_MAX_DEPTH = 10
@@ -198,6 +207,7 @@ module Rvim
       @undo_redo_index = buf.undo_redo_index
       @folds = buf.folds
       ensure_current_window(buf)
+      @autocommands&.fire(:bufenter, buf.filepath.to_s, self)
     end
 
     private def ensure_current_window(buf)
@@ -697,11 +707,13 @@ module Rvim
       target = path || @filepath
       raise 'no file path' unless target
 
+      @autocommands&.fire(:bufwritepre, target.to_s, self)
       content = @buffer_of_lines.join("\n")
       content += "\n" unless content.end_with?("\n")
       File.write(target, content)
       @filepath = target
       @modified = false
+      @autocommands&.fire(:bufwritepost, target.to_s, self)
     end
 
     def quit?
@@ -894,8 +906,12 @@ module Rvim
       if pre_buffer != @buffer_of_lines
         @last_change_pos = [@line_index, @byte_pointer]
       end
-      if pre_mode == :vi_insert && editing_mode_label == :vi_command
+      cur_mode = editing_mode_label
+      if pre_mode == :vi_insert && cur_mode == :vi_command
         @last_insert_pos = [@line_index, @byte_pointer]
+        @autocommands&.fire(:insertleave, @filepath.to_s, self)
+      elsif pre_mode == :vi_command && cur_mode == :vi_insert
+        @autocommands&.fire(:insertenter, @filepath.to_s, self)
       end
     end
 
@@ -2224,6 +2240,7 @@ module Rvim
           editor.source(rc) if File.exist?(rc)
         end
       end
+      editor.autocommands.fire(:vimenter, '*', editor)
       # Land on the first file the user passed, mirroring vim's `vim a b c`
       # behavior of opening all into the buffer list with the first active.
       if (first = filepaths.first) && (buf = editor.buffers.values.find { |b| b.filepath == first })

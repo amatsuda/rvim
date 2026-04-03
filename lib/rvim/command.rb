@@ -113,6 +113,8 @@ module Rvim
              when 'omapclear', 'omapc' then :omapclear
              when 'let' then :let
              when 'fold', 'fo' then :fold
+             when 'autocmd', 'au' then :autocmd
+             when 'augroup', 'aug' then :augroup
              else verb_str.to_sym
              end
 
@@ -263,6 +265,10 @@ module Rvim
         execute_filter(editor, parsed)
       when :r
         execute_read(editor, parsed)
+      when :autocmd
+        execute_autocmd(editor, parsed)
+      when :augroup
+        execute_augroup(editor, parsed)
       else
         editor.status_message = "E492: Not an editor command: #{parsed.verb}"
       end
@@ -328,6 +334,65 @@ module Rvim
         end
       end
       ['Mappings', header, *rows]
+    end
+
+    def self.execute_autocmd(editor, parsed)
+      arg = parsed.arg.to_s.strip
+
+      if parsed.bang
+        if arg.empty?
+          editor.autocommands.clear_group(editor.autocommands.current_group)
+          return
+        end
+
+        parts = arg.split(/\s+/, 3)
+        events = parts[0].split(',')
+        pattern = parts[1]
+        events.each do |ev|
+          editor.autocommands.remove(event: ev, pattern: pattern)
+        end
+        return
+      end
+
+      if arg.empty?
+        editor.show_list(format_autocommands(editor))
+        return
+      end
+
+      parts = arg.split(/\s+/, 3)
+      if parts.size < 3
+        editor.status_message = 'E471: Argument required: :autocmd events pattern command'
+        return
+      end
+
+      events_token, patterns_token, command = parts
+      events = events_token.split(',')
+      patterns = patterns_token.split(',')
+      editor.autocommands.add(events, patterns, command)
+    end
+
+    def self.execute_augroup(editor, parsed)
+      arg = parsed.arg.to_s.strip
+      if arg.empty? || arg.casecmp?('END')
+        editor.autocommands.current_group = nil
+      else
+        editor.autocommands.current_group = arg
+      end
+    end
+
+    def self.format_autocommands(editor)
+      header = '   group     event           pattern         command'
+      rows = []
+      editor.autocommands.each do |e|
+        rows << format(
+          '   %-9s %-15s %-15s %s',
+          (e.group || '').to_s[0, 9],
+          e.event.to_s[0, 15],
+          e.pattern.to_s[0, 15],
+          e.command.to_s,
+        )
+      end
+      ['Autocommands', header, *rows]
     end
 
     def self.execute_bang(editor, parsed)
