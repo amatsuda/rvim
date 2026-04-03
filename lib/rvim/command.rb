@@ -20,6 +20,14 @@ module Rvim
 
     FILTER_RE = /\A(?<range>%|\d+(?:,\d+)?|'<,'>)?!(?<cmd>.*)\z/.freeze
 
+    SORT_RE = /\A
+      (?<range>%|\d+(?:,\d+)?|'<,'>)?
+      \s*sort
+      (?<bang>!)?
+      (?:\s+(?<flags>[uni]+))?
+      \z
+    /x.freeze
+
     def self.parse(input)
       str = input.to_s.dup
       str = str[1..] if str.start_with?(':')
@@ -48,6 +56,16 @@ module Rvim
         else
           return Parsed.new(verb: :bang, arg: m[:cmd], bang: false, line_number: nil)
         end
+      end
+
+      if (m = SORT_RE.match(str))
+        return Parsed.new(
+          verb: :sort,
+          range: m[:range] ? parse_range(m[:range]) : nil,
+          arg: m[:flags].to_s,
+          bang: !m[:bang].nil?,
+          line_number: nil,
+        )
       end
 
       if str.match?(/\A\d+\z/)
@@ -269,6 +287,8 @@ module Rvim
         execute_autocmd(editor, parsed)
       when :augroup
         execute_augroup(editor, parsed)
+      when :sort
+        execute_sort(editor, parsed)
       else
         editor.status_message = "E492: Not an editor command: #{parsed.verb}"
       end
@@ -334,6 +354,31 @@ module Rvim
         end
       end
       ['Mappings', header, *rows]
+    end
+
+    def self.execute_sort(editor, parsed)
+      flags = parsed.arg.to_s
+      numeric = flags.include?('n')
+      ignorecase = flags.include?('i')
+      uniq = flags.include?('u')
+
+      range = parsed.range || :whole
+      start_line, end_line = resolve_sub_range(editor, range)
+      lines = editor.buffer_of_lines[start_line..end_line].dup
+
+      sort_key = if numeric
+                   ->(line) { line.to_s[/-?\d+/].to_i }
+                 elsif ignorecase
+                   ->(line) { line.to_s.downcase }
+                 else
+                   ->(line) { line.to_s }
+                 end
+
+      sorted = lines.sort_by(&sort_key)
+      sorted.reverse! if parsed.bang
+      sorted = sorted.uniq if uniq
+
+      editor.replace_line_range(start_line, end_line, sorted)
     end
 
     def self.execute_autocmd(editor, parsed)

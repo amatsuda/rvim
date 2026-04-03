@@ -93,14 +93,28 @@ module Rvim
     end
 
     def toggle_case(editor, sel)
+      transform_case(editor, sel) do |c|
+        c =~ /[A-Z]/ ? c.downcase : c =~ /[a-z]/ ? c.upcase : c
+      end
+    end
+
+    def lowercase(editor, sel)
+      transform_case(editor, sel, &:downcase)
+    end
+
+    def uppercase(editor, sel)
+      transform_case(editor, sel, &:upcase)
+    end
+
+    def transform_case(editor, sel)
       buffer = editor.buffer_of_lines
       sel.each_segment(buffer) do |li, s, e|
         line = buffer[li]
         head = line.byteslice(0, s) || +''
         mid = line.byteslice(s, e - s) || +''
         tail = line.byteslice(e, line.bytesize - e) || +''
-        flipped = mid.chars.map { |c| c =~ /[A-Z]/ ? c.downcase : c =~ /[a-z]/ ? c.upcase : c }.join
-        buffer[li] = String.new(head + flipped + tail, encoding: line.encoding)
+        transformed = mid.chars.map { |c| yield c }.join
+        buffer[li] = String.new(head + transformed + tail, encoding: line.encoding)
       end
       editor.move_cursor_to(sel.start_line, sel.start_col)
     end

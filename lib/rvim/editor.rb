@@ -1298,6 +1298,22 @@ module Rvim
         end
         exit_visual
         return true
+      when 'u'
+        sel = selection
+        if sel
+          Rvim::Operations.lowercase(self, sel)
+          @modified = true
+        end
+        exit_visual
+        return true
+      when 'U'
+        sel = selection
+        if sel
+          Rvim::Operations.uppercase(self, sel)
+          @modified = true
+        end
+        exit_visual
+        return true
       when 'z'
         sel = selection
         exit_visual
@@ -1860,8 +1876,41 @@ module Rvim
           select_next_search_match(:forward)
         when 'N', 'N'.ord
           select_next_search_match(:backward)
+        when 'u', 'u'.ord
+          await_linewise_case(:lowercase, saved_arg)
+        when 'U', 'U'.ord
+          await_linewise_case(:uppercase, saved_arg)
+        when '~', '~'.ord
+          await_linewise_case(:toggle, saved_arg)
         end
       end
+    end
+
+    private def await_linewise_case(kind, count_arg)
+      count = (count_arg.is_a?(Integer) && count_arg > 0) ? count_arg : 1
+      expected = case kind
+                 when :lowercase then 'u'
+                 when :uppercase then 'U'
+                 when :toggle then '~'
+                 end
+      @waiting_proc = lambda do |key_for_proc, _sym|
+        @waiting_proc = nil
+        ch = key_for_proc.is_a?(Integer) ? key_for_proc.chr : key_for_proc.to_s
+        next unless ch == expected
+
+        apply_linewise_case(kind, count)
+      end
+    end
+
+    private def apply_linewise_case(kind, count)
+      end_line = [@line_index + count - 1, @buffer_of_lines.size - 1].min
+      sel = Rvim::Selection.from(:line, [@line_index, 0], [end_line, 0], @buffer_of_lines)
+      case kind
+      when :lowercase then Rvim::Operations.lowercase(self, sel)
+      when :uppercase then Rvim::Operations.uppercase(self, sel)
+      when :toggle then Rvim::Operations.toggle_case(self, sel)
+      end
+      @modified = true
     end
 
     def select_next_search_match(direction)
