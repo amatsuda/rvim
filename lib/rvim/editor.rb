@@ -132,6 +132,7 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_command, [?z.ord], :rvim_fold_prefix)
       @config.add_default_key_binding_by_keymap(:vi_insert, [0x0E], :rvim_complete_next) # Ctrl-N
       @config.add_default_key_binding_by_keymap(:vi_insert, [0x10], :rvim_complete_prev) # Ctrl-P
+      @config.add_default_key_binding_by_keymap(:vi_command, [?%.ord], :rvim_match_motion)
     end
 
     def open(path)
@@ -454,6 +455,14 @@ module Rvim
     end
 
     attr_reader :completion_active, :completion_candidates, :completion_index
+
+    private def rvim_match_motion(key, arg: 1)
+      target = Rvim::MatchMotion.match_at(@buffer_of_lines, @line_index, @byte_pointer)
+      return unless target
+
+      push_jump
+      @line_index, @byte_pointer = target
+    end
 
     private def rvim_increment(key, arg: 1)
       modify_number_at_cursor(+arg)
