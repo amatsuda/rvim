@@ -133,6 +133,10 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_insert, [0x0E], :rvim_complete_next) # Ctrl-N
       @config.add_default_key_binding_by_keymap(:vi_insert, [0x10], :rvim_complete_prev) # Ctrl-P
       @config.add_default_key_binding_by_keymap(:vi_command, [?%.ord], :rvim_match_motion)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?(.ord], :rvim_sentence_backward)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?).ord], :rvim_sentence_forward)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?{.ord], :rvim_paragraph_backward)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?}.ord], :rvim_paragraph_forward)
     end
 
     def open(path)
@@ -464,6 +468,65 @@ module Rvim
       @line_index, @byte_pointer = target
     end
 
+    private def rvim_sentence_forward(key, arg: 1)
+      arg.times do
+        target = Rvim::TextMotion.next_sentence(@buffer_of_lines, @line_index, @byte_pointer)
+        break unless target
+
+        push_jump
+        @line_index, @byte_pointer = target
+      end
+    end
+
+    private def rvim_sentence_backward(key, arg: 1)
+      arg.times do
+        target = Rvim::TextMotion.prev_sentence(@buffer_of_lines, @line_index, @byte_pointer)
+        break unless target
+
+        push_jump
+        @line_index, @byte_pointer = target
+      end
+    end
+
+    private def rvim_paragraph_forward(key, arg: 1)
+      arg.times do
+        target_line = Rvim::TextMotion.next_paragraph(@buffer_of_lines, @line_index)
+        break if target_line == @line_index
+
+        push_jump
+        @line_index = target_line
+        @byte_pointer = 0
+      end
+    end
+
+    private def rvim_paragraph_backward(key, arg: 1)
+      arg.times do
+        target_line = Rvim::TextMotion.prev_paragraph(@buffer_of_lines, @line_index)
+        break if target_line == @line_index
+
+        push_jump
+        @line_index = target_line
+        @byte_pointer = 0
+      end
+    end
+
+    private def goto_definition
+      word = word_at_cursor
+      return unless word
+
+      pattern = "\\b#{Regexp.escape(word)}\\b"
+      matches = Rvim::Search.scan(@buffer_of_lines, pattern, ignorecase: false)
+      return if matches.empty?
+
+      first = matches.first
+      target_line, target_byte = first[0], first[1]
+      return if target_line == @line_index && target_byte == @byte_pointer
+
+      push_jump
+      @line_index = target_line
+      @byte_pointer = target_byte
+    end
+
     private def rvim_increment(key, arg: 1)
       modify_number_at_cursor(+arg)
     end
@@ -486,8 +549,24 @@ module Rvim
         when 'a' then @folds.toggle(@line_index)
         when 'M' then @folds.close_all
         when 'R' then @folds.open_all
+        when 'z' then viewport_scroll_to(:center)
+        when 't' then viewport_scroll_to(:top)
+        when 'b' then viewport_scroll_to(:bottom)
         end
       end
+    end
+
+    def viewport_scroll_to(position)
+      win = @current_window
+      return unless win
+
+      content_rows = [win.height - 1, 1].max
+      cl = @line_index
+      win.scroll_top = case position
+                       when :center then [cl - (content_rows / 2), 0].max
+                       when :top then cl
+                       when :bottom then [cl - content_rows + 1, 0].max
+                       end
     end
 
     def create_fold_at_cursor(line_count)
@@ -1882,6 +1961,8 @@ module Rvim
           await_linewise_case(:uppercase, saved_arg)
         when '~', '~'.ord
           await_linewise_case(:toggle, saved_arg)
+        when 'd', 'd'.ord
+          goto_definition
         end
       end
     end
