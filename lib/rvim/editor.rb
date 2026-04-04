@@ -851,6 +851,20 @@ module Rvim
         cancel_completion
       end
 
+      if @rvim_pending_case_op
+        return if dispatch_case_pending(key)
+
+        # Motion path: dispatch the key normally and apply the op to the delta.
+        pre = [@line_index, @byte_pointer]
+        saved_kind = @rvim_pending_case_op
+        inclusive = inclusive_motion_key?(key)
+        clear_case_pending
+        super
+        post = [@line_index, @byte_pointer]
+        apply_case_motion(saved_kind, pre, post, inclusive: inclusive)
+        return
+      end
+
       if mapping_eligible?
         decision = route_through_mappings(key)
         return if decision == :consumed
@@ -1956,36 +1970,111 @@ module Rvim
         when 'N', 'N'.ord
           select_next_search_match(:backward)
         when 'u', 'u'.ord
-          await_linewise_case(:lowercase, saved_arg)
+          start_case_op(:lowercase, saved_arg)
         when 'U', 'U'.ord
-          await_linewise_case(:uppercase, saved_arg)
+          start_case_op(:uppercase, saved_arg)
         when '~', '~'.ord
-          await_linewise_case(:toggle, saved_arg)
+          start_case_op(:toggle, saved_arg)
         when 'd', 'd'.ord
           goto_definition
         end
       end
     end
 
-    private def await_linewise_case(kind, count_arg)
-      count = (count_arg.is_a?(Integer) && count_arg > 0) ? count_arg : 1
-      expected = case kind
-                 when :lowercase then 'u'
-                 when :uppercase then 'U'
-                 when :toggle then '~'
-                 end
-      @waiting_proc = lambda do |key_for_proc, _sym|
-        @waiting_proc = nil
-        ch = key_for_proc.is_a?(Integer) ? key_for_proc.chr : key_for_proc.to_s
-        next unless ch == expected
+    private def start_case_op(kind, count_arg)
+      @rvim_pending_case_op = kind
+      @rvim_case_count = (count_arg.is_a?(Integer) && count_arg > 0) ? count_arg : 1
+      @rvim_case_textobj_pending = nil
+    end
 
-        apply_linewise_case(kind, count)
+    private def clear_case_pending
+      @rvim_pending_case_op = nil
+      @rvim_case_count = nil
+      @rvim_case_textobj_pending = nil
+    end
+
+    private def case_pending_letter
+      case @rvim_pending_case_op
+      when :lowercase then 'u'
+      when :uppercase then 'U'
+      when :toggle then '~'
       end
+    end
+
+    # Returns true if the key was fully handled (linewise / text-object).
+    # False means it should be treated as a motion: the caller dispatches
+    # via super and applies the case op to the cursor delta.
+    private def dispatch_case_pending(key)
+      ch = key.char
+      kind = @rvim_pending_case_op
+
+      if @rvim_case_textobj_pending
+        inclusive = @rvim_case_textobj_pending == :around
+        range = Rvim::TextObject.find(ch, self, inclusive: inclusive)
+        apply_case_to_range(kind, range) if range
+        clear_case_pending
+        return true
+      end
+
+      if ch == case_pending_letter
+        count = @rvim_case_count || 1
+        apply_linewise_case(kind, count)
+        clear_case_pending
+        return true
+      end
+
+      if ch == 'i' || ch == 'a'
+        @rvim_case_textobj_pending = (ch == 'a' ? :around : :inner)
+        return true
+      end
+
+      false
     end
 
     private def apply_linewise_case(kind, count)
       end_line = [@line_index + count - 1, @buffer_of_lines.size - 1].min
       sel = Rvim::Selection.from(:line, [@line_index, 0], [end_line, 0], @buffer_of_lines)
+      apply_case_to_range(kind, sel)
+    end
+
+    INCLUSIVE_MOTION_CHARS = %w[$ e E f F t T].freeze
+
+    private def inclusive_motion_key?(key)
+      INCLUSIVE_MOTION_CHARS.include?(key.char)
+    end
+
+    private def apply_case_motion(kind, pre, post, inclusive: false)
+      return if pre == post
+
+      forward = (pre <=> post) <= 0
+      start_pos, end_pos = forward ? [pre, post] : [post, pre]
+      # Forward motions are exclusive of the endpoint by default (matches `dw`):
+      # pull `end_pos` back one byte. Inclusive motions (`$`, `e`, `f`, `t`)
+      # keep the endpoint.
+      if forward && !inclusive
+        end_pos = predecessor_position(end_pos)
+      end
+      return if end_pos.nil? || (start_pos <=> end_pos) > 0
+
+      sel = Rvim::Selection.from(:char, start_pos, end_pos, @buffer_of_lines)
+      apply_case_to_range(kind, sel) if sel
+    end
+
+    private def predecessor_position(pos)
+      li, bp = pos
+      if bp > 0
+        [li, bp - 1]
+      elsif li > 0
+        prev_len = (@buffer_of_lines[li - 1] || '').bytesize
+        [li - 1, [prev_len - 1, 0].max]
+      else
+        nil
+      end
+    end
+
+    private def apply_case_to_range(kind, sel)
+      return unless sel
+
       case kind
       when :lowercase then Rvim::Operations.lowercase(self, sel)
       when :uppercase then Rvim::Operations.uppercase(self, sel)
