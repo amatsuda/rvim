@@ -12,6 +12,8 @@ module Rvim
     REVERSE_OFF = "\e[27m"
     DIM_ON = "\e[2m"
     DIM_OFF = "\e[22m"
+    UNDERLINE_ON = "\e[4m"
+    UNDERLINE_OFF = "\e[24m"
     ERASE_LINE = "\e[2K"
 
     def initialize(editor)
@@ -163,6 +165,7 @@ module Rvim
 
       display_rows = build_display_rows(buffer, win.scroll_top, content_rows, content_width, wrap_on)
 
+      cursorline_on = @editor.settings.get(:cursorline)
       out = +''
       display_rows.each_with_index do |row, i|
         line_idx, byte_off, segment, is_fold = row
@@ -182,7 +185,12 @@ module Rvim
                      end
         end
         out << move_to(win.row + i + 1, win.col + 1)
-        out << gutter << pad_render_to_width(rendered, content_width)
+        line_payload = gutter + pad_render_to_width(rendered, content_width)
+        if cursorline_on && is_current && line_idx == cursor_idx
+          out << UNDERLINE_ON << line_payload << UNDERLINE_OFF
+        else
+          out << line_payload
+        end
       end
 
       # Per-window status row at the bottom of the window.
@@ -386,10 +394,11 @@ module Rvim
     def adjust_window_scroll(win, visible)
       buffer = win.buffer
       cursor_line = (win == @editor.current_window) ? @editor.line_index : buffer.line_index
-      if cursor_line < win.scroll_top
-        win.scroll_top = cursor_line
-      elsif cursor_line >= win.scroll_top + visible
-        win.scroll_top = cursor_line - visible + 1
+      offset = @editor.settings.get(:scrolloff).to_i.clamp(0, [visible / 2 - 1, 0].max)
+      if cursor_line < win.scroll_top + offset
+        win.scroll_top = [cursor_line - offset, 0].max
+      elsif cursor_line >= win.scroll_top + visible - offset
+        win.scroll_top = cursor_line - visible + offset + 1
       end
       win.scroll_top = 0 if win.scroll_top.negative?
     end
@@ -438,7 +447,26 @@ module Rvim
     end
 
     def render_line(line)
-      line.gsub("\t", '        ')
+      ts = @editor.settings.get(:tabstop) || 8
+      ts = 8 if ts <= 0
+      list_on = @editor.settings.get(:list)
+      out = line.to_s.gsub("\t", list_on ? render_tab_marker(ts) : (' ' * ts))
+      out = mark_trailing_whitespace(out) if list_on
+      out
+    end
+
+    TAB_MARKER_HEAD = '>'
+    TAB_MARKER_FILL = '-'
+    TRAIL_MARKER = '·'
+
+    def render_tab_marker(width)
+      return TAB_MARKER_HEAD if width <= 1
+
+      TAB_MARKER_HEAD + (TAB_MARKER_FILL * (width - 1))
+    end
+
+    def mark_trailing_whitespace(str)
+      str.sub(/[ ]+\z/) { |trail| TRAIL_MARKER * trail.length }
     end
 
     def apply_selection_highlight(line, line_index, sel, width)
@@ -502,11 +530,16 @@ module Rvim
       name = buffer.display_name
       modified = (is_current ? @editor.modified : buffer.modified) ? ' [+]' : ''
       recording = is_current && @editor.recording_macro ? "  recording @#{@editor.recording_macro}" : ''
-      total = (is_current ? @editor.buffer_of_lines : buffer.lines).size
-      ln = (is_current ? @editor.line_index : buffer.line_index) + 1
-      col = (is_current ? @editor.byte_pointer : buffer.byte_pointer) + 1
-      pct = total.zero? ? 0 : (ln * 100 / total)
-      " #{mode} #{name}#{modified}    #{ln},#{col}    #{pct}%#{recording}".lstrip.then { |s| " #{s}" }
+      ruler = if @editor.settings.get(:ruler)
+                total = (is_current ? @editor.buffer_of_lines : buffer.lines).size
+                ln = (is_current ? @editor.line_index : buffer.line_index) + 1
+                col = (is_current ? @editor.byte_pointer : buffer.byte_pointer) + 1
+                pct = total.zero? ? 0 : (ln * 100 / total)
+                "    #{ln},#{col}    #{pct}%"
+              else
+                ''
+              end
+      " #{mode} #{name}#{modified}#{ruler}#{recording}".lstrip.then { |s| " #{s}" }
     end
 
     def mode_label

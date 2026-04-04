@@ -11,6 +11,11 @@ module Rvim
       smartcase: false,
       syntax: :auto,
       wrap: true,
+      tabstop: 8,
+      scrolloff: 0,
+      cursorline: false,
+      ruler: true,
+      list: false,
     }.freeze
 
     ALIASES = {
@@ -21,6 +26,10 @@ module Rvim
       'scs' => :smartcase,
       'sw' => :shiftwidth,
       'syn' => :syntax,
+      'ts' => :tabstop,
+      'so' => :scrolloff,
+      'cul' => :cursorline,
+      'ru' => :ruler,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
