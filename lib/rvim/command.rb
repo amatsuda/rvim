@@ -72,9 +72,24 @@ module Rvim
         return Parsed.new(verb: :goto, arg: nil, bang: false, line_number: str.to_i)
       end
 
+      # Generic range prefix: strip a leading range like 5,10 or % or '<,'>
+      # if it's followed by an alphabetic verb. Substitute/filter/sort have
+      # their own range parsing above, so they never reach this path.
+      generic_range = nil
+      if (m = /\A(?<r>%|\d+(?:,\d+)?|'<,'>)\s*(?<rest>[a-zA-Z].*)\z/.match(str))
+        generic_range = parse_range(m[:r])
+        str = m[:rest]
+      end
+
       tokens = str.split(/\s+/, 2)
       head = tokens[0]
       arg = tokens[1]
+      # Allow short verbs with an immediate numeric argument (e.g. :1t2, :5d3).
+      # Split the leading letters off the head when the rest is digits.
+      if (m = /\A(?<verb>[a-zA-Z]+!?)(?<rest>\d.*)\z/.match(head))
+        head = m[:verb]
+        arg = arg ? "#{m[:rest]} #{arg}" : m[:rest]
+      end
       bang = head.end_with?('!')
       verb_str = bang ? head.chomp('!') : head
 
@@ -133,6 +148,16 @@ module Rvim
              when 'fold', 'fo' then :fold
              when 'autocmd', 'au' then :autocmd
              when 'augroup', 'aug' then :augroup
+             when 'd', 'delete' then :delete
+             when 'y', 'yank' then :yank
+             when 'p', 'put' then :put
+             when 'm', 'move' then :move
+             when 'co', 'copy', 't' then :copy
+             when 'j', 'join' then :join
+             when 'noh', 'nohlsearch' then :nohlsearch
+             when 'retab' then :retab
+             when 'cd', 'chdir' then :cd
+             when 'pwd' then :pwd
              else verb_str.to_sym
              end
 
@@ -141,7 +166,7 @@ module Rvim
         return Parsed.new(verb: verb, arg: arg, bang: bang, line_number: nil, set_options: set_options)
       end
 
-      Parsed.new(verb: verb, arg: arg, bang: bang, line_number: nil)
+      Parsed.new(verb: verb, arg: arg, bang: bang, line_number: nil, range: generic_range)
     end
 
     def self.parse_set(args)
@@ -289,6 +314,26 @@ module Rvim
         execute_augroup(editor, parsed)
       when :sort
         execute_sort(editor, parsed)
+      when :delete
+        execute_delete(editor, parsed)
+      when :yank
+        execute_yank(editor, parsed)
+      when :put
+        execute_put(editor, parsed)
+      when :move
+        execute_move(editor, parsed)
+      when :copy
+        execute_copy(editor, parsed)
+      when :join
+        execute_join(editor, parsed)
+      when :nohlsearch
+        execute_nohlsearch(editor, parsed)
+      when :retab
+        execute_retab(editor, parsed)
+      when :cd
+        execute_cd(editor, parsed)
+      when :pwd
+        execute_pwd(editor, parsed)
       else
         editor.status_message = "E492: Not an editor command: #{parsed.verb}"
       end
@@ -354,6 +399,160 @@ module Rvim
         end
       end
       ['Mappings', header, *rows]
+    end
+
+    def self.execute_delete(editor, parsed)
+      start_line, end_line = resolve_range_default_current(editor, parsed)
+      register = parsed.arg.to_s.strip
+      lines = editor.buffer_of_lines[start_line..end_line]
+      text = lines.map(&:to_s).join("\n")
+      kind = :line
+      if register.empty?
+        editor.send(:write_register, text, kind, register: nil)
+      else
+        editor.send(:write_register, text, kind, register: register)
+      end
+      editor.replace_line_range(start_line, end_line, [])
+      ensure_buffer_nonempty(editor)
+    end
+
+    def self.execute_yank(editor, parsed)
+      start_line, end_line = resolve_range_default_current(editor, parsed)
+      register = parsed.arg.to_s.strip
+      lines = editor.buffer_of_lines[start_line..end_line]
+      text = lines.map(&:to_s).join("\n")
+      kind = :line
+      if register.empty?
+        editor.send(:write_register, text, kind, register: nil)
+      else
+        editor.send(:write_register, text, kind, register: register)
+      end
+    end
+
+    def self.execute_put(editor, parsed)
+      register = parsed.arg.to_s.strip
+      register = nil if register.empty?
+      entry = editor.read_register(register)
+      return unless entry
+
+      lines = entry.text.to_s.split("\n", -1)
+      lines.pop if lines.last == ''
+
+      target = if parsed.range
+                 _, end_line = resolve_sub_range(editor, parsed.range)
+                 end_line
+               else
+                 editor.line_index
+               end
+      target = -1 if parsed.bang # ":put!" puts above current/range start
+      if parsed.bang && parsed.range
+        start_line, _ = resolve_sub_range(editor, parsed.range)
+        target = start_line - 1
+      end
+
+      editor.insert_lines_after(target, lines)
+    end
+
+    def self.execute_move(editor, parsed)
+      start_line, end_line = resolve_range_default_current(editor, parsed)
+      target = parsed.arg.to_i
+      last = editor.buffer_of_lines.size - 1
+      target = target.clamp(0, last + 1)
+
+      moving = editor.buffer_of_lines[start_line..end_line].map(&:dup)
+      # Remove from original position
+      editor.buffer_of_lines.slice!(start_line, end_line - start_line + 1)
+      # Adjust target if it was AFTER the cut
+      target -= (end_line - start_line + 1) if target > end_line
+      target = target.clamp(0, editor.buffer_of_lines.size)
+      editor.buffer_of_lines.insert(target, *moving)
+      editor.instance_variable_set(:@line_index, target.clamp(0, [editor.buffer_of_lines.size - 1, 0].max))
+      editor.instance_variable_set(:@byte_pointer, 0)
+      editor.modified = true
+    end
+
+    def self.execute_copy(editor, parsed)
+      start_line, end_line = resolve_range_default_current(editor, parsed)
+      target = parsed.arg.to_i
+      last = editor.buffer_of_lines.size - 1
+      target = target.clamp(0, last + 1)
+
+      copied = editor.buffer_of_lines[start_line..end_line].map(&:dup)
+      editor.buffer_of_lines.insert(target, *copied)
+      editor.instance_variable_set(:@line_index, target)
+      editor.instance_variable_set(:@byte_pointer, 0)
+      editor.modified = true
+    end
+
+    def self.execute_join(editor, parsed)
+      start_line, end_line = if parsed.range
+                               resolve_sub_range(editor, parsed.range)
+                             else
+                               cur = editor.line_index
+                               last = [cur + 1, editor.buffer_of_lines.size - 1].min
+                               [cur, last]
+                             end
+      return if start_line >= end_line
+
+      sep = parsed.bang ? '' : ' '
+      lines = editor.buffer_of_lines[start_line..end_line]
+      first = lines.first.to_s
+      rest = lines[1..-1].map { |l| l.to_s.lstrip }
+      joined = parsed.bang ? (first + rest.join) : ([first.rstrip, *rest.reject(&:empty?)].join(sep))
+      editor.replace_line_range(start_line, end_line, [joined])
+    end
+
+    def self.execute_nohlsearch(editor, _parsed)
+      editor.instance_variable_set(:@search_matches, [])
+      editor.instance_variable_set(:@search_pattern, nil)
+    end
+
+    def self.execute_retab(editor, parsed)
+      width = parsed.arg.to_s.strip
+      n = width.empty? ? editor.settings.get(:shiftwidth) : width.to_i
+      n = 1 if n.nil? || n <= 0
+      spaces = ' ' * n
+      editor.buffer_of_lines.each_with_index do |line, i|
+        editor.buffer_of_lines[i] = line.gsub("\t", spaces)
+      end
+      editor.modified = true
+    end
+
+    def self.execute_cd(editor, parsed)
+      path = parsed.arg.to_s.strip
+      target = path.empty? ? Dir.home : File.expand_path(path)
+      Dir.chdir(target)
+      editor.status_message = Dir.pwd
+    rescue => e
+      editor.status_message = "E: cd: #{e.message}"
+    end
+
+    def self.execute_pwd(editor, _parsed)
+      editor.status_message = Dir.pwd
+    end
+
+    def self.resolve_range_default_current(editor, parsed)
+      if parsed.range
+        resolve_sub_range(editor, parsed.range)
+      else
+        # No range — ":delete N" treats arg as a count when arg looks like a number.
+        count = parsed.arg.to_s.strip
+        if count =~ /\A\d+\z/
+          start_line = editor.line_index
+          end_line = [start_line + count.to_i - 1, editor.buffer_of_lines.size - 1].min
+          [start_line, end_line]
+        else
+          [editor.line_index, editor.line_index]
+        end
+      end
+    end
+
+    def self.ensure_buffer_nonempty(editor)
+      if editor.buffer_of_lines.empty?
+        editor.buffer_of_lines << String.new('', encoding: editor.encoding)
+        editor.instance_variable_set(:@line_index, 0)
+        editor.instance_variable_set(:@byte_pointer, 0)
+      end
     end
 
     def self.execute_sort(editor, parsed)
