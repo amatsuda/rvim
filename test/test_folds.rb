@@ -111,6 +111,60 @@ class TestFoldsStorage < Test::Unit::TestCase
   end
 end
 
+class TestFoldsFromMarkers < Test::Unit::TestCase
+  def test_simple_pair
+    buf = ['/* {{{ */', 'body', '/* }}} */']
+    assert_equal [[0, 2]], Rvim::Folds.from_markers(buf)
+  end
+
+  def test_nested_pairs
+    buf = ['{{{', '{{{', 'inner', '}}}', 'outer', '}}}']
+    # Inner closes first (LIFO), then outer
+    assert_equal [[1, 3], [0, 5]], Rvim::Folds.from_markers(buf)
+  end
+
+  def test_unmatched_open_ignored
+    buf = ['{{{', 'unclosed', 'more']
+    assert_equal [], Rvim::Folds.from_markers(buf)
+  end
+
+  def test_unmatched_close_ignored
+    buf = ['random', '}}}']
+    assert_equal [], Rvim::Folds.from_markers(buf)
+  end
+
+  def test_same_line_open_close_ignored_for_zero_width
+    buf = ['{{{ }}}']
+    # start == end → not added (folding a single line is degenerate; we ship
+    # multi-line folds only)
+    assert_equal [], Rvim::Folds.from_markers(buf)
+  end
+end
+
+class TestFoldmethodMarker < Test::Unit::TestCase
+  def setup
+    @editor = Rvim::Editor.new(Reline.core.config)
+    @editor.instance_variable_set(:@buffer_of_lines, ['/* {{{ */', 'body', 'more', '/* }}} */', 'tail'])
+  end
+
+  def test_set_foldmethod_marker_creates_folds
+    Rvim::Command.execute(@editor, Rvim::Command.parse(':set foldmethod=marker'))
+    assert_equal 1, @editor.folds.size
+    f = @editor.folds.at_line(2)
+    assert_not_nil f
+    assert_equal 0, f.start_line
+    assert_equal 3, f.end_line
+  end
+
+  def test_marker_recompute_clears_existing
+    @editor.folds.add(0, 1)
+    Rvim::Command.execute(@editor, Rvim::Command.parse(':set foldmethod=marker'))
+    # Existing folds get replaced; we end up with the marker-derived 0..3
+    assert_equal 1, @editor.folds.size
+    assert_equal 3, @editor.folds.at_line(0).end_line
+  end
+end
+
 class TestFoldOperationsViaEditor < Test::Unit::TestCase
   def setup
     @editor = Rvim::Editor.new(Reline.core.config)
@@ -267,6 +321,61 @@ class TestFoldOperationsViaEditor < Test::Unit::TestCase
     Rvim::Command.execute(@editor, Rvim::Command.parse(':7'))
     # :7 → 0-based 6, hidden in fold 5..8 → snap to 5
     assert_equal 5, @editor.line_index
+  end
+
+  def test_zj_jumps_to_next_fold
+    fire_zf(2) # fold lines 2..3
+    @editor.instance_variable_set(:@line_index, 5)
+    fire_zf(2) # fold lines 5..6
+    @editor.instance_variable_set(:@line_index, 0)
+    fire_z('j')
+    assert_equal 2, @editor.line_index
+    fire_z('j')
+    assert_equal 5, @editor.line_index
+  end
+
+  def test_zk_jumps_to_prev_fold
+    fire_zf(2) # 2..3
+    @editor.instance_variable_set(:@line_index, 5)
+    fire_zf(2) # 5..6
+    @editor.instance_variable_set(:@line_index, 9)
+    fire_z('k')
+    assert_equal 5, @editor.line_index
+    fire_z('k')
+    assert_equal 2, @editor.line_index
+  end
+
+  def test_zn_disables_folding
+    @editor.instance_variable_set(:@line_index, 1)
+    fire_zf(4)
+    fire_z('n')
+    assert_equal false, @editor.settings.get(:foldenable)
+  end
+
+  def test_zN_enables_folding
+    @editor.settings.set(:foldenable, false)
+    fire_z('N')
+    assert_equal true, @editor.settings.get(:foldenable)
+  end
+
+  def test_zi_toggles_folding
+    fire_z('i')
+    assert_equal false, @editor.settings.get(:foldenable)
+    fire_z('i')
+    assert_equal true, @editor.settings.get(:foldenable)
+  end
+
+  def test_disabling_folding_makes_render_show_all_lines
+    @editor.instance_variable_set(:@line_index, 1)
+    fire_zf(4) # fold 1..4
+    fire_z('n') # disable
+    buf = FakeBuffer.new(@editor.buffer_of_lines, @editor.folds)
+    screen = Rvim::Screen.new(@editor)
+    rows = screen.send(:build_display_rows, buf, 0, 10, 80, false)
+    rows.first(10).each_with_index do |r, i|
+      assert_equal i, r[0]
+      assert_equal false, r[3]
+    end
   end
 
   def test_buffer_swap_preserves_folds

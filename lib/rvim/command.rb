@@ -886,6 +886,9 @@ module Rvim
       Array(parsed.set_options).each do |name, value|
         if editor.settings.known?(name)
           editor.settings.set(name, value, buffer: target_buffer)
+          if editor.settings.normalize(name) == :foldmethod
+            editor.rebuild_folds_for_method
+          end
         else
           messages << "E518: Unknown option: #{name}"
         end

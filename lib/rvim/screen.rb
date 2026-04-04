@@ -206,14 +206,15 @@ module Rvim
     def build_display_rows(buffer, scroll_top, content_rows, content_width, wrap_on)
       rows = []
       line_idx = scroll_top
+      folds_active = @editor.settings.get(:foldenable)
       folds = buffer.folds
       while rows.size < content_rows && line_idx < buffer.lines.size
-        if folds.hidden?(line_idx)
+        if folds_active && folds.hidden?(line_idx)
           line_idx += 1
           next
         end
 
-        fold = folds.at_line(line_idx)
+        fold = folds_active ? folds.at_line(line_idx) : nil
         if fold && fold.closed && fold.start_line == line_idx
           rows << [line_idx, 0, fold_placeholder(buffer, fold, content_width), true]
           line_idx = fold.end_line + 1

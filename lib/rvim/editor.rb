@@ -552,6 +552,38 @@ module Rvim
         when 'z' then viewport_scroll_to(:center)
         when 't' then viewport_scroll_to(:top)
         when 'b' then viewport_scroll_to(:bottom)
+        when 'j' then jump_to_fold(:next)
+        when 'k' then jump_to_fold(:prev)
+        when 'n' then @settings.set(:foldenable, false)
+        when 'N' then @settings.set(:foldenable, true)
+        when 'i' then @settings.set(:foldenable, !@settings.get(:foldenable))
+        end
+      end
+    end
+
+    def jump_to_fold(direction)
+      collected = []
+      @folds.each { |f| collected << f }
+      sorted = collected.sort_by(&:start_line)
+      target = if direction == :next
+                 sorted.find { |f| f.start_line > @line_index }
+               else
+                 sorted.reverse.find { |f| f.start_line < @line_index }
+               end
+      return unless target
+
+      push_jump
+      @line_index = target.start_line
+      @byte_pointer = 0
+    end
+
+    def rebuild_folds_for_method
+      method = @settings.get(:foldmethod).to_s
+      case method
+      when 'marker'
+        @folds.clear
+        Rvim::Folds.from_markers(@buffer_of_lines).each do |s, e|
+          @folds.add(s, e, closed: true)
         end
       end
     end

@@ -16,6 +16,8 @@ module Rvim
       cursorline: false,
       ruler: true,
       list: false,
+      foldenable: true,
+      foldmethod: 'manual',
     }.freeze
 
     ALIASES = {
@@ -30,6 +32,8 @@ module Rvim
       'so' => :scrolloff,
       'cul' => :cursorline,
       'ru' => :ruler,
+      'fen' => :foldenable,
+      'fdm' => :foldmethod,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze

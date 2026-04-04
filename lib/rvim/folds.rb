@@ -115,5 +115,27 @@ module Rvim
     def ranges_overlap?(a_start, a_end, b_start, b_end)
       !(a_end < b_start || a_start > b_end)
     end
+
+    OPEN_MARKER = /\{\{\{/.freeze
+    CLOSE_MARKER = /\}\}\}/.freeze
+
+    # Scan a buffer for {{{ ... }}} fold markers and return [[start, end], ...].
+    # Stack-based; mismatched markers are skipped.
+    def self.from_markers(buffer_of_lines)
+      ranges = []
+      stack = []
+      buffer_of_lines.each_with_index do |line, i|
+        text = line.to_s
+        text.scan(/(#{OPEN_MARKER}|#{CLOSE_MARKER})/) do |(marker, _)|
+          if marker.start_with?('{')
+            stack << i
+          else
+            start = stack.pop
+            ranges << [start, i] if start && start < i
+          end
+        end
+      end
+      ranges
+    end
   end
 end
