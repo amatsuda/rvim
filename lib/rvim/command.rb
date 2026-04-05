@@ -158,6 +158,13 @@ module Rvim
              when 'retab' then :retab
              when 'cd', 'chdir' then :cd
              when 'pwd' then :pwd
+             when 'vimgrep', 'vim' then :vimgrep
+             when 'cnext', 'cn' then :cnext
+             when 'cprev', 'cp', 'cprevious' then :cprev
+             when 'cc' then :cc
+             when 'clist', 'cl' then :clist
+             when 'copen', 'cope' then :copen
+             when 'cclose', 'cclo' then :cclose
              else verb_str.to_sym
              end
 
@@ -334,6 +341,18 @@ module Rvim
         execute_cd(editor, parsed)
       when :pwd
         execute_pwd(editor, parsed)
+      when :vimgrep
+        execute_vimgrep(editor, parsed)
+      when :cnext
+        execute_cnext(editor, parsed)
+      when :cprev
+        execute_cprev(editor, parsed)
+      when :cc
+        execute_cc(editor, parsed)
+      when :clist, :copen
+        editor.show_list(format_quickfix(editor))
+      when :cclose
+        editor.dismiss_list
       else
         editor.status_message = "E492: Not an editor command: #{parsed.verb}"
       end
@@ -553,6 +572,119 @@ module Rvim
         editor.instance_variable_set(:@line_index, 0)
         editor.instance_variable_set(:@byte_pointer, 0)
       end
+    end
+
+    VIMGREP_RE = %r{\A/(?<pat>(?:\\.|[^/])*)/\s+(?<files>.+)\z}.freeze
+
+    def self.execute_vimgrep(editor, parsed)
+      arg = parsed.arg.to_s.strip
+      m = VIMGREP_RE.match(arg)
+      unless m
+        editor.status_message = 'E682: usage: :vimgrep /pattern/ {files}'
+        return
+      end
+
+      begin
+        pattern = Regexp.new(m[:pat])
+      rescue RegexpError => e
+        editor.status_message = "E383: Invalid pattern: #{e.message}"
+        return
+      end
+
+      entries = []
+      m[:files].split(/\s+/).each do |g|
+        Dir.glob(g).each do |path|
+          next unless File.file?(path)
+
+          File.foreach(path).with_index do |line, i|
+            md = pattern.match(line)
+            next unless md
+
+            entries << Rvim::Quickfix::Entry.new(
+              file: path,
+              line: i + 1,
+              col: md.begin(0) + 1,
+              text: line.chomp,
+            )
+          end
+        end
+      end
+
+      editor.quickfix.set(entries)
+      if entries.empty?
+        editor.status_message = "E480: No match: #{m[:pat]}"
+      else
+        editor.status_message = "(1 of #{entries.size}) #{format_quickfix_summary(entries.first)}"
+        jump_to_quickfix_entry(editor, entries.first) unless parsed.bang
+      end
+    end
+
+    def self.execute_cnext(editor, _parsed)
+      qf = editor.quickfix
+      if qf.empty?
+        editor.status_message = 'E42: No Errors'
+        return
+      end
+
+      entry = qf.advance(+1)
+      jump_to_quickfix_entry(editor, entry)
+      editor.status_message = "(#{qf.index + 1} of #{qf.size}) #{format_quickfix_summary(entry)}"
+    end
+
+    def self.execute_cprev(editor, _parsed)
+      qf = editor.quickfix
+      if qf.empty?
+        editor.status_message = 'E42: No Errors'
+        return
+      end
+
+      entry = qf.advance(-1)
+      jump_to_quickfix_entry(editor, entry)
+      editor.status_message = "(#{qf.index + 1} of #{qf.size}) #{format_quickfix_summary(entry)}"
+    end
+
+    def self.execute_cc(editor, parsed)
+      qf = editor.quickfix
+      if qf.empty?
+        editor.status_message = 'E42: No Errors'
+        return
+      end
+
+      n = parsed.arg.to_s.strip
+      idx = n.empty? ? qf.index : n.to_i - 1
+      entry = qf.at(idx)
+      if entry
+        jump_to_quickfix_entry(editor, entry)
+        editor.status_message = "(#{qf.index + 1} of #{qf.size}) #{format_quickfix_summary(entry)}"
+      else
+        editor.status_message = "E553: No more items"
+      end
+    end
+
+    def self.jump_to_quickfix_entry(editor, entry)
+      return unless entry
+
+      if entry.file && entry.file != editor.filepath
+        editor.open(entry.file)
+      end
+      editor.push_jump
+      editor.instance_variable_set(:@line_index, [entry.line - 1, 0].max)
+      target_line = editor.buffer_of_lines[editor.line_index] || ''
+      editor.instance_variable_set(:@byte_pointer, (entry.col - 1).clamp(0, target_line.bytesize))
+    end
+
+    def self.format_quickfix(editor)
+      header = '   #  file:line:col  text'
+      rows = []
+      editor.quickfix.entries.each_with_index do |e, i|
+        marker = i == editor.quickfix.index ? '>' : ' '
+        rows << format('%s %3d  %s:%d:%d  %s', marker, i + 1, e.file, e.line, e.col, e.text.to_s[0, 80])
+      end
+      ['Quickfix', header, *rows]
+    end
+
+    def self.format_quickfix_summary(entry)
+      "#{entry.file}:#{entry.line}:#{entry.col} #{entry.text.to_s[0, 60]}"
     end
 
     def self.execute_sort(editor, parsed)

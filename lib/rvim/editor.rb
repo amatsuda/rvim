@@ -71,10 +71,11 @@ module Rvim
       @completion_base_byte = 0
       @completion_line_index = 0
       @autocommands = Rvim::Autocommands.new
+      @quickfix = Rvim::Quickfix.new
       install_key_bindings
     end
 
-    attr_reader :autocommands
+    attr_reader :autocommands, :quickfix
 
     attr_reader :folds
 
