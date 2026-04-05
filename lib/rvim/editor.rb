@@ -145,10 +145,28 @@ module Rvim
       buf = find_or_create_buffer(path)
       swap_to_buffer(buf)
       if is_new
+        Rvim::Modeline.apply(self, buf) if path
+        load_persistent_undo(path) if path && @settings.get(:undofile)
         @autocommands&.fire(:bufread, path.to_s, self)
         ft = Rvim::Syntax.detect_language(path)
         @autocommands&.fire(:filetype, ft.to_s, self) if ft
       end
+    end
+
+    private def load_persistent_undo(path)
+      data = Rvim::UndoFile.read(path)
+      return unless data
+
+      history, index = data
+      return if history.nil? || history.empty?
+
+      head_state = history[index] || history.last
+      return unless head_state.is_a?(Array) && head_state[0] == @buffer_of_lines
+
+      @undo_redo_history = history
+      @undo_redo_index = index
+      @current_buffer.undo_redo_history = history
+      @current_buffer.undo_redo_index = index
     end
 
     SOURCE_MAX_DEPTH = 10
@@ -834,6 +852,7 @@ module Rvim
       File.write(target, content)
       @filepath = target
       @modified = false
+      Rvim::UndoFile.write(target, @undo_redo_history, @undo_redo_index) if @settings.get(:undofile)
       @autocommands&.fire(:bufwritepost, target.to_s, self)
     end
 

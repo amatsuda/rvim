@@ -18,6 +18,9 @@ module Rvim
       list: false,
       foldenable: true,
       foldmethod: 'manual',
+      modeline: true,
+      modelines: 5,
+      undofile: false,
     }.freeze
 
     ALIASES = {
@@ -34,6 +37,9 @@ module Rvim
       'ru' => :ruler,
       'fen' => :foldenable,
       'fdm' => :foldmethod,
+      'ml' => :modeline,
+      'mls' => :modelines,
+      'udf' => :undofile,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
