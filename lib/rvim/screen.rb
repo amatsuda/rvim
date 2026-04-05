@@ -199,7 +199,63 @@ module Rvim
       out << pad_to_width(truncate_to_width(window_status(win, is_current), win.width), win.width)
       out << REVERSE_OFF
       out << DIM_OFF unless is_current
+
+      if is_current && @editor.completion_popup && !@editor.completion_popup.empty?
+        out << render_completion_popup(win, gw, content_width, wrap_on)
+      end
       out
+    end
+
+    def render_completion_popup(win, gw, content_width, wrap_on)
+      popup = @editor.completion_popup
+      cursor_row, _cursor_col = cursor_display_position(win, content_width, wrap_on)
+
+      # Anchor at the column of the partial-word base, not the cursor column.
+      base_byte = @editor.completion_base_byte || 0
+      cursor_line = @editor.line_index
+      buffer = win.buffer
+      line_text = render_line(buffer.lines[cursor_line] || '')
+      base_col = display_column(line_text, base_byte)
+
+      width = popup.width
+      visible = popup.visible_height
+      need_bar = popup.needs_scrollbar?
+      total_width = width + (need_bar ? 1 : 0)
+
+      # Default: place below cursor row. Flip above if it would overflow window.
+      base_row = win.row + cursor_row + 1
+      if base_row + visible > win.row + win.height - 1
+        base_row = (win.row + cursor_row - visible).clamp(win.row, win.row + win.height - 1)
+      end
+      start_col = win.col + gw + base_col + 1
+      max_col = win.col + win.width
+      start_col = [start_col, max_col - total_width + 1].min
+      start_col = [start_col, win.col + 1].max
+
+      out = +''
+      popup.visible_range.each_with_index do |idx, i|
+        candidate = popup.contents[idx].to_s
+        line = pad_to_width(truncate_to_width(candidate, width), width)
+        line_with_bar = line + (need_bar ? scrollbar_glyph_for(popup, idx) : '')
+        row = base_row + i + 1
+        out << move_to(row, start_col)
+        if idx == popup.pointer
+          out << REVERSE_ON << line_with_bar << REVERSE_OFF
+        else
+          out << DIM_ON << line_with_bar << DIM_OFF
+        end
+      end
+      out
+    end
+
+    def scrollbar_glyph_for(popup, row_idx)
+      total = popup.size
+      visible = popup.visible_height
+      return ' ' if total <= visible
+
+      thumb_position = popup.scroll_top * (visible - 1) / [total - visible, 1].max
+      relative = row_idx - popup.scroll_top
+      relative == thumb_position ? '█' : '░'
     end
 
     # Returns Array<[line_idx_or_nil, byte_offset_within_line, segment_text, is_fold]>

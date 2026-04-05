@@ -144,4 +144,36 @@ class TestCompletionDispatch < Test::Unit::TestCase
     ctrl_n
     assert_equal true, @editor.modified
   end
+
+  def test_starting_completion_populates_popup
+    buf('hello hero help', 'he', line: 1, byte: 2)
+    ctrl_n
+    refute_nil @editor.completion_popup
+    assert_equal %w[hello help hero], @editor.completion_popup.contents
+    assert_equal 0, @editor.completion_popup.pointer
+  end
+
+  def test_cycling_advances_popup_pointer
+    buf('hello hero help', 'he', line: 1, byte: 2)
+    ctrl_n
+    ctrl_n
+    assert_equal 1, @editor.completion_popup.pointer
+    ctrl_p
+    assert_equal 0, @editor.completion_popup.pointer
+  end
+
+  def test_cancel_clears_popup
+    buf('hello hero', 'he', line: 1, byte: 2)
+    ctrl_n
+    refute_nil @editor.completion_popup
+    sym = @editor.send(:synthesize_key, 'x').method_symbol
+    @editor.update(k('x', sym))
+    assert_nil @editor.completion_popup
+  end
+
+  def test_no_match_no_popup
+    buf('hello world', 'qux', line: 1, byte: 3)
+    ctrl_n
+    assert_nil @editor.completion_popup
+  end
 end

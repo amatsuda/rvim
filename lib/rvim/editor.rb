@@ -70,6 +70,7 @@ module Rvim
       @completion_base = +''
       @completion_base_byte = 0
       @completion_line_index = 0
+      @completion_popup = nil
       @autocommands = Rvim::Autocommands.new
       @quickfix = Rvim::Quickfix.new
       install_key_bindings
@@ -419,6 +420,7 @@ module Rvim
 
         @completion_index = (@completion_index + delta) % @completion_candidates.size
         replace_completion_with(@completion_candidates[@completion_index])
+        @completion_popup&.pointer = @completion_index
         update_completion_status
       else
         start_completion(delta)
@@ -440,6 +442,7 @@ module Rvim
       @completion_base = base
       @completion_base_byte = Rvim::Completion.base_start(line, @byte_pointer)
       @completion_line_index = @line_index
+      @completion_popup = Rvim::CompletionPopup.new(contents: candidates, pointer: @completion_index)
       replace_completion_with(@completion_candidates[@completion_index])
       update_completion_status
     end
@@ -470,7 +473,10 @@ module Rvim
       @completion_base = +''
       @completion_base_byte = 0
       @completion_line_index = 0
+      @completion_popup = nil
     end
+
+    attr_reader :completion_popup, :completion_base_byte, :completion_line_index
 
     private def completion_key?(key)
       sym = key.method_symbol
