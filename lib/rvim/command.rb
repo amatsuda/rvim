@@ -144,6 +144,10 @@ module Rvim
              when 'vmapclear', 'vmapc' then :vmapclear
              when 'imapclear', 'imapc' then :imapclear
              when 'omapclear', 'omapc' then :omapclear
+             when 'cmap', 'cm' then :cmap
+             when 'cnoremap', 'cno' then :cnoremap
+             when 'cunmap', 'cun' then :cunmap
+             when 'cmapclear', 'cmapc' then :cmapclear
              when 'let' then :let
              when 'fold', 'fo' then :fold
              when 'autocmd', 'au' then :autocmd
@@ -298,12 +302,12 @@ module Rvim
         end
       when :history
         editor.show_list(format_history(editor))
-      when :map, :nmap, :vmap, :imap, :omap,
-           :noremap, :nnoremap, :vnoremap, :inoremap, :onoremap
+      when :map, :nmap, :vmap, :imap, :omap, :cmap,
+           :noremap, :nnoremap, :vnoremap, :inoremap, :onoremap, :cnoremap
         execute_map(editor, parsed)
-      when :unmap, :nunmap, :vunmap, :iunmap, :ounmap
+      when :unmap, :nunmap, :vunmap, :iunmap, :ounmap, :cunmap
         execute_unmap(editor, parsed)
-      when :mapclear, :nmapclear, :vmapclear, :imapclear, :omapclear
+      when :mapclear, :nmapclear, :vmapclear, :imapclear, :omapclear, :cmapclear
         execute_mapclear(editor, parsed)
       when :let
         execute_let(editor, parsed)
@@ -358,13 +362,21 @@ module Rvim
       end
     end
 
+    MAP_MODIFIER_RE = /\A<(silent|unique|buffer|expr|nowait|script)>\s+/i.freeze
+
     def self.execute_map(editor, parsed)
       arg = parsed.arg.to_s.strip
-      modes = Rvim::Keymap.modes_for(parsed.verb)
+      modes = Rvim::Keymap.modes_for(parsed.verb, bang: parsed.bang)
 
       if arg.empty?
         editor.show_list(format_mappings(editor, modes))
         return
+      end
+
+      silent = false
+      while (m = MAP_MODIFIER_RE.match(arg))
+        silent = true if m[1].downcase == 'silent'
+        arg = arg[m[0].length..-1]
       end
 
       lhs_raw, rhs_raw = arg.split(/\s+/, 2)
@@ -377,7 +389,7 @@ module Rvim
       lhs = Rvim::Keymap.expand(lhs_raw, leader: editor.mapleader)
       rhs = Rvim::Keymap.expand(rhs_raw, leader: editor.mapleader)
       recursive = !Rvim::Keymap.noremap?(parsed.verb)
-      editor.keymap.add(modes, lhs, rhs, recursive: recursive)
+      editor.keymap.add(modes, lhs, rhs, recursive: recursive, silent: silent)
     end
 
     def self.execute_unmap(editor, parsed)
@@ -388,7 +400,7 @@ module Rvim
       end
 
       lhs = Rvim::Keymap.expand(arg, leader: editor.mapleader)
-      modes = Rvim::Keymap.modes_for(parsed.verb)
+      modes = Rvim::Keymap.modes_for(parsed.verb, bang: parsed.bang)
       editor.keymap.remove(modes, lhs)
     end
 
@@ -397,6 +409,7 @@ module Rvim
       visual: 'v',
       insert: 'i',
       op_pending: 'o',
+      cmdline: 'c',
     }.freeze
 
     def self.format_mappings(editor, modes, lhs_filter: nil)
@@ -867,7 +880,7 @@ module Rvim
     end
 
     def self.execute_mapclear(editor, parsed)
-      modes = Rvim::Keymap.modes_for(parsed.verb)
+      modes = Rvim::Keymap.modes_for(parsed.verb, bang: parsed.bang)
       editor.keymap.clear(modes)
     end
 

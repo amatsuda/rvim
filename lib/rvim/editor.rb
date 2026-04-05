@@ -955,11 +955,11 @@ module Rvim
     private def mapping_eligible?
       return false if @map_noremap_active
       return false if @replaying
-      return false if @prompt_mode
       return false if @list_view
       return false if @waiting_proc
       return false if @rvim_text_object_pending
       return false if @rvim_visual_textobj_pending
+      return false if @prompt_mode == :listing
 
       true
     end
@@ -993,6 +993,7 @@ module Rvim
     end
 
     private def current_mapping_mode
+      return :cmdline if @prompt_mode == :ex || @prompt_mode == :search_forward || @prompt_mode == :search_backward
       return :visual if @visual_mode
       return :op_pending if operator_pending?
       return :insert if editing_mode_label == :vi_insert
@@ -1022,6 +1023,7 @@ module Rvim
         return
       end
 
+      saved_status = @status_message if mapping.silent
       begin
         if mapping.recursive
           mapping.rhs.each_char { |c| dispatch_synthesized_key(c) }
@@ -1035,6 +1037,7 @@ module Rvim
         end
       ensure
         @map_recursion_depth -= 1
+        @status_message = saved_status if mapping.silent
       end
     end
 

@@ -113,6 +113,26 @@ class TestKeymapDispatch < Test::Unit::TestCase
     assert_equal 0, @editor.line_index
   end
 
+  def test_cmap_fires_during_ex_prompt
+    Rvim::Command.execute(@editor, Rvim::Command.parse(':cnoremap jk <Esc>'))
+    @editor.send(:rvim_enter_command_mode, nil)
+    assert_equal :ex, @editor.prompt_mode
+    @editor.update(k('j'))
+    @editor.update(k('k'))
+    # jk → Esc cancels the prompt
+    assert_nil @editor.prompt_mode
+  end
+
+  def test_silent_mapping_suppresses_status
+    @editor.instance_variable_set(:@buffer_of_lines, [+'first'])
+    @editor.instance_variable_set(:@line_index, 0)
+    @editor.instance_variable_set(:@byte_pointer, 0)
+    @editor.status_message = 'preserve me'
+    Rvim::Command.execute(@editor, Rvim::Command.parse(':nmap <silent> Y y$'))
+    send_keys('Y')
+    assert_equal 'preserve me', @editor.status_message
+  end
+
   def test_init_vim_loaded_mappings
     f = Tempfile.new(['init', '.vim'])
     f.write("nmap Y y$\ninoremap jk <Esc>\n")

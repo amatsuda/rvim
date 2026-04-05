@@ -99,6 +99,13 @@ class TestKeymapRender < Test::Unit::TestCase
     assert_equal '<F99>', Rvim::Keymap.expand('<F99>')
   end
 
+  def test_expand_function_keys
+    assert_equal "\eOP", Rvim::Keymap.expand('<F1>')
+    assert_equal "\eOQ", Rvim::Keymap.expand('<F2>')
+    assert_equal "\e[15~", Rvim::Keymap.expand('<F5>')
+    assert_equal "\e[24~", Rvim::Keymap.expand('<F12>')
+  end
+
   def test_expand_unmatched_lt
     assert_equal '<no close', Rvim::Keymap.expand('<no close')
   end
@@ -193,6 +200,14 @@ class TestKeymapModeRouting < Test::Unit::TestCase
     assert_equal %i[insert], Rvim::Keymap.modes_for(:imap)
     assert_equal %i[visual], Rvim::Keymap.modes_for(:vmap)
     assert_equal %i[op_pending], Rvim::Keymap.modes_for(:omap)
+    assert_equal %i[cmdline], Rvim::Keymap.modes_for(:cmap)
+  end
+
+  def test_modes_for_bang_routes_to_insert_and_cmdline
+    assert_equal %i[insert cmdline], Rvim::Keymap.modes_for(:map, bang: true)
+    assert_equal %i[insert cmdline], Rvim::Keymap.modes_for(:noremap, bang: true)
+    assert_equal %i[insert cmdline], Rvim::Keymap.modes_for(:unmap, bang: true)
+    assert_equal %i[insert cmdline], Rvim::Keymap.modes_for(:mapclear, bang: true)
   end
 
   def test_noremap_predicate

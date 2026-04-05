@@ -2,19 +2,22 @@
 
 module Rvim
   class Keymap
-    Mapping = Struct.new(:lhs, :rhs, :recursive, keyword_init: true)
+    Mapping = Struct.new(:lhs, :rhs, :recursive, :silent, keyword_init: true)
 
-    MODES = %i[normal visual insert op_pending].freeze
+    MODES = %i[normal visual insert op_pending cmdline].freeze
 
     MAP_MODES = %i[normal visual op_pending].freeze
+    BANG_MODES = %i[insert cmdline].freeze
 
     def initialize
       @table = MODES.each_with_object({}) { |m, h| h[m] = {} }
     end
 
-    def add(modes, lhs, rhs, recursive: true)
+    def add(modes, lhs, rhs, recursive: true, silent: false)
       Array(modes).each do |mode|
-        @table[mode][lhs] = Mapping.new(lhs: lhs, rhs: rhs, recursive: recursive)
+        next unless @table[mode]
+
+        @table[mode][lhs] = Mapping.new(lhs: lhs, rhs: rhs, recursive: recursive, silent: silent)
       end
     end
 
@@ -81,6 +84,18 @@ module Rvim
       when 'insert' then "\e[2~"
       when 'delete', 'del' then "\e[3~"
       when 'leader' then leader
+      when 'f1' then "\eOP"
+      when 'f2' then "\eOQ"
+      when 'f3' then "\eOR"
+      when 'f4' then "\eOS"
+      when 'f5' then "\e[15~"
+      when 'f6' then "\e[17~"
+      when 'f7' then "\e[18~"
+      when 'f8' then "\e[19~"
+      when 'f9' then "\e[20~"
+      when 'f10' then "\e[21~"
+      when 'f11' then "\e[23~"
+      when 'f12' then "\e[24~"
       when /\Ac-(.)\z/i
         ch = Regexp.last_match(1)
         (ch.upcase.ord & 0x1f).chr
@@ -144,32 +159,40 @@ module Rvim
       inoremap: %i[insert],
       omap: %i[op_pending],
       onoremap: %i[op_pending],
+      cmap: %i[cmdline],
+      cnoremap: %i[cmdline],
       unmap: MAP_MODES,
       nunmap: %i[normal],
       vunmap: %i[visual],
       iunmap: %i[insert],
       ounmap: %i[op_pending],
+      cunmap: %i[cmdline],
       mapclear: MAP_MODES,
       nmapclear: %i[normal],
       vmapclear: %i[visual],
       imapclear: %i[insert],
       omapclear: %i[op_pending],
+      cmapclear: %i[cmdline],
     }.freeze
 
-    def self.modes_for(verb)
+    BANG_VERBS = %i[map noremap unmap mapclear].freeze
+
+    def self.modes_for(verb, bang: false)
+      return BANG_MODES if bang && BANG_VERBS.include?(verb)
+
       MODES_FOR_VERB[verb]
     end
 
     def self.noremap?(verb)
-      %i[noremap nnoremap vnoremap inoremap onoremap].include?(verb)
+      %i[noremap nnoremap vnoremap inoremap onoremap cnoremap].include?(verb)
     end
 
     def self.unmap?(verb)
-      %i[unmap nunmap vunmap iunmap ounmap].include?(verb)
+      %i[unmap nunmap vunmap iunmap ounmap cunmap].include?(verb)
     end
 
     def self.mapclear?(verb)
-      %i[mapclear nmapclear vmapclear imapclear omapclear].include?(verb)
+      %i[mapclear nmapclear vmapclear imapclear omapclear cmapclear].include?(verb)
     end
   end
 end

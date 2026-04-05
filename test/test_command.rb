@@ -283,4 +283,47 @@ class TestCommand < Test::Unit::TestCase
     body = editor.list_view.lines.join("\n")
     assert_match(/i\*/, body)
   end
+
+  def test_cmap_registers_in_cmdline_mode
+    editor = Rvim::Editor.new(Reline.core.config)
+    Rvim::Command.execute(editor, Rvim::Command.parse(':cmap jk <Esc>'))
+    result, _ = editor.keymap.lookup(:cmdline, 'jk')
+    assert_equal :exact, result
+  end
+
+  def test_map_bang_registers_in_insert_and_cmdline
+    editor = Rvim::Editor.new(Reline.core.config)
+    Rvim::Command.execute(editor, Rvim::Command.parse(':map! jk <Esc>'))
+    %i[insert cmdline].each do |mode|
+      result, _ = editor.keymap.lookup(mode, 'jk')
+      assert_equal :exact, result, "expected :exact for #{mode}"
+    end
+    # Should NOT register in normal/visual/op_pending
+    %i[normal visual op_pending].each do |mode|
+      result, _ = editor.keymap.lookup(mode, 'jk')
+      assert_equal :none, result, "expected :none for #{mode}"
+    end
+  end
+
+  def test_silent_modifier_sets_flag
+    editor = Rvim::Editor.new(Reline.core.config)
+    Rvim::Command.execute(editor, Rvim::Command.parse(':nmap <silent> Y :w<CR>'))
+    _, mapping = editor.keymap.lookup(:normal, 'Y')
+    assert_equal true, mapping.silent
+  end
+
+  def test_no_silent_default
+    editor = Rvim::Editor.new(Reline.core.config)
+    Rvim::Command.execute(editor, Rvim::Command.parse(':nmap Y y$'))
+    _, mapping = editor.keymap.lookup(:normal, 'Y')
+    assert_equal false, mapping.silent
+  end
+
+  def test_unknown_modifiers_are_silently_consumed
+    editor = Rvim::Editor.new(Reline.core.config)
+    Rvim::Command.execute(editor, Rvim::Command.parse(':nmap <buffer> <silent> Y y$'))
+    result, mapping = editor.keymap.lookup(:normal, 'Y')
+    assert_equal :exact, result
+    assert_equal true, mapping.silent
+  end
 end
