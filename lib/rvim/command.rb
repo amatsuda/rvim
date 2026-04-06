@@ -169,6 +169,10 @@ module Rvim
              when 'clist', 'cl' then :clist
              when 'copen', 'cope' then :copen
              when 'cclose', 'cclo' then :cclose
+             when 'diffthis', 'difft' then :diffthis
+             when 'diffoff' then :diffoff
+             when 'diffupdate', 'diffu' then :diffupdate
+             when 'diffsplit', 'diffs' then :diffsplit
              else verb_str.to_sym
              end
 
@@ -357,6 +361,14 @@ module Rvim
         editor.show_list(format_quickfix(editor))
       when :cclose
         editor.dismiss_list
+      when :diffthis
+        execute_diffthis(editor, parsed)
+      when :diffoff
+        execute_diffoff(editor, parsed)
+      when :diffupdate
+        editor.recompute_diff_status
+      when :diffsplit
+        execute_diffsplit(editor, parsed)
       else
         editor.status_message = "E492: Not an editor command: #{parsed.verb}"
       end
@@ -585,6 +597,37 @@ module Rvim
         editor.instance_variable_set(:@line_index, 0)
         editor.instance_variable_set(:@byte_pointer, 0)
       end
+    end
+
+    def self.execute_diffthis(editor, _parsed)
+      buf = editor.current_buffer
+      return unless buf
+
+      buf.diff_active = true
+      editor.recompute_diff_status
+    end
+
+    def self.execute_diffoff(editor, parsed)
+      bufs = parsed.bang ? editor.buffers.values : [editor.current_buffer].compact
+      bufs.each do |b|
+        b.diff_active = false
+        b.diff_status = nil
+      end
+    end
+
+    def self.execute_diffsplit(editor, parsed)
+      arg = parsed.arg.to_s.strip
+      if arg.empty?
+        editor.status_message = 'E32: No file name'
+        return
+      end
+
+      current = editor.current_buffer
+      current.diff_active = true if current
+      editor.split_vertical
+      editor.open(arg)
+      editor.current_buffer.diff_active = true if editor.current_buffer
+      editor.recompute_diff_status
     end
 
     VIMGREP_RE = %r{\A/(?<pat>(?:\\.|[^/])*)/\s+(?<files>.+)\z}.freeze

@@ -12,6 +12,8 @@ module Rvim
     REVERSE_OFF = "\e[27m"
     DIM_ON = "\e[2m"
     DIM_OFF = "\e[22m"
+    DIFF_BG_ON = "\e[48;5;52m"
+    DIFF_BG_OFF = "\e[49m"
     UNDERLINE_ON = "\e[4m"
     UNDERLINE_OFF = "\e[24m"
     ERASE_LINE = "\e[2K"
@@ -189,6 +191,8 @@ module Rvim
         end
         out << move_to(win.row + i + 1, win.col + 1)
         line_payload = gutter + pad_render_to_width(rendered, content_width)
+        diff_on = !line_idx.nil? && buffer.diff_active && buffer.diff_status && buffer.diff_status[line_idx] == :differs
+        line_payload = "#{DIFF_BG_ON}#{line_payload}#{DIFF_BG_OFF}" if diff_on
         if cursorline_on && is_current && line_idx == cursor_idx
           out << UNDERLINE_ON << line_payload << UNDERLINE_OFF
         else

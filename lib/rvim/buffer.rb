@@ -6,6 +6,7 @@ module Rvim
     attr_accessor :marks, :line_index, :byte_pointer
     attr_accessor :undo_redo_history, :undo_redo_index, :last_visual
     attr_accessor :local_settings, :folds
+    attr_accessor :diff_active, :diff_status
 
     def initialize(id, filepath = nil, encoding: Encoding::UTF_8)
       @id = id
@@ -25,6 +26,8 @@ module Rvim
       @last_visual = nil
       @local_settings = {}
       @folds = Rvim::Folds.new
+      @diff_active = false
+      @diff_status = nil
     end
 
     def display_name

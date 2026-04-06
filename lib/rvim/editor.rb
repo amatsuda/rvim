@@ -137,6 +137,8 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_insert, [0x0E], :rvim_complete_next) # Ctrl-N
       @config.add_default_key_binding_by_keymap(:vi_insert, [0x10], :rvim_complete_prev) # Ctrl-P
       @config.add_default_key_binding_by_keymap(:vi_command, [?%.ord], :rvim_match_motion)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?[.ord], :rvim_bracket_left)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?].ord], :rvim_bracket_right)
       @config.add_default_key_binding_by_keymap(:vi_command, [?(.ord], :rvim_sentence_backward)
       @config.add_default_key_binding_by_keymap(:vi_command, [?).ord], :rvim_sentence_forward)
       @config.add_default_key_binding_by_keymap(:vi_command, [?{.ord], :rvim_paragraph_backward)
@@ -487,6 +489,26 @@ module Rvim
 
     attr_reader :completion_active, :completion_candidates, :completion_index
 
+    private def rvim_bracket_left(key, arg: 1)
+      @waiting_proc = lambda do |k, _sym|
+        @waiting_proc = nil
+        ch = k.is_a?(Integer) ? k.chr : k.to_s
+        case ch
+        when 'c' then diff_jump(:prev)
+        end
+      end
+    end
+
+    private def rvim_bracket_right(key, arg: 1)
+      @waiting_proc = lambda do |k, _sym|
+        @waiting_proc = nil
+        ch = k.is_a?(Integer) ? k.chr : k.to_s
+        case ch
+        when 'c' then diff_jump(:next)
+        end
+      end
+    end
+
     private def rvim_match_motion(key, arg: 1)
       target = Rvim::MatchMotion.match_at(@buffer_of_lines, @line_index, @byte_pointer)
       return unless target
@@ -601,6 +623,40 @@ module Rvim
 
       push_jump
       @line_index = target.start_line
+      @byte_pointer = 0
+    end
+
+    def diff_buffers
+      @buffers.values.select { |b| b.diff_active }
+    end
+
+    def recompute_diff_status
+      bufs = diff_buffers
+      bufs.each { |b| b.diff_status = nil }
+      return if bufs.size < 2
+
+      a, b = bufs[0], bufs[1]
+      a_status, b_status = Rvim::Diff.compute(a.lines, b.lines)
+      a.diff_status = a_status
+      b.diff_status = b_status
+    end
+
+    def diff_jump(direction)
+      buf = @current_buffer
+      return unless buf && buf.diff_status
+
+      starts = Rvim::Diff.hunk_starts(buf.diff_status)
+      return if starts.empty?
+
+      target = if direction == :next
+                 starts.find { |s| s > @line_index }
+               else
+                 starts.reverse.find { |s| s < @line_index }
+               end
+      return unless target
+
+      push_jump
+      @line_index = target
       @byte_pointer = 0
     end
 
