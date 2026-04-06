@@ -537,13 +537,23 @@ module Rvim
       end
     end
 
+    SPELL_ERR_ON = "\e[31m"
+    SPELL_ERR_OFF = "\e[39m"
+
     def render_line(line)
       ts = @editor.settings.get(:tabstop) || 8
       ts = 8 if ts <= 0
       list_on = @editor.settings.get(:list)
       out = line.to_s.gsub("\t", list_on ? render_tab_marker(ts) : (' ' * ts))
       out = mark_trailing_whitespace(out) if list_on
+      out = apply_spell_highlight(out) if @editor.settings.get(:spell)
       out
+    end
+
+    def apply_spell_highlight(line)
+      line.gsub(/[A-Za-z]+/) do |word|
+        Rvim::Spell.misspelled?(word) ? "#{SPELL_ERR_ON}#{word}#{SPELL_ERR_OFF}" : word
+      end
     end
 
     TAB_MARKER_HEAD = '>'

@@ -495,6 +495,7 @@ module Rvim
         ch = k.is_a?(Integer) ? k.chr : k.to_s
         case ch
         when 'c' then diff_jump(:prev)
+        when 's' then jump_to_misspelling(:prev)
         end
       end
     end
@@ -505,8 +506,59 @@ module Rvim
         ch = k.is_a?(Integer) ? k.chr : k.to_s
         case ch
         when 'c' then diff_jump(:next)
+        when 's' then jump_to_misspelling(:next)
         end
       end
+    end
+
+    def jump_to_misspelling(direction)
+      return unless @settings.get(:spell)
+
+      bp = @byte_pointer
+      li = @line_index
+      lines = @buffer_of_lines
+      total = lines.size
+
+      forward = direction == :next
+      step = forward ? +1 : -1
+      cur_li = li
+      cur_bp = bp
+
+      visited = 0
+      while visited < total
+        line = lines[cur_li] || ''
+        positions = scan_word_positions(line)
+        positions.sort_by! { |s, _| s }
+        positions.reverse! unless forward
+        positions.each do |start_byte, end_byte|
+          if cur_li == li
+            next if forward && start_byte <= bp
+            next if !forward && start_byte >= bp
+          end
+
+          word = line.byteslice(start_byte, end_byte - start_byte)
+          if Rvim::Spell.misspelled?(word)
+            push_jump
+            @line_index = cur_li
+            @byte_pointer = start_byte
+            return
+          end
+        end
+
+        cur_li += step
+        break if cur_li.negative? || cur_li >= total
+
+        visited += 1
+      end
+    end
+
+    private def scan_word_positions(line)
+      positions = []
+      line.to_s.scan(/[A-Za-z]+/) do |w|
+        m = Regexp.last_match
+        positions << [m.begin(0), m.end(0)]
+      end
+      positions
     end
 
     private def rvim_match_motion(key, arg: 1)
@@ -606,7 +658,38 @@ module Rvim
         when 'n' then @settings.set(:foldenable, false)
         when 'N' then @settings.set(:foldenable, true)
         when 'i' then @settings.set(:foldenable, !@settings.get(:foldenable))
+        when '=' then spell_show_suggestions
+        when 'g' then spell_add_word_at_cursor(:good)
+        when 'w' then spell_add_word_at_cursor(:bad)
         end
+      end
+    end
+
+    def spell_show_suggestions
+      word = word_at_cursor
+      return unless word
+      return unless Rvim::Spell.misspelled?(word)
+
+      suggestions = Rvim::Spell.suggest(word)
+      if suggestions.empty?
+        @status_message = "Sorry, no suggestions"
+        return
+      end
+
+      lines = ["Suggestions for '#{word}':"] + suggestions.each_with_index.map { |s, i| "  #{i + 1}. #{s}" }
+      show_list(lines)
+    end
+
+    def spell_add_word_at_cursor(kind)
+      word = word_at_cursor
+      return unless word
+
+      if kind == :good
+        Rvim::Spell.add_good(word)
+        @status_message = "Added '#{word}' to good spell list"
+      else
+        Rvim::Spell.add_bad(word)
+        @status_message = "Added '#{word}' to bad spell list"
       end
     end
 

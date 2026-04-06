@@ -22,6 +22,8 @@ module Rvim
       modelines: 5,
       undofile: false,
       wildmenu: true,
+      spell: false,
+      spelllang: 'en',
     }.freeze
 
     ALIASES = {
