@@ -71,6 +71,8 @@ module Rvim
       @completion_base_byte = 0
       @completion_line_index = 0
       @completion_popup = nil
+      @cmdline_popup = nil
+      @cmdline_completion_context = nil
       @autocommands = Rvim::Autocommands.new
       @quickfix = Rvim::Quickfix.new
       install_key_bindings
@@ -1610,14 +1612,26 @@ module Rvim
         return
       end
 
+      if ch == "\t" && @prompt_mode == :ex
+        cmdline_complete(+1)
+        return
+      end
+
+      if ch == "\x19" && @prompt_mode == :ex
+        # Ctrl-Y on some terminals: skip; reserved
+      end
+
       case ch
       when "\r", "\n"
+        clear_cmdline_completion
         execute_prompt
         return
       when "\e"
+        clear_cmdline_completion
         cancel_prompt
         return
       when "\x7f", "\b" # backspace / DEL
+        clear_cmdline_completion
         if @prompt_buffer.empty?
           cancel_prompt
           return
@@ -1626,11 +1640,46 @@ module Rvim
         end
         clear_history_cursor
       else
+        clear_cmdline_completion
         @prompt_buffer << ch.to_s
         clear_history_cursor
       end
       refresh_incremental_search
     end
+
+    private def cmdline_complete(direction)
+      return unless @prompt_mode == :ex
+
+      if @cmdline_popup && !@cmdline_popup.empty?
+        new_idx = (@cmdline_popup.pointer + direction) % @cmdline_popup.size
+        @cmdline_popup.pointer = new_idx
+        apply_cmdline_completion
+        return
+      end
+
+      ctx = Rvim::CmdlineCompletion.analyze(@prompt_buffer)
+      candidates = Rvim::CmdlineCompletion.candidates(ctx, self)
+      return if candidates.empty?
+
+      @cmdline_completion_context = ctx
+      @cmdline_popup = Rvim::CompletionPopup.new(contents: candidates, pointer: direction < 0 ? candidates.size - 1 : 0)
+      apply_cmdline_completion
+    end
+
+    private def apply_cmdline_completion
+      ctx = @cmdline_completion_context
+      return unless ctx
+
+      candidate = @cmdline_popup.contents[@cmdline_popup.pointer].to_s
+      @prompt_buffer = +"#{ctx.prefix}#{candidate}"
+    end
+
+    private def clear_cmdline_completion
+      @cmdline_popup = nil
+      @cmdline_completion_context = nil
+    end
+
+    attr_reader :cmdline_popup
 
     private def handle_prompt_escape_sequence(key)
       return unless @prompt_mode == :ex

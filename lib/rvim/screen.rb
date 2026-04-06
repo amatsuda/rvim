@@ -59,6 +59,9 @@ module Rvim
       if @editor.prompt_mode == :listing
         out << render_listing_overlay
       end
+      if @editor.cmdline_popup && !@editor.cmdline_popup.empty? && @editor.settings.get(:wildmenu)
+        out << render_cmdline_popup
+      end
       out << move_to(@rows, 1) << ERASE_LINE << bottom_line
 
       cw = @editor.current_window
@@ -202,6 +205,33 @@ module Rvim
 
       if is_current && @editor.completion_popup && !@editor.completion_popup.empty?
         out << render_completion_popup(win, gw, content_width, wrap_on)
+      end
+      out
+    end
+
+    def render_cmdline_popup
+      popup = @editor.cmdline_popup
+      visible = popup.visible_height
+      need_bar = popup.needs_scrollbar?
+      width = popup.width
+      total_width = width + (need_bar ? 1 : 0)
+      base_row = @rows - visible
+      base_col = 1
+      max_col = @cols
+      base_col = [base_col, max_col - total_width + 1].max
+      base_col = 1 if base_col < 1
+
+      out = +''
+      popup.visible_range.each_with_index do |idx, i|
+        candidate = popup.contents[idx].to_s
+        line = pad_to_width(truncate_to_width(candidate, width), width)
+        line_with_bar = line + (need_bar ? scrollbar_glyph_for(popup, idx) : '')
+        out << move_to(base_row + i, base_col)
+        if idx == popup.pointer
+          out << REVERSE_ON << line_with_bar << REVERSE_OFF
+        else
+          out << DIM_ON << line_with_bar << DIM_OFF
+        end
       end
       out
     end

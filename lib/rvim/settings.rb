@@ -21,6 +21,7 @@ module Rvim
       modeline: true,
       modelines: 5,
       undofile: false,
+      wildmenu: true,
     }.freeze
 
     ALIASES = {
@@ -40,6 +41,7 @@ module Rvim
       'ml' => :modeline,
       'mls' => :modelines,
       'udf' => :undofile,
+      'wmnu' => :wildmenu,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
