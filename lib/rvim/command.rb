@@ -173,6 +173,8 @@ module Rvim
              when 'diffoff' then :diffoff
              when 'diffupdate', 'diffu' then :diffupdate
              when 'diffsplit', 'diffs' then :diffsplit
+             when 'hi', 'highlight' then :hi
+             when 'colorscheme', 'colo' then :colorscheme
              else verb_str.to_sym
              end
 
@@ -369,6 +371,10 @@ module Rvim
         editor.recompute_diff_status
       when :diffsplit
         execute_diffsplit(editor, parsed)
+      when :hi
+        execute_hi(editor, parsed)
+      when :colorscheme
+        execute_colorscheme(editor, parsed)
       else
         editor.status_message = "E492: Not an editor command: #{parsed.verb}"
       end
@@ -597,6 +603,96 @@ module Rvim
         editor.instance_variable_set(:@line_index, 0)
         editor.instance_variable_set(:@byte_pointer, 0)
       end
+    end
+
+    def self.execute_hi(editor, parsed)
+      arg = parsed.arg.to_s.strip
+      if arg.empty?
+        editor.show_list(format_highlights)
+        return
+      end
+
+      tokens = arg.split(/\s+/)
+      group = tokens.shift
+
+      if group&.casecmp?('clear')
+        if tokens.empty?
+          Rvim::Highlights.reset_to_defaults!
+        else
+          Rvim::Highlights.clear(tokens.first)
+        end
+        return
+      end
+
+      attrs = {}
+      tokens.each do |t|
+        next unless t.include?('=')
+
+        key, val = t.split('=', 2)
+        case key.downcase
+        when 'ctermfg' then attrs[:fg] = val
+        when 'ctermbg' then attrs[:bg] = val
+        when 'cterm', 'gui'
+          val.to_s.split(',').each do |a|
+            case a.downcase
+            when 'bold' then attrs[:bold] = true
+            when 'italic' then attrs[:italic] = true
+            when 'underline' then attrs[:underline] = true
+            when 'reverse', 'inverse' then attrs[:reverse] = true
+            when 'none' then attrs.merge!(bold: false, italic: false, underline: false, reverse: false)
+            end
+          end
+        end
+      end
+
+      Rvim::Highlights.set(group, **attrs)
+    end
+
+    def self.format_highlights
+      header = '   group         fg              bg              attrs'
+      rows = Rvim::Highlights.groups.map do |name, attr|
+        attrs = []
+        attrs << 'bold' if attr.bold
+        attrs << 'italic' if attr.italic
+        attrs << 'underline' if attr.underline
+        attrs << 'reverse' if attr.reverse
+        format(
+          '   %-13s %-15s %-15s %s',
+          name[0, 13],
+          (attr.fg || '').to_s[0, 15],
+          (attr.bg || '').to_s[0, 15],
+          attrs.join(','),
+        )
+      end
+      ['Highlight groups', header, *rows]
+    end
+
+    def self.execute_colorscheme(editor, parsed)
+      name = parsed.arg.to_s.strip
+      if name.empty?
+        editor.status_message = 'colorscheme name required'
+        return
+      end
+
+      if name == 'default'
+        Rvim::Highlights.reset_to_defaults!
+        return
+      end
+
+      paths = colorscheme_search_paths(name)
+      target = paths.find { |p| File.exist?(p) }
+      if target
+        editor.source(target)
+      else
+        editor.status_message = "E185: Cannot find color scheme '#{name}'"
+      end
+    end
+
+    def self.colorscheme_search_paths(name)
+      [
+        File.expand_path("~/.config/rvim/colors/#{name}.vim"),
+        File.expand_path("~/.rvim/colors/#{name}.vim"),
+      ]
     end
 
     def self.execute_diffthis(editor, _parsed)

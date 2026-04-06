@@ -515,13 +515,17 @@ module Rvim
       return truncate(line, width) if segments.empty?
 
       out = line.dup
-      segments.sort_by { |s, _e, _c| -s }.each do |s, e, color|
+      added_bytes = 0
+      segments.sort_by { |s, _e, _c| -s }.each do |s, e, group|
         head = out.byteslice(0, s) || +''
         mid = out.byteslice(s, e - s + 1) || +''
         tail = out.byteslice(e + 1, out.bytesize - e - 1) || +''
-        out = head + Rvim::Syntax::COLORS[color] + mid + Rvim::Syntax::RESET + tail
+        prefix = Rvim::Highlights.ansi_prefix(group)
+        suffix = Rvim::Highlights.ansi_suffix(group)
+        out = head + prefix + mid + suffix + tail
+        added_bytes += prefix.bytesize + suffix.bytesize
       end
-      truncate(out, width + segments.size * (Rvim::Syntax::COLORS[:default].bytesize + Rvim::Syntax::RESET.bytesize))
+      truncate(out, width + added_bytes)
     end
 
     def current_language
