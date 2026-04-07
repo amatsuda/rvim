@@ -84,6 +84,17 @@ module Rvim
       $stdout.flush
     end
 
+    def content_width_for(win)
+      return 0 unless win
+
+      gw = gutter_width(win.buffer)
+      [win.width - gw, 0].max
+    end
+
+    def split_segments_public(line, max_width)
+      split_line_segments(line, max_width)
+    end
+
     private
 
     def layout_windows(total_rows, total_cols)

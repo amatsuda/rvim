@@ -2264,8 +2264,48 @@ module Rvim
           start_case_op(:toggle, saved_arg)
         when 'd', 'd'.ord
           goto_definition
+        when 'j', 'j'.ord
+          display_line_motion(:down)
+        when 'k', 'k'.ord
+          display_line_motion(:up)
         end
       end
+    end
+
+    def display_line_motion(direction)
+      unless @settings.get(:wrap) && @screen && @current_window
+        plain_line_step(direction)
+        return
+      end
+
+      width = @screen.content_width_for(@current_window)
+      target = Rvim::DisplayMotion.next_position(
+        @buffer_of_lines,
+        @line_index,
+        @byte_pointer,
+        width,
+        direction,
+        splitter: ->(line, w) { @screen.split_segments_public(line, w) },
+      )
+      if target
+        @line_index, @byte_pointer = target
+      else
+        plain_line_step(direction)
+      end
+    end
+
+    private def plain_line_step(direction)
+      if direction == :down
+        return if @line_index >= @buffer_of_lines.size - 1
+
+        @line_index += 1
+      else
+        return if @line_index <= 0
+
+        @line_index -= 1
+      end
+      target = @buffer_of_lines[@line_index] || ''
+      @byte_pointer = @byte_pointer.clamp(0, [target.bytesize - 1, 0].max)
     end
 
     private def start_case_op(kind, count_arg)
