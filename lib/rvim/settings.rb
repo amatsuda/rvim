@@ -24,6 +24,7 @@ module Rvim
       wildmenu: true,
       spell: false,
       spelllang: 'en',
+      tags: './tags,tags',
     }.freeze
 
     ALIASES = {

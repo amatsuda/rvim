@@ -75,6 +75,9 @@ module Rvim
       @cmdline_completion_context = nil
       @digraph_pending = false
       @digraph_chars = +''
+      @tag_stack = []
+      @tag_matches = []
+      @tag_match_index = 0
       @autocommands = Rvim::Autocommands.new
       @quickfix = Rvim::Quickfix.new
       install_key_bindings
@@ -142,6 +145,8 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_command, [?%.ord], :rvim_match_motion)
       @config.add_default_key_binding_by_keymap(:vi_command, [?[.ord], :rvim_bracket_left)
       @config.add_default_key_binding_by_keymap(:vi_command, [?].ord], :rvim_bracket_right)
+      @config.add_default_key_binding_by_keymap(:vi_command, [0x1D], :rvim_tag_jump)   # Ctrl-]
+      @config.add_default_key_binding_by_keymap(:vi_command, [0x14], :rvim_tag_pop)    # Ctrl-T
       @config.add_default_key_binding_by_keymap(:vi_command, [?(.ord], :rvim_sentence_backward)
       @config.add_default_key_binding_by_keymap(:vi_command, [?).ord], :rvim_sentence_forward)
       @config.add_default_key_binding_by_keymap(:vi_command, [?{.ord], :rvim_paragraph_backward)
@@ -411,6 +416,89 @@ module Rvim
 
     private def rvim_page_up(key, arg: 1)
       page_jump(-1, arg)
+    end
+
+    attr_reader :tag_stack, :tag_matches, :tag_match_index
+
+    private def rvim_tag_jump(key, arg: 1)
+      word = word_at_cursor
+      return unless word
+
+      tag_jump(word)
+    end
+
+    private def rvim_tag_pop(key, arg: 1)
+      tag_pop
+    end
+
+    def tag_jump(name)
+      reload_tags_if_needed
+      matches = Rvim::Tags.find(name)
+      if matches.empty?
+        @status_message = "E426: tag not found: #{name}"
+        return
+      end
+
+      push_tag_stack(name)
+      @tag_matches = matches
+      @tag_match_index = 0
+      jump_to_tag_entry(matches.first)
+    end
+
+    def tag_pop
+      if @tag_stack.empty?
+        @status_message = 'E555: at bottom of tag stack'
+        return
+      end
+
+      entry = @tag_stack.pop
+      open(entry[:file]) if entry[:file] && entry[:file] != @filepath
+      @line_index = entry[:line_index].clamp(0, [@buffer_of_lines.size - 1, 0].max)
+      target = @buffer_of_lines[@line_index] || ''
+      @byte_pointer = entry[:byte_pointer].clamp(0, target.bytesize)
+    end
+
+    def tag_next
+      return @status_message = 'E73: no more matches' if @tag_matches.empty?
+
+      @tag_match_index = (@tag_match_index + 1).clamp(0, @tag_matches.size - 1)
+      jump_to_tag_entry(@tag_matches[@tag_match_index])
+    end
+
+    def tag_prev
+      return @status_message = 'E73: no more matches' if @tag_matches.empty?
+
+      @tag_match_index = (@tag_match_index - 1).clamp(0, @tag_matches.size - 1)
+      jump_to_tag_entry(@tag_matches[@tag_match_index])
+    end
+
+    private def push_tag_stack(name)
+      @tag_stack << {
+        name: name,
+        file: @filepath,
+        line_index: @line_index,
+        byte_pointer: @byte_pointer,
+      }
+    end
+
+    private def jump_to_tag_entry(entry)
+      open(entry.file) if entry.file && entry.file != @filepath
+      target = Rvim::Tags.locate(entry.excmd, @buffer_of_lines)
+      if target
+        push_jump
+        @line_index = target[0].clamp(0, [@buffer_of_lines.size - 1, 0].max)
+        line_text = @buffer_of_lines[@line_index] || ''
+        @byte_pointer = target[1].clamp(0, line_text.bytesize)
+      else
+        @status_message = "E433: tag location not found: #{entry.excmd}"
+      end
+    end
+
+    def reload_tags_if_needed
+      paths = @settings.get(:tags).to_s.split(',').map(&:strip).reject(&:empty?)
+      return if paths == Rvim::Tags.loaded_paths
+
+      Rvim::Tags.load(paths)
     end
 
     private def rvim_digraph_start(key, arg: 1)

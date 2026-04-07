@@ -176,6 +176,10 @@ module Rvim
              when 'hi', 'highlight' then :hi
              when 'colorscheme', 'colo' then :colorscheme
              when 'digraph', 'digraphs', 'dig' then :digraphs
+             when 'tag', 'ta' then :tag
+             when 'tags' then :tags_list
+             when 'tnext', 'tn' then :tnext
+             when 'tprev', 'tp', 'tprevious' then :tprev
              else verb_str.to_sym
              end
 
@@ -378,6 +382,14 @@ module Rvim
         execute_colorscheme(editor, parsed)
       when :digraphs
         execute_digraphs(editor, parsed)
+      when :tag
+        execute_tag(editor, parsed)
+      when :tags_list
+        editor.show_list(format_tag_stack(editor))
+      when :tnext
+        editor.tag_next
+      when :tprev
+        editor.tag_prev
       else
         editor.status_message = "E492: Not an editor command: #{parsed.verb}"
       end
@@ -606,6 +618,24 @@ module Rvim
         editor.instance_variable_set(:@line_index, 0)
         editor.instance_variable_set(:@byte_pointer, 0)
       end
+    end
+
+    def self.execute_tag(editor, parsed)
+      arg = parsed.arg.to_s.strip
+      if arg.empty?
+        editor.status_message = 'E471: usage: :tag NAME'
+        return
+      end
+
+      editor.tag_jump(arg)
+    end
+
+    def self.format_tag_stack(editor)
+      header = '   #  name              file:line'
+      rows = editor.tag_stack.each_with_index.map do |e, i|
+        format('   %2d  %-16s  %s:%d', i + 1, e[:name].to_s[0, 16], (e[:file] || '').to_s, e[:line_index] + 1)
+      end
+      ['Tag stack', header, *rows]
     end
 
     def self.execute_digraphs(editor, parsed)
