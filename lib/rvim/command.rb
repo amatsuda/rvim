@@ -175,6 +175,7 @@ module Rvim
              when 'diffsplit', 'diffs' then :diffsplit
              when 'hi', 'highlight' then :hi
              when 'colorscheme', 'colo' then :colorscheme
+             when 'digraph', 'digraphs', 'dig' then :digraphs
              else verb_str.to_sym
              end
 
@@ -375,6 +376,8 @@ module Rvim
         execute_hi(editor, parsed)
       when :colorscheme
         execute_colorscheme(editor, parsed)
+      when :digraphs
+        execute_digraphs(editor, parsed)
       else
         editor.status_message = "E492: Not an editor command: #{parsed.verb}"
       end
@@ -603,6 +606,38 @@ module Rvim
         editor.instance_variable_set(:@line_index, 0)
         editor.instance_variable_set(:@byte_pointer, 0)
       end
+    end
+
+    def self.execute_digraphs(editor, parsed)
+      arg = parsed.arg.to_s.strip
+      if arg.empty?
+        editor.show_list(format_digraphs)
+        return
+      end
+
+      tokens = arg.split(/\s+/)
+      pair, code_token = tokens
+      if pair.nil? || pair.length != 2 || code_token.nil?
+        editor.status_message = 'E471: usage: :digraph d1d2 N'
+        return
+      end
+
+      code = code_token.to_i
+      if code <= 0
+        editor.status_message = 'E471: codepoint must be positive integer'
+        return
+      end
+
+      Rvim::Digraphs.define(pair, code)
+    end
+
+    def self.format_digraphs
+      header = '   pair  char  codepoint'
+      rows = []
+      Rvim::Digraphs.each do |pair, ch|
+        rows << format('   %-4s  %-4s  U+%04X', pair, ch, ch.codepoints.first || 0)
+      end
+      ['Digraphs', header, *rows]
     end
 
     def self.execute_hi(editor, parsed)

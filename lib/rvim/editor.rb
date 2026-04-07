@@ -73,6 +73,8 @@ module Rvim
       @completion_popup = nil
       @cmdline_popup = nil
       @cmdline_completion_context = nil
+      @digraph_pending = false
+      @digraph_chars = +''
       @autocommands = Rvim::Autocommands.new
       @quickfix = Rvim::Quickfix.new
       install_key_bindings
@@ -136,6 +138,7 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_command, [?z.ord], :rvim_fold_prefix)
       @config.add_default_key_binding_by_keymap(:vi_insert, [0x0E], :rvim_complete_next) # Ctrl-N
       @config.add_default_key_binding_by_keymap(:vi_insert, [0x10], :rvim_complete_prev) # Ctrl-P
+      @config.add_default_key_binding_by_keymap(:vi_insert, [0x0B], :rvim_digraph_start) # Ctrl-K
       @config.add_default_key_binding_by_keymap(:vi_command, [?%.ord], :rvim_match_motion)
       @config.add_default_key_binding_by_keymap(:vi_command, [?[.ord], :rvim_bracket_left)
       @config.add_default_key_binding_by_keymap(:vi_command, [?].ord], :rvim_bracket_right)
@@ -408,6 +411,36 @@ module Rvim
 
     private def rvim_page_up(key, arg: 1)
       page_jump(-1, arg)
+    end
+
+    private def rvim_digraph_start(key, arg: 1)
+      @digraph_pending = true
+      @digraph_chars = +''
+    end
+
+    private def capture_digraph_key(key)
+      ch = key.char.to_s
+      @digraph_chars << ch
+      return if @digraph_chars.length < 2
+
+      pair = @digraph_chars[0, 2]
+      result = Rvim::Digraphs.lookup(pair)
+      @digraph_pending = false
+      @digraph_chars = +''
+      if result
+        insert_at_cursor(result)
+      else
+        @status_message = "E1050: unknown digraph: #{pair}"
+      end
+    end
+
+    def insert_at_cursor(s)
+      line = @buffer_of_lines[@line_index] || +''
+      head = line.byteslice(0, @byte_pointer) || +''
+      tail = line.byteslice(@byte_pointer, line.bytesize - @byte_pointer) || +''
+      @buffer_of_lines[@line_index] = String.new(head + s + tail, encoding: encoding)
+      @byte_pointer += s.bytesize
+      @modified = true
     end
 
     private def rvim_complete_next(key, arg: 1)
@@ -1043,6 +1076,11 @@ module Rvim
     def update(key)
       if @prompt_mode == :listing
         process_listing_key(key)
+        return
+      end
+
+      if @digraph_pending
+        capture_digraph_key(key)
         return
       end
 
