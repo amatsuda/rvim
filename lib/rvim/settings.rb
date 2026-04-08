@@ -31,6 +31,10 @@ module Rvim
       cursorcolumn: false,
       fileformat: 'unix',
       statusline: '',
+      fileencoding: 'utf-8',
+      virtualedit: '',
+      mouse: '',
+      sidescrolloff: 0,
     }.freeze
 
     ALIASES = {
@@ -57,6 +61,9 @@ module Rvim
       'cuc' => :cursorcolumn,
       'ff' => :fileformat,
       'stl' => :statusline,
+      'fenc' => :fileencoding,
+      've' => :virtualedit,
+      'siso' => :sidescrolloff,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze

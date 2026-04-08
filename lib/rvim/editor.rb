@@ -1149,7 +1149,10 @@ module Rvim
             when 'mac' then "\r"
             else "\n"
             end
+      enc = @settings.get(:fileencoding).to_s
+      enc = 'utf-8' if enc.empty?
       content = @buffer_of_lines.join(sep) + sep
+      content = content.encode(enc, invalid: :replace, undef: :replace) if enc.downcase != 'utf-8'
       File.binwrite(target, content)
       @filepath = target
       @modified = false

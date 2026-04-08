@@ -7,16 +7,18 @@ module Rvim
     attr_accessor :undo_redo_history, :undo_redo_index, :last_visual
     attr_accessor :local_settings, :folds
     attr_accessor :diff_active, :diff_status
-    attr_accessor :fileformat
+    attr_accessor :fileformat, :fileencoding
 
     def initialize(id, filepath = nil, encoding: Encoding::UTF_8)
       @id = id
       @filepath = filepath
       @fileformat = 'unix'
+      @fileencoding = encoding.to_s.downcase
       if filepath && File.exist?(filepath)
         raw = File.binread(filepath)
         @fileformat = detect_fileformat(raw)
-        @lines = split_with_format(raw, @fileformat).map { |l| String.new(l, encoding: encoding) }
+        decoded = decode_with_encoding(raw, encoding)
+        @lines = split_with_format(decoded, @fileformat).map { |l| String.new(l, encoding: encoding) }
       else
         @lines = [String.new('', encoding: encoding)]
       end
@@ -36,6 +38,13 @@ module Rvim
 
     def display_name
       @filepath || '[No Name]'
+    end
+
+    private def decode_with_encoding(raw, target_encoding)
+      raw.force_encoding(target_encoding)
+      raw.valid_encoding? ? raw : raw.force_encoding(Encoding::ASCII_8BIT)
+    rescue ArgumentError
+      raw.force_encoding(Encoding::ASCII_8BIT)
     end
 
     private def detect_fileformat(raw)
