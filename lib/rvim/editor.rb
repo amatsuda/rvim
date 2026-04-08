@@ -78,6 +78,10 @@ module Rvim
       @tag_stack = []
       @tag_matches = []
       @tag_match_index = 0
+      @last_bang_cmd = nil
+      @arg_list = []
+      @arg_index = 0
+      @alternate_filepath = nil
       @autocommands = Rvim::Autocommands.new
       @quickfix = Rvim::Quickfix.new
       install_key_bindings
@@ -231,6 +235,7 @@ module Rvim
     end
 
     def swap_to_buffer(buf)
+      @alternate_filepath = @filepath if @current_buffer && @filepath != buf.filepath
       save_current_buffer if @current_buffer
       @current_buffer = buf
       @filepath = buf.filepath
@@ -419,6 +424,9 @@ module Rvim
     end
 
     attr_reader :tag_stack, :tag_matches, :tag_match_index
+    attr_accessor :last_bang_cmd, :alternate_filepath
+    attr_reader :arg_list
+    attr_accessor :arg_index
 
     private def rvim_tag_jump(key, arg: 1)
       word = word_at_cursor
@@ -492,6 +500,15 @@ module Rvim
       else
         @status_message = "E433: tag location not found: #{entry.excmd}"
       end
+    end
+
+    def set_arg_list(paths)
+      @arg_list = Array(paths).map(&:to_s)
+      @arg_index = 0
+    end
+
+    def add_arg(path)
+      @arg_list << path.to_s
     end
 
     def reload_tags_if_needed
@@ -2877,6 +2894,7 @@ module Rvim
     def self.start(*filepaths, norc: false)
       editor = new(Reline.core.config)
       filepaths = filepaths.flatten.compact
+      editor.set_arg_list(filepaths)
       filepaths.each { |path| editor.open(path) }
       unless norc
         [File.expand_path(RVIMRC_PATH), init_vim_path].each do |rc|

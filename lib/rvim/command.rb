@@ -180,6 +180,12 @@ module Rvim
              when 'tags' then :tags_list
              when 'tnext', 'tn' then :tnext
              when 'tprev', 'tp', 'tprevious' then :tprev
+             when 'bufdo' then :bufdo
+             when 'tabdo' then :tabdo
+             when 'windo' then :windo
+             when 'argdo' then :argdo
+             when 'args', 'ar' then :args
+             when 'argadd', 'arga' then :argadd
              else verb_str.to_sym
              end
 
@@ -265,7 +271,8 @@ module Rvim
       when :jumps
         editor.show_list(format_jumps(editor))
       when :registers
-        editor.show_list(format_registers(editor))
+        filter_chars = parsed.arg.to_s.scan(/\S/).reject { |c| c == '"' }
+        editor.show_list(format_registers(editor, filter: filter_chars))
       when :tabnext
         editor.tab_advance
       when :tabprev
@@ -390,6 +397,18 @@ module Rvim
         editor.tag_next
       when :tprev
         editor.tag_prev
+      when :bufdo
+        execute_bufdo(editor, parsed)
+      when :tabdo
+        execute_tabdo(editor, parsed)
+      when :windo
+        execute_windo(editor, parsed)
+      when :argdo
+        execute_argdo(editor, parsed)
+      when :args
+        execute_args(editor, parsed)
+      when :argadd
+        execute_argadd(editor, parsed)
       else
         editor.status_message = "E492: Not an editor command: #{parsed.verb}"
       end
@@ -618,6 +637,103 @@ module Rvim
         editor.instance_variable_set(:@line_index, 0)
         editor.instance_variable_set(:@byte_pointer, 0)
       end
+    end
+
+    # Replace standalone % with current filepath and # with alternate.
+    # Use \% / \# to escape.
+    def self.expand_filenames(editor, str)
+      out = +''
+      i = 0
+      bytes = str.to_s
+      while i < bytes.length
+        c = bytes[i]
+        if c == '\\' && (bytes[i + 1] == '%' || bytes[i + 1] == '#')
+          out << bytes[i + 1]
+          i += 2
+        elsif c == '%' && editor.filepath
+          out << editor.filepath
+          i += 1
+        elsif c == '#' && editor.alternate_filepath
+          out << editor.alternate_filepath
+          i += 1
+        else
+          out << c
+          i += 1
+        end
+      end
+      out
+    end
+
+    def self.execute_bufdo(editor, parsed)
+      cmd = parsed.arg.to_s
+      return if cmd.empty?
+
+      saved = editor.current_buffer
+      editor.buffer_order.each do |id|
+        buf = editor.buffers[id]
+        next unless buf
+
+        editor.swap_to_buffer(buf)
+        execute(editor, parse(cmd))
+      end
+      editor.swap_to_buffer(saved) if saved && editor.buffers.values.include?(saved)
+    end
+
+    def self.execute_tabdo(editor, parsed)
+      cmd = parsed.arg.to_s
+      return if cmd.empty?
+
+      saved_idx = editor.current_tab_index
+      editor.tabs.size.times do |i|
+        editor.swap_to_tab(i)
+        execute(editor, parse(cmd))
+      end
+      editor.swap_to_tab(saved_idx) if saved_idx && saved_idx < editor.tabs.size
+    end
+
+    def self.execute_windo(editor, parsed)
+      cmd = parsed.arg.to_s
+      return if cmd.empty?
+
+      saved = editor.current_window
+      editor.windows.dup.each do |win|
+        editor.send(:activate_window, win)
+        execute(editor, parse(cmd))
+      end
+      editor.send(:activate_window, saved) if saved && editor.windows.include?(saved)
+    end
+
+    def self.execute_argdo(editor, parsed)
+      cmd = parsed.arg.to_s
+      return if cmd.empty?
+
+      editor.arg_list.each do |path|
+        editor.open(path)
+        execute(editor, parse(cmd))
+      end
+    end
+
+    def self.execute_args(editor, parsed)
+      arg = parsed.arg.to_s.strip
+      if arg.empty?
+        list = editor.arg_list
+        if list.empty?
+          editor.status_message = 'E163: there is no argument list'
+        else
+          editor.show_list(['Argument list', *list.each_with_index.map { |p, i| format('   %2d  %s', i + 1, p) }])
+        end
+        return
+      end
+
+      paths = arg.split(/\s+/).flat_map { |p| Dir.glob(p).empty? ? [p] : Dir.glob(p) }
+      editor.set_arg_list(paths)
+    end
+
+    def self.execute_argadd(editor, parsed)
+      arg = parsed.arg.to_s.strip
+      return if arg.empty?
+
+      arg.split(/\s+/).each { |p| editor.add_arg(p) }
     end
 
     def self.execute_tag(editor, parsed)
@@ -989,7 +1105,19 @@ module Rvim
     end
 
     def self.execute_bang(editor, parsed)
-      result = Rvim::Filter.run(parsed.arg.to_s)
+      cmd = parsed.arg.to_s
+      if cmd.start_with?('!')
+        if editor.last_bang_cmd
+          cmd = editor.last_bang_cmd + cmd[1..]
+        else
+          editor.status_message = 'E34: no previous command'
+          return
+        end
+      end
+      cmd = expand_filenames(editor, cmd)
+      editor.last_bang_cmd = cmd
+
+      result = Rvim::Filter.run(cmd)
       if result.success?
         lines = result.stdout.chomp("\n").split("\n", -1)
         lines = ['(no output)'] if lines.empty? || lines == ['']
@@ -1002,7 +1130,8 @@ module Rvim
     def self.execute_filter(editor, parsed)
       start_line, end_line = resolve_sub_range(editor, parsed.range)
       input = editor.buffer_of_lines[start_line..end_line].join("\n")
-      result = Rvim::Filter.run(parsed.arg.to_s, input: input)
+      cmd = expand_filenames(editor, parsed.arg.to_s)
+      result = Rvim::Filter.run(cmd, input: input)
       unless result.success?
         editor.status_message = filter_error_status(result)
         return
@@ -1129,12 +1258,13 @@ module Rvim
 
     KIND_TAGS = { char: 'c', line: 'l', block: 'b' }.freeze
 
-    def self.format_registers(editor)
+    def self.format_registers(editor, filter: nil)
       header = 'type  name  content'
       table = editor.instance_variable_get(:@registers).instance_variable_get(:@table) || {}
       rows = []
       # Order: " (unnamed), "0-"9 (numbered), "a-"z (named)
       ordered_keys = ['"', *('0'..'9'), *('a'..'z')].select { |k| table[k] }
+      ordered_keys = ordered_keys & filter if filter && !filter.empty?
       ordered_keys.each do |name|
         entry = table[name]
         next unless entry
@@ -1144,8 +1274,8 @@ module Rvim
         preview = text.gsub("\n", '\\n')[0, 60]
         rows << format('   %s   "%s   %s', kind, name, preview)
       end
-      # Add "% if filepath set
-      if editor.filepath
+      # Add "% if filepath set and not filtered out
+      if editor.filepath && (filter.nil? || filter.empty? || filter.include?('%'))
         rows << format('   c   "%%   %s', editor.filepath[0, 60])
       end
       [header, *rows]
