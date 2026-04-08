@@ -146,6 +146,7 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_insert, [0x0E], :rvim_complete_next) # Ctrl-N
       @config.add_default_key_binding_by_keymap(:vi_insert, [0x10], :rvim_complete_prev) # Ctrl-P
       @config.add_default_key_binding_by_keymap(:vi_insert, [0x0B], :rvim_digraph_start) # Ctrl-K
+      @config.add_default_key_binding_by_keymap(:vi_insert, [0x09], :rvim_insert_tab)    # Tab
       @config.add_default_key_binding_by_keymap(:vi_command, [?%.ord], :rvim_match_motion)
       @config.add_default_key_binding_by_keymap(:vi_command, [?[.ord], :rvim_bracket_left)
       @config.add_default_key_binding_by_keymap(:vi_command, [?].ord], :rvim_bracket_right)
@@ -516,6 +517,16 @@ module Rvim
       return if paths == Rvim::Tags.loaded_paths
 
       Rvim::Tags.load(paths)
+    end
+
+    private def rvim_insert_tab(key, arg: 1)
+      if @settings.get(:expandtab)
+        n = @settings.get(:shiftwidth).to_i
+        n = 2 if n <= 0
+        insert_at_cursor(' ' * n)
+      else
+        insert_at_cursor("\t")
+      end
     end
 
     private def rvim_digraph_start(key, arg: 1)

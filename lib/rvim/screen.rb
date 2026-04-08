@@ -221,6 +221,37 @@ module Rvim
       if is_current && @editor.completion_popup && !@editor.completion_popup.empty?
         out << render_completion_popup(win, gw, content_width, wrap_on)
       end
+
+      cc_cols = parse_colorcolumns(@editor.settings.get(:colorcolumn))
+      unless cc_cols.empty?
+        out << render_colorcolumn_overlay(win, gw, content_width, cc_cols, display_rows.size)
+      end
+      out
+    end
+
+    def parse_colorcolumns(spec)
+      spec.to_s.split(',').map do |t|
+        t = t.strip
+        next nil if t.empty?
+
+        t.to_i
+      end.compact.select { |n| n > 0 }
+    end
+
+    def render_colorcolumn_overlay(win, gw, content_width, cols, rows_drawn)
+      out = +''
+      cc_prefix = Rvim::Highlights.ansi_prefix('ColorColumn')
+      cc_suffix = Rvim::Highlights.ansi_suffix('ColorColumn')
+      cols.each do |col|
+        next if col > content_width
+        next if col <= 0
+
+        screen_col = win.col + gw + col
+        rows_drawn.times do |i|
+          out << move_to(win.row + i + 1, screen_col)
+          out << cc_prefix << ' ' << cc_suffix
+        end
+      end
       out
     end
 
@@ -559,8 +590,10 @@ module Rvim
       ts = @editor.settings.get(:tabstop) || 8
       ts = 8 if ts <= 0
       list_on = @editor.settings.get(:list)
-      out = line.to_s.gsub("\t", list_on ? render_tab_marker(ts) : (' ' * ts))
-      out = mark_trailing_whitespace(out) if list_on
+      lcs = list_on ? parse_listchars(@editor.settings.get(:listchars)) : nil
+
+      out = line.to_s.gsub("\t", list_on ? render_tab_marker(lcs['tab'] || '> ', ts) : (' ' * ts))
+      out = mark_trailing_whitespace(out, lcs['trail']) if list_on && lcs['trail']
       out = apply_spell_highlight(out) if @editor.settings.get(:spell)
       out
     end
@@ -571,18 +604,29 @@ module Rvim
       end
     end
 
-    TAB_MARKER_HEAD = '>'
-    TAB_MARKER_FILL = '-'
-    TRAIL_MARKER = '·'
+    DEFAULT_LISTCHARS = { 'tab' => '> ', 'trail' => '·' }.freeze
 
-    def render_tab_marker(width)
-      return TAB_MARKER_HEAD if width <= 1
+    def parse_listchars(spec)
+      out = DEFAULT_LISTCHARS.dup
+      spec.to_s.split(',').each do |pair|
+        key, value = pair.split(':', 2)
+        next if key.nil? || value.nil?
 
-      TAB_MARKER_HEAD + (TAB_MARKER_FILL * (width - 1))
+        out[key.strip] = value
+      end
+      out
     end
 
-    def mark_trailing_whitespace(str)
-      str.sub(/[ ]+\z/) { |trail| TRAIL_MARKER * trail.length }
+    def render_tab_marker(spec, width)
+      head = spec[0] || '>'
+      fill = spec[1] || ' '
+      return head if width <= 1
+
+      head + (fill * (width - 1))
+    end
+
+    def mark_trailing_whitespace(str, marker)
+      str.sub(/[ ]+\z/) { |trail| marker * trail.length }
     end
 
     def apply_selection_highlight(line, line_index, sel, width)

@@ -50,6 +50,7 @@ class TestRenderLineWithSettings < Test::Unit::TestCase
 
   def test_render_line_with_list_tab_marker
     @editor.settings.set(:list, true)
+    @editor.settings.set(:listchars, 'tab:>-')
     @editor.settings.set(:tabstop, 4)
     assert_equal '>---x', @screen.send(:render_line, "\tx")
   end

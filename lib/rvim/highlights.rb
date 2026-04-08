@@ -45,6 +45,7 @@ module Rvim
       'Todo'         => Attr.new(fg: 'yellow', bold: true),
       'NonText'      => Attr.new(fg: 'darkgray'),
       'SpellBad'     => Attr.new(fg: 'red'),
+      'ColorColumn'  => Attr.new(bg: 'darkred'),
     }.freeze
 
     class << self

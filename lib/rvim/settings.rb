@@ -25,6 +25,9 @@ module Rvim
       spell: false,
       spelllang: 'en',
       tags: './tags,tags',
+      expandtab: false,
+      listchars: 'tab:> ,trail:·',
+      colorcolumn: '',
     }.freeze
 
     ALIASES = {
@@ -45,6 +48,9 @@ module Rvim
       'mls' => :modelines,
       'udf' => :undofile,
       'wmnu' => :wildmenu,
+      'et' => :expandtab,
+      'lcs' => :listchars,
+      'cc' => :colorcolumn,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
