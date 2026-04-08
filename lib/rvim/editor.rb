@@ -1143,9 +1143,14 @@ module Rvim
       raise 'no file path' unless target
 
       @autocommands&.fire(:bufwritepre, target.to_s, self)
-      content = @buffer_of_lines.join("\n")
-      content += "\n" unless content.end_with?("\n")
-      File.write(target, content)
+      ff = @current_buffer&.fileformat || @settings.get(:fileformat) || 'unix'
+      sep = case ff
+            when 'dos' then "\r\n"
+            when 'mac' then "\r"
+            else "\n"
+            end
+      content = @buffer_of_lines.join(sep) + sep
+      File.binwrite(target, content)
       @filepath = target
       @modified = false
       Rvim::UndoFile.write(target, @undo_redo_history, @undo_redo_index) if @settings.get(:undofile)

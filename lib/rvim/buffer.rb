@@ -7,15 +7,19 @@ module Rvim
     attr_accessor :undo_redo_history, :undo_redo_index, :last_visual
     attr_accessor :local_settings, :folds
     attr_accessor :diff_active, :diff_status
+    attr_accessor :fileformat
 
     def initialize(id, filepath = nil, encoding: Encoding::UTF_8)
       @id = id
       @filepath = filepath
-      @lines = if filepath && File.exist?(filepath)
-                 File.readlines(filepath, chomp: true).map { |l| String.new(l, encoding: encoding) }
-               else
-                 [String.new('', encoding: encoding)]
-               end
+      @fileformat = 'unix'
+      if filepath && File.exist?(filepath)
+        raw = File.binread(filepath)
+        @fileformat = detect_fileformat(raw)
+        @lines = split_with_format(raw, @fileformat).map { |l| String.new(l, encoding: encoding) }
+      else
+        @lines = [String.new('', encoding: encoding)]
+      end
       @lines = [String.new('', encoding: encoding)] if @lines.empty?
       @modified = false
       @marks = Rvim::Marks.new
@@ -32,6 +36,25 @@ module Rvim
 
     def display_name
       @filepath || '[No Name]'
+    end
+
+    private def detect_fileformat(raw)
+      return 'unix' if raw.empty?
+      return 'dos' if raw.include?("\r\n")
+      return 'mac' if raw.include?("\r")
+
+      'unix'
+    end
+
+    private def split_with_format(raw, ff)
+      sep = case ff
+            when 'dos' then "\r\n"
+            when 'mac' then "\r"
+            else "\n"
+            end
+      lines = raw.split(sep, -1)
+      lines.pop if lines.last == ''
+      lines
     end
   end
 end

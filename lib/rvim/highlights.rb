@@ -46,6 +46,7 @@ module Rvim
       'NonText'      => Attr.new(fg: 'darkgray'),
       'SpellBad'     => Attr.new(fg: 'red'),
       'ColorColumn'  => Attr.new(bg: 'darkred'),
+      'CursorColumn' => Attr.new(bg: 'darkgray'),
     }.freeze
 
     class << self

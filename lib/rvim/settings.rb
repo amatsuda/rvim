@@ -28,6 +28,9 @@ module Rvim
       expandtab: false,
       listchars: 'tab:> ,trail:·',
       colorcolumn: '',
+      cursorcolumn: false,
+      fileformat: 'unix',
+      statusline: '',
     }.freeze
 
     ALIASES = {
@@ -51,6 +54,9 @@ module Rvim
       'et' => :expandtab,
       'lcs' => :listchars,
       'cc' => :colorcolumn,
+      'cuc' => :cursorcolumn,
+      'ff' => :fileformat,
+      'stl' => :statusline,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze

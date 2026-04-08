@@ -226,6 +226,25 @@ module Rvim
       unless cc_cols.empty?
         out << render_colorcolumn_overlay(win, gw, content_width, cc_cols, display_rows.size)
       end
+
+      if is_current && @editor.settings.get(:cursorcolumn)
+        out << render_cursorcolumn_overlay(win, gw, content_width, wrap_on, display_rows.size)
+      end
+      out
+    end
+
+    def render_cursorcolumn_overlay(win, gw, content_width, wrap_on, rows_drawn)
+      _, cursor_col = cursor_display_position(win, content_width, wrap_on)
+      return '' if cursor_col < 0 || cursor_col >= content_width
+
+      out = +''
+      cc_prefix = Rvim::Highlights.ansi_prefix('CursorColumn')
+      cc_suffix = Rvim::Highlights.ansi_suffix('CursorColumn')
+      screen_col = win.col + gw + cursor_col + 1
+      rows_drawn.times do |i|
+        out << move_to(win.row + i + 1, screen_col)
+        out << cc_prefix << ' ' << cc_suffix
+      end
       out
     end
 
@@ -685,6 +704,12 @@ module Rvim
     end
 
     def window_status(win, is_current)
+      spec = @editor.settings.get(:statusline).to_s
+      unless spec.empty?
+        formatted = Rvim::Statusline.format(spec, @editor, win, is_current: is_current)
+        return Rvim::Statusline.align_to_width(formatted, win.width)
+      end
+
       buffer = win.buffer
       mode = is_current ? mode_label : ''
       name = buffer.display_name
