@@ -2,7 +2,12 @@
 
 module Rvim
   class Folds
-    Fold = Struct.new(:start_line, :end_line, :closed)
+    Fold = Struct.new(:start_line, :end_line, :closed, :level) do
+      def initialize(*args)
+        super
+        self.level ||= 1
+      end
+    end
 
     def initialize
       @folds = []
@@ -10,24 +15,37 @@ module Rvim
 
     # Add a fold spanning [start_line, end_line] inclusive. Rejects if the
     # range overlaps an existing fold (no nesting in v1).
-    def add(start_line, end_line, closed: true)
+    def add(start_line, end_line, closed: true, level: nil)
       return nil if start_line > end_line
-      return nil if @folds.any? { |f| ranges_overlap?(f.start_line, f.end_line, start_line, end_line) }
 
-      fold = Fold.new(start_line, end_line, closed)
+      # Allow proper containment (nesting). Reject only PARTIAL overlap.
+      @folds.each do |f|
+        next if contains?(f.start_line, f.end_line, start_line, end_line)
+        next if contains?(start_line, end_line, f.start_line, f.end_line)
+        return nil if ranges_overlap?(f.start_line, f.end_line, start_line, end_line)
+      end
+
+      fold = Fold.new(start_line, end_line, closed, level)
       @folds << fold
       @folds.sort_by!(&:start_line)
       fold
     end
 
-    def at_line(line)
-      @folds.find { |f| f.start_line <= line && line <= f.end_line }
+    private def contains?(outer_s, outer_e, inner_s, inner_e)
+      outer_s <= inner_s && inner_e <= outer_e
     end
 
-    # True iff line lies inside a closed fold but is not its start_line.
+    def at_line(line)
+      # Innermost (smallest range) fold containing the line.
+      matches = @folds.select { |f| f.start_line <= line && line <= f.end_line }
+      matches.min_by { |f| f.end_line - f.start_line }
+    end
+
+    # True iff some closed fold contains line and line is not THAT fold's start.
+    # Walks all folds (not just innermost) so a closed outer fold hides every
+    # interior line including inner folds' start_lines.
     def hidden?(line)
-      f = at_line(line)
-      !f.nil? && f.closed && line != f.start_line
+      @folds.any? { |f| f.closed && f.start_line < line && line <= f.end_line }
     end
 
     def closed_at?(line)
@@ -114,6 +132,42 @@ module Rvim
 
     def ranges_overlap?(a_start, a_end, b_start, b_end)
       !(a_end < b_start || a_start > b_end)
+    end
+
+    # Build top-level fold ranges from indentation. A run of consecutive
+    # lines with leading-space-count >= shiftwidth becomes one fold,
+    # anchored at the previous less-indented line. Blank lines inside a
+    # run extend it.
+    def self.from_indent(buffer_of_lines, shiftwidth)
+      return [] if shiftwidth <= 0
+
+      ranges = []
+      in_fold = false
+      fold_start = nil
+      buffer_of_lines.each_with_index do |line, i|
+        text = line.to_s
+        if text.strip.empty?
+          # blank lines continue the current fold
+          next
+        end
+
+        indent = text.bytes.take_while { |b| b == 0x20 }.size
+        indented = indent >= shiftwidth
+
+        if indented
+          unless in_fold
+            fold_start = [i - 1, 0].max
+            in_fold = true
+          end
+        elsif in_fold
+          ranges << [fold_start, i - 1]
+          in_fold = false
+          fold_start = nil
+        end
+      end
+      ranges << [fold_start, buffer_of_lines.size - 1] if in_fold && fold_start
+
+      ranges
     end
 
     OPEN_MARKER = /\{\{\{/.freeze

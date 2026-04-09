@@ -22,10 +22,43 @@ class TestFoldsStorage < Test::Unit::TestCase
     assert_nil @folds.add(5, 2)
   end
 
-  def test_add_rejects_overlap
+  def test_add_rejects_partial_overlap
     @folds.add(0, 4)
     assert_nil @folds.add(2, 6)
     assert_equal 1, @folds.size
+  end
+
+  def test_add_allows_nested_containment
+    @folds.add(0, 10)
+    inner = @folds.add(2, 5)
+    refute_nil inner
+    assert_equal 2, @folds.size
+  end
+
+  def test_at_line_returns_innermost
+    @folds.add(0, 10)
+    @folds.add(2, 5)
+    f = @folds.at_line(3)
+    assert_equal 2, f.start_line
+    assert_equal 5, f.end_line
+  end
+
+  def test_hidden_when_outer_closed_hides_inner_start
+    @folds.add(0, 10, closed: true) # outer closed
+    @folds.add(2, 5, closed: false) # inner open
+    # Line 2 is the inner's start_line, but the outer is closed and contains it
+    assert_equal true, @folds.hidden?(2)
+    assert_equal true, @folds.hidden?(5)
+    # Line 0 is outer's start — still visible
+    assert_equal false, @folds.hidden?(0)
+  end
+
+  def test_hidden_when_inner_closed_outer_open
+    @folds.add(0, 10, closed: false)
+    @folds.add(2, 5, closed: true)
+    assert_equal false, @folds.hidden?(2) # inner's start_line visible
+    assert_equal true, @folds.hidden?(3)  # inside closed inner
+    assert_equal false, @folds.hidden?(7) # inside outer (open), past inner
   end
 
   def test_add_allows_adjacent_disjoint
@@ -138,6 +171,70 @@ class TestFoldsFromMarkers < Test::Unit::TestCase
     # start == end → not added (folding a single line is degenerate; we ship
     # multi-line folds only)
     assert_equal [], Rvim::Folds.from_markers(buf)
+  end
+end
+
+class TestFoldsFromIndent < Test::Unit::TestCase
+  def test_simple_block
+    buf = ['def foo', '  body', '  more', 'end']
+    assert_equal [[0, 2]], Rvim::Folds.from_indent(buf, 2)
+  end
+
+  def test_blank_line_extends_fold
+    buf = ['class C', '  body', '', '  more', 'end']
+    assert_equal [[0, 3]], Rvim::Folds.from_indent(buf, 2)
+  end
+
+  def test_multiple_blocks
+    buf = ['def a', '  x', 'end', '', 'def b', '  y', 'end']
+    assert_equal [[0, 1], [4, 5]], Rvim::Folds.from_indent(buf, 2)
+  end
+
+  def test_no_indent_no_folds
+    buf = ['flat', 'flat', 'flat']
+    assert_equal [], Rvim::Folds.from_indent(buf, 2)
+  end
+
+  def test_zero_shiftwidth_no_op
+    assert_equal [], Rvim::Folds.from_indent(['  x'], 0)
+  end
+end
+
+class TestFoldmethodIndent < Test::Unit::TestCase
+  def setup
+    @editor = Rvim::Editor.new(Reline.core.config)
+    @editor.instance_variable_set(:@buffer_of_lines, ['def foo', '  body', '  more', 'end', '', 'def bar', '  thing', 'end'])
+  end
+
+  def test_set_foldmethod_indent_creates_folds
+    Rvim::Command.execute(@editor, Rvim::Command.parse(':set foldmethod=indent'))
+    assert_equal 2, @editor.folds.size
+  end
+end
+
+class TestFoldLevel < Test::Unit::TestCase
+  def setup
+    @editor = Rvim::Editor.new(Reline.core.config)
+    @editor.instance_variable_set(:@buffer_of_lines, ['def foo', '  body', 'end'])
+    @editor.folds.add(0, 2, closed: false, level: 1)
+  end
+
+  def test_foldlevel_default_99_keeps_open
+    @editor.apply_fold_level
+    assert_equal false, @editor.folds.at_line(1).closed
+  end
+
+  def test_foldlevel_zero_closes_level_1
+    @editor.settings.set(:foldlevel, 0)
+    @editor.apply_fold_level
+    assert_equal true, @editor.folds.at_line(1).closed
+  end
+
+  def test_setting_foldlevel_updates_state
+    Rvim::Command.execute(@editor, Rvim::Command.parse(':set foldlevel=0'))
+    assert_equal true, @editor.folds.at_line(1).closed
+    Rvim::Command.execute(@editor, Rvim::Command.parse(':set foldlevel=99'))
+    assert_equal false, @editor.folds.at_line(1).closed
   end
 end
 

@@ -900,6 +900,21 @@ module Rvim
         Rvim::Folds.from_markers(@buffer_of_lines).each do |s, e|
           @folds.add(s, e, closed: true)
         end
+      when 'indent'
+        @folds.clear
+        sw = @settings.get(:shiftwidth).to_i
+        sw = 2 if sw <= 0
+        Rvim::Folds.from_indent(@buffer_of_lines, sw).each do |s, e|
+          @folds.add(s, e, closed: true)
+        end
+      end
+      apply_fold_level
+    end
+
+    def apply_fold_level
+      level = @settings.get(:foldlevel).to_i
+      @folds.each do |f|
+        f.closed = (f.level || 1) > level
       end
     end
 
