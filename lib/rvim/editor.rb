@@ -82,6 +82,8 @@ module Rvim
       @arg_list = []
       @arg_index = 0
       @alternate_filepath = nil
+      @rvim_pending_format_op = false
+      @rvim_pending_filter_op = false
       @autocommands = Rvim::Autocommands.new
       @quickfix = Rvim::Quickfix.new
       install_key_bindings
@@ -152,6 +154,7 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_command, [?].ord], :rvim_bracket_right)
       @config.add_default_key_binding_by_keymap(:vi_command, [0x1D], :rvim_tag_jump)   # Ctrl-]
       @config.add_default_key_binding_by_keymap(:vi_command, [0x14], :rvim_tag_pop)    # Ctrl-T
+      @config.add_default_key_binding_by_keymap(:vi_command, [?!.ord], :rvim_filter_operator)
       @config.add_default_key_binding_by_keymap(:vi_command, [?(.ord], :rvim_sentence_backward)
       @config.add_default_key_binding_by_keymap(:vi_command, [?).ord], :rvim_sentence_forward)
       @config.add_default_key_binding_by_keymap(:vi_command, [?{.ord], :rvim_paragraph_backward)
@@ -1241,6 +1244,42 @@ module Rvim
         return
       end
 
+      if @rvim_pending_format_op
+        # 'gqq' = current line; otherwise capture motion.
+        ch = key.char
+        if ch == 'q'
+          @rvim_pending_format_op = false
+          apply_format_to_lines(@line_index, @line_index)
+          return
+        end
+
+        pre = [@line_index, @byte_pointer]
+        @rvim_pending_format_op = false
+        super
+        post = [@line_index, @byte_pointer]
+        start_line, end_line = [pre[0], post[0]].minmax
+        apply_format_to_lines(start_line, end_line)
+        return
+      end
+
+      if @rvim_pending_filter_op
+        # '!!' = current line; otherwise capture motion and prefill ex prompt.
+        ch = key.char
+        if ch == '!'
+          @rvim_pending_filter_op = false
+          start_filter_prompt(@line_index, @line_index)
+          return
+        end
+
+        pre = [@line_index, @byte_pointer]
+        @rvim_pending_filter_op = false
+        super
+        post = [@line_index, @byte_pointer]
+        start_line, end_line = [pre[0], post[0]].minmax
+        start_filter_prompt(start_line, end_line)
+        return
+      end
+
       if mapping_eligible?
         decision = route_through_mappings(key)
         return if decision == :consumed
@@ -1797,6 +1836,13 @@ module Rvim
             ch2 = k.is_a?(Integer) ? k.chr : k.to_s
             create_fold_over(start_line, end_line) if ch2 == 'f'
           end
+        end
+        return true
+      when '!'
+        sel = selection
+        exit_visual
+        if sel
+          start_filter_prompt(sel.start_line, sel.end_line)
         end
         return true
       end
@@ -2407,8 +2453,38 @@ module Rvim
           display_line_motion(:down)
         when 'k', 'k'.ord
           display_line_motion(:up)
+        when 'q', 'q'.ord
+          start_format_op
         end
       end
+    end
+
+    private def start_format_op
+      @rvim_pending_format_op = true
+    end
+
+    private def rvim_filter_operator(key, arg: 1)
+      @rvim_pending_filter_op = true
+    end
+
+    def apply_format_to_lines(start_line, end_line)
+      width = @settings.get(:textwidth).to_i
+      width = 78 if width <= 0
+
+      lo = start_line.clamp(0, [@buffer_of_lines.size - 1, 0].max)
+      hi = end_line.clamp(0, [@buffer_of_lines.size - 1, 0].max)
+      lines = @buffer_of_lines[lo..hi].map(&:to_s)
+      reformatted = Rvim::Reformat.wrap(lines, width)
+      replace_line_range(lo, hi, reformatted)
+    end
+
+    def start_filter_prompt(start_line, end_line)
+      lo = start_line + 1
+      hi = end_line + 1
+      @prompt_mode = :ex
+      @prompt_buffer = +"#{lo},#{hi}!"
+      @status_message = nil
+      clear_history_cursor
     end
 
     def display_line_motion(direction)
@@ -2556,6 +2632,17 @@ module Rvim
       return unless target
 
       line, byte_start, byte_end = target
+
+      if operator_pending?
+        sel = Rvim::Selection.from(:char, [line, byte_start], [line, byte_end], @buffer_of_lines)
+        before = @buffer_of_lines.map(&:dup)
+        apply_pending_operator_to_range(sel)
+        @modified = true if @buffer_of_lines != before
+        @vi_waiting_operator = nil
+        @vi_waiting_operator_arg = nil
+        return
+      end
+
       push_jump
       @visual_mode = :char
       @visual_anchor = [line, byte_start]
