@@ -186,6 +186,8 @@ module Rvim
              when 'argdo' then :argdo
              when 'args', 'ar' then :args
              when 'argadd', 'arga' then :argadd
+             when 'make' then :make
+             when 'grep' then :grep
              else verb_str.to_sym
              end
 
@@ -409,6 +411,10 @@ module Rvim
         execute_args(editor, parsed)
       when :argadd
         execute_argadd(editor, parsed)
+      when :make
+        execute_make(editor, parsed)
+      when :grep
+        execute_grep(editor, parsed)
       else
         editor.status_message = "E492: Not an editor command: #{parsed.verb}"
       end
@@ -662,6 +668,49 @@ module Rvim
         end
       end
       out
+    end
+
+    def self.execute_make(editor, parsed)
+      args = parsed.arg.to_s
+      prg = editor.settings.get(:makeprg).to_s
+      prg = 'make' if prg.empty?
+      cmd = args.empty? ? prg : "#{prg} #{args}"
+      result = Rvim::Filter.run(cmd)
+      output = result.stdout.to_s + result.stderr.to_s
+      entries = Rvim::Errorformat.parse(output, editor.settings.get(:errorformat))
+      editor.quickfix.set(entries)
+      if entries.empty?
+        editor.status_message = '(No errors)'
+      else
+        editor.status_message = "(1 of #{entries.size}) #{format_quickfix_summary(entries.first)}"
+        jump_to_quickfix_entry(editor, entries.first) unless parsed.bang
+      end
+    end
+
+    def self.execute_grep(editor, parsed)
+      args = parsed.arg.to_s.strip
+      if args.empty?
+        editor.status_message = 'E471: usage: :grep PATTERN [FILES]'
+        return
+      end
+
+      prg = editor.settings.get(:grepprg).to_s
+      prg = 'grep -n' if prg.empty?
+      cmd = if prg.include?('$*')
+              prg.sub('$*', args)
+            else
+              "#{prg} #{args}"
+            end
+      result = Rvim::Filter.run(cmd)
+      output = result.stdout.to_s
+      entries = Rvim::Errorformat.parse(output, editor.settings.get(:errorformat))
+      editor.quickfix.set(entries)
+      if entries.empty?
+        editor.status_message = "E480: No match: #{args}"
+      else
+        editor.status_message = "(1 of #{entries.size}) #{format_quickfix_summary(entries.first)}"
+        jump_to_quickfix_entry(editor, entries.first) unless parsed.bang
+      end
     end
 
     def self.execute_bufdo(editor, parsed)
