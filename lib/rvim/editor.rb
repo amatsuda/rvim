@@ -75,6 +75,7 @@ module Rvim
       @cmdline_completion_context = nil
       @digraph_pending = false
       @digraph_chars = +''
+      @completion_chain_pending = false
       @tag_stack = []
       @tag_matches = []
       @tag_match_index = 0
@@ -149,6 +150,7 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_insert, [0x10], :rvim_complete_prev) # Ctrl-P
       @config.add_default_key_binding_by_keymap(:vi_insert, [0x0B], :rvim_digraph_start) # Ctrl-K
       @config.add_default_key_binding_by_keymap(:vi_insert, [0x09], :rvim_insert_tab)    # Tab
+      @config.add_default_key_binding_by_keymap(:vi_insert, [0x18], :rvim_completion_chain) # Ctrl-X
       @config.add_default_key_binding_by_keymap(:vi_command, [?%.ord], :rvim_match_motion)
       @config.add_default_key_binding_by_keymap(:vi_command, [?[.ord], :rvim_bracket_left)
       @config.add_default_key_binding_by_keymap(:vi_command, [?].ord], :rvim_bracket_right)
@@ -520,6 +522,43 @@ module Rvim
       return if paths == Rvim::Tags.loaded_paths
 
       Rvim::Tags.load(paths)
+    end
+
+    private def rvim_completion_chain(key, arg: 1)
+      @completion_chain_pending = true
+    end
+
+    private def start_completion_with_source(source, delta)
+      line = @buffer_of_lines[@line_index] || ''
+      case source
+      when :filenames
+        base = Rvim::Completion.path_base_at(line, @byte_pointer)
+        base_byte = Rvim::Completion.path_base_start(line, @byte_pointer)
+        candidates = Rvim::Completion.candidates_files(base)
+      when :dictionary
+        base = Rvim::Completion.base_at(line, @byte_pointer)
+        base_byte = Rvim::Completion.base_start(line, @byte_pointer)
+        candidates = Rvim::Completion.candidates_dictionary(base)
+      when :lines
+        base = line.byteslice(0, @byte_pointer) || ''
+        base_byte = 0
+        candidates = Rvim::Completion.candidates_lines(@buffer_of_lines, base)
+      end
+
+      if candidates.empty?
+        @status_message = 'Pattern not found'
+        return
+      end
+
+      @completion_active = true
+      @completion_candidates = candidates
+      @completion_index = delta < 0 ? candidates.size - 1 : 0
+      @completion_base = base
+      @completion_base_byte = base_byte
+      @completion_line_index = @line_index
+      @completion_popup = Rvim::CompletionPopup.new(contents: candidates, pointer: @completion_index)
+      replace_completion_with(@completion_candidates[@completion_index])
+      update_completion_status
     end
 
     private def rvim_insert_tab(key, arg: 1)
@@ -1223,6 +1262,18 @@ module Rvim
 
       if @digraph_pending
         capture_digraph_key(key)
+        return
+      end
+
+      if @completion_chain_pending
+        @completion_chain_pending = false
+        case key.char
+        when "\x06" then start_completion_with_source(:filenames, +1)
+        when "\x0B" then start_completion_with_source(:dictionary, +1)
+        when "\x0C" then start_completion_with_source(:lines, +1)
+        else
+          @status_message = 'unknown completion source'
+        end
         return
       end
 
