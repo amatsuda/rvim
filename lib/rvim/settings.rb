@@ -40,6 +40,11 @@ module Rvim
       virtualedit: '',
       mouse: '',
       sidescrolloff: 0,
+      splitright: false,
+      splitbelow: false,
+      showmode: true,
+      incsearch: true,
+      lazyredraw: false,
     }.freeze
 
     ALIASES = {
@@ -74,6 +79,11 @@ module Rvim
       'fenc' => :fileencoding,
       've' => :virtualedit,
       'siso' => :sidescrolloff,
+      'spr' => :splitright,
+      'sb' => :splitbelow,
+      'smd' => :showmode,
+      'is' => :incsearch,
+      'lz' => :lazyredraw,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze

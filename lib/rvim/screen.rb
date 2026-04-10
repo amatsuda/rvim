@@ -711,7 +711,7 @@ module Rvim
       end
 
       buffer = win.buffer
-      mode = is_current ? mode_label : ''
+      mode = (is_current && @editor.settings.get(:showmode)) ? mode_label : ''
       name = buffer.display_name
       modified = (is_current ? @editor.modified : buffer.modified) ? ' [+]' : ''
       recording = is_current && @editor.recording_macro ? "  recording @#{@editor.recording_macro}" : ''

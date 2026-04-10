@@ -348,7 +348,15 @@ module Rvim
       win = Rvim::Window.new(target_buffer)
       win.scroll_top = @current_window&.scroll_top || 0
       idx = @windows.index(@current_window) || (@windows.size - 1)
-      @windows.insert(idx + 1, win)
+      # splitright (vertical) / splitbelow (horizontal) put the new window AFTER
+      # the current one. The opposite putt puts it BEFORE (default vim behavior).
+      after = if @split_orientation == :vertical
+                @settings.get(:splitright)
+              else
+                @settings.get(:splitbelow)
+              end
+      insert_at = after ? idx + 1 : idx
+      @windows.insert(insert_at, win)
       @current_window = win
     end
 
@@ -1251,6 +1259,8 @@ module Rvim
     end
 
     def render
+      return if @settings.get(:lazyredraw) && @replaying
+
       @screen&.render
     end
 
@@ -2143,6 +2153,7 @@ module Rvim
 
     private def refresh_incremental_search
       return unless @prompt_mode == :search_forward || @prompt_mode == :search_backward
+      return unless @settings.get(:incsearch)
 
       @search_matches = scan_pattern(@prompt_buffer)
     end
