@@ -14,6 +14,11 @@ module Rvim
       @width = 80
       @extra_rows = 0
       @extra_cols = 0
+      @location_list = nil
+    end
+
+    def location_list
+      @location_list ||= Rvim::Quickfix.new
     end
   end
 end

@@ -169,6 +169,15 @@ module Rvim
              when 'clist', 'cl' then :clist
              when 'copen', 'cope' then :copen
              when 'cclose', 'cclo' then :cclose
+             when 'lvimgrep', 'lvim' then :lvimgrep
+             when 'lnext', 'lne' then :lnext
+             when 'lprev', 'lp', 'lprevious' then :lprev
+             when 'll' then :ll
+             when 'llist', 'll!' then :llist
+             when 'lopen', 'lop' then :lopen
+             when 'lclose', 'lcl' then :lclose
+             when 'lmake' then :lmake
+             when 'lgrep' then :lgrep
              when 'diffthis', 'difft' then :diffthis
              when 'diffoff' then :diffoff
              when 'diffupdate', 'diffu' then :diffupdate
@@ -377,6 +386,22 @@ module Rvim
         editor.show_list(format_quickfix(editor))
       when :cclose
         editor.dismiss_list
+      when :lvimgrep
+        execute_lvimgrep(editor, parsed)
+      when :lnext
+        execute_lnext(editor, parsed)
+      when :lprev
+        execute_lprev(editor, parsed)
+      when :ll
+        execute_ll(editor, parsed)
+      when :llist, :lopen
+        editor.show_list(format_location_list(editor))
+      when :lclose
+        editor.dismiss_list
+      when :lmake
+        execute_lmake(editor, parsed)
+      when :lgrep
+        execute_lgrep(editor, parsed)
       when :diffthis
         execute_diffthis(editor, parsed)
       when :diffoff
@@ -956,13 +981,125 @@ module Rvim
       editor.recompute_diff_status
     end
 
-    VIMGREP_RE = %r{\A/(?<pat>(?:\\.|[^/])*)/\s+(?<files>.+)\z}.freeze
+    def self.execute_lvimgrep(editor, parsed)
+      list = current_location_list(editor)
+      return unless list
 
-    def self.execute_vimgrep(editor, parsed)
+      run_vimgrep(editor, parsed, list, label: 'location list')
+    end
+
+    def self.execute_lnext(editor, _parsed)
+      list = current_location_list(editor)
+      if list.nil? || list.empty?
+        editor.status_message = 'E776: no location list'
+        return
+      end
+
+      entry = list.advance(+1)
+      jump_to_quickfix_entry(editor, entry)
+      editor.status_message = "(#{list.index + 1} of #{list.size}) #{format_quickfix_summary(entry)}"
+    end
+
+    def self.execute_lprev(editor, _parsed)
+      list = current_location_list(editor)
+      if list.nil? || list.empty?
+        editor.status_message = 'E776: no location list'
+        return
+      end
+
+      entry = list.advance(-1)
+      jump_to_quickfix_entry(editor, entry)
+      editor.status_message = "(#{list.index + 1} of #{list.size}) #{format_quickfix_summary(entry)}"
+    end
+
+    def self.execute_ll(editor, parsed)
+      list = current_location_list(editor)
+      if list.nil? || list.empty?
+        editor.status_message = 'E776: no location list'
+        return
+      end
+
+      n = parsed.arg.to_s.strip
+      idx = n.empty? ? list.index : n.to_i - 1
+      entry = list.at(idx)
+      if entry
+        jump_to_quickfix_entry(editor, entry)
+      else
+        editor.status_message = 'E553: No more items'
+      end
+    end
+
+    def self.execute_lmake(editor, parsed)
+      list = current_location_list(editor)
+      return unless list
+
+      args = parsed.arg.to_s
+      prg = editor.settings.get(:makeprg).to_s
+      prg = 'make' if prg.empty?
+      cmd = args.empty? ? prg : "#{prg} #{args}"
+      result = Rvim::Filter.run(cmd)
+      output = result.stdout.to_s + result.stderr.to_s
+      entries = Rvim::Errorformat.parse(output, editor.settings.get(:errorformat))
+      list.set(entries)
+      report_list_status(editor, entries, parsed.bang, '(No errors)')
+    end
+
+    def self.execute_lgrep(editor, parsed)
+      list = current_location_list(editor)
+      return unless list
+
+      args = parsed.arg.to_s.strip
+      if args.empty?
+        editor.status_message = 'E471: usage: :lgrep PATTERN [FILES]'
+        return
+      end
+
+      prg = editor.settings.get(:grepprg).to_s
+      prg = 'grep -n $* /dev/null' if prg.empty?
+      cmd = prg.include?('$*') ? prg.sub('$*', args) : "#{prg} #{args}"
+      result = Rvim::Filter.run(cmd)
+      entries = Rvim::Errorformat.parse(result.stdout.to_s, editor.settings.get(:errorformat))
+      list.set(entries)
+      report_list_status(editor, entries, parsed.bang, "E480: No match: #{args}")
+    end
+
+    def self.current_location_list(editor)
+      win = editor.current_window
+      unless win
+        editor.status_message = 'E776: no location list (no current window)'
+        return nil
+      end
+
+      win.location_list
+    end
+
+    def self.report_list_status(editor, entries, bang, empty_message)
+      if entries.empty?
+        editor.status_message = empty_message
+      else
+        editor.status_message = "(1 of #{entries.size}) #{format_quickfix_summary(entries.first)}"
+        jump_to_quickfix_entry(editor, entries.first) unless bang
+      end
+    end
+
+    def self.format_location_list(editor)
+      win = editor.current_window
+      return ['No window'] unless win
+
+      list = win.location_list
+      header = '   #  file:line:col  text'
+      rows = list.entries.each_with_index.map do |e, i|
+        marker = i == list.index ? '>' : ' '
+        format('%s %3d  %s:%d:%d  %s', marker, i + 1, e.file, e.line, e.col, e.text.to_s[0, 80])
+      end
+      ['Location list', header, *rows]
+    end
+
+    def self.run_vimgrep(editor, parsed, target_list, label:)
       arg = parsed.arg.to_s.strip
       m = VIMGREP_RE.match(arg)
       unless m
-        editor.status_message = 'E682: usage: :vimgrep /pattern/ {files}'
+        editor.status_message = "E682: usage: :#{label.start_with?('loc') ? 'lvimgrep' : 'vimgrep'} /pattern/ {files}"
         return
       end
 
@@ -992,13 +1129,14 @@ module Rvim
         end
       end
 
-      editor.quickfix.set(entries)
-      if entries.empty?
-        editor.status_message = "E480: No match: #{m[:pat]}"
-      else
-        editor.status_message = "(1 of #{entries.size}) #{format_quickfix_summary(entries.first)}"
-        jump_to_quickfix_entry(editor, entries.first) unless parsed.bang
-      end
+      target_list.set(entries)
+      report_list_status(editor, entries, parsed.bang, "E480: No match: #{m[:pat]}")
+    end
+
+    VIMGREP_RE = %r{\A/(?<pat>(?:\\.|[^/])*)/\s+(?<files>.+)\z}.freeze
+
+    def self.execute_vimgrep(editor, parsed)
+      run_vimgrep(editor, parsed, editor.quickfix, label: 'quickfix')
     end
 
     def self.execute_cnext(editor, _parsed)
