@@ -48,6 +48,9 @@ module Rvim
       autowrite: false,
       equalalways: true,
       history: 100,
+      autoindent: false,
+      laststatus: 2,
+      nrformats: 'bin,hex',
     }.freeze
 
     ALIASES = {
@@ -90,6 +93,9 @@ module Rvim
       'aw' => :autowrite,
       'ea' => :equalalways,
       'hi' => :history,
+      'ai' => :autoindent,
+      'ls' => :laststatus,
+      'nf' => :nrformats,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze

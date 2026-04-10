@@ -151,6 +151,7 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_insert, [0x0B], :rvim_digraph_start) # Ctrl-K
       @config.add_default_key_binding_by_keymap(:vi_insert, [0x09], :rvim_insert_tab)    # Tab
       @config.add_default_key_binding_by_keymap(:vi_insert, [0x18], :rvim_completion_chain) # Ctrl-X
+      @config.add_default_key_binding_by_keymap(:vi_insert, [0x0D], :rvim_insert_newline)   # Enter
       @config.add_default_key_binding_by_keymap(:vi_command, [?%.ord], :rvim_match_motion)
       @config.add_default_key_binding_by_keymap(:vi_command, [?[.ord], :rvim_bracket_left)
       @config.add_default_key_binding_by_keymap(:vi_command, [?].ord], :rvim_bracket_right)
@@ -569,6 +570,21 @@ module Rvim
       @completion_popup = Rvim::CompletionPopup.new(contents: candidates, pointer: @completion_index)
       replace_completion_with(@completion_candidates[@completion_index])
       update_completion_status
+    end
+
+    private def rvim_insert_newline(key, arg: 1)
+      cur_line = @buffer_of_lines[@line_index] || ''
+      head = cur_line.byteslice(0, @byte_pointer) || +''
+      tail = cur_line.byteslice(@byte_pointer, cur_line.bytesize - @byte_pointer) || +''
+
+      indent = @settings.get(:autoindent) ? cur_line[/\A[ \t]*/].to_s : ''
+
+      @buffer_of_lines[@line_index] = String.new(head, encoding: encoding)
+      new_line = String.new(indent + tail, encoding: encoding)
+      @buffer_of_lines.insert(@line_index + 1, new_line)
+      @line_index += 1
+      @byte_pointer = indent.bytesize
+      @modified = true
     end
 
     private def rvim_insert_tab(key, arg: 1)
@@ -1001,6 +1017,23 @@ module Rvim
       line = @buffer_of_lines[@line_index] || ''
       return if line.empty?
 
+      formats = nrformats_list
+
+      # Try hex first (0x...) since '0' would otherwise look decimal.
+      if formats.include?('hex')
+        if (m = scan_hex_at(line, @byte_pointer))
+          replace_number(line, m[:start], m[:end], (m[:value] + delta), :hex)
+          return
+        end
+      end
+
+      if formats.include?('bin')
+        if (m = scan_bin_at(line, @byte_pointer))
+          replace_number(line, m[:start], m[:end], (m[:value] + delta), :bin)
+          return
+        end
+      end
+
       start = [@byte_pointer, line.bytesize - 1].min
       if line.byteslice(start, 1) !~ /\d/
         pos = start + 1
@@ -1029,6 +1062,57 @@ module Rvim
       after = line.byteslice(ending, line.bytesize - ending)
       @buffer_of_lines[@line_index] = String.new(before + new_text + after, encoding: encoding)
       @byte_pointer = (before + new_text).bytesize - 1
+      @modified = true
+    end
+
+    private def nrformats_list
+      @settings.get(:nrformats).to_s.split(',').map(&:strip)
+    end
+
+    # Find a hex literal "0x[0-9a-fA-F]+" containing or after byte_pointer.
+    private def scan_hex_at(line, byte_pointer)
+      re = /0x[0-9a-fA-F]+/
+      pos = [byte_pointer, 0].max
+      while (m = re.match(line, pos))
+        return nil if m.begin(0) > byte_pointer && byte_pointer > 0 && pos == byte_pointer && line.byteslice(byte_pointer, 1) =~ /\s/
+
+        if m.begin(0) <= byte_pointer && m.end(0) > byte_pointer
+          return { start: m.begin(0), end: m.end(0), value: m[0].to_i(16) }
+        elsif m.begin(0) > byte_pointer
+          return { start: m.begin(0), end: m.end(0), value: m[0].to_i(16) }
+        end
+        pos = m.end(0)
+      end
+      nil
+    end
+
+    private def scan_bin_at(line, byte_pointer)
+      re = /0b[01]+/
+      pos = [byte_pointer, 0].max
+      while (m = re.match(line, pos))
+        if m.begin(0) <= byte_pointer && m.end(0) > byte_pointer
+          return { start: m.begin(0), end: m.end(0), value: m[0][2..].to_i(2) }
+        elsif m.begin(0) > byte_pointer
+          return { start: m.begin(0), end: m.end(0), value: m[0][2..].to_i(2) }
+        end
+        pos = m.end(0)
+      end
+      nil
+    end
+
+    private def replace_number(line, start_byte, end_byte, new_value, kind)
+      formatted = case kind
+                  when :hex
+                    width = (end_byte - start_byte) - 2
+                    '0x' + new_value.to_s(16).rjust(width, '0')
+                  when :bin
+                    width = (end_byte - start_byte) - 2
+                    '0b' + new_value.to_s(2).rjust(width, '0')
+                  end
+      before = line.byteslice(0, start_byte)
+      after = line.byteslice(end_byte, line.bytesize - end_byte)
+      @buffer_of_lines[@line_index] = String.new(before + formatted + after, encoding: encoding)
+      @byte_pointer = (before + formatted).bytesize - 1
       @modified = true
     end
 

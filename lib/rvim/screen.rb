@@ -211,12 +211,16 @@ module Rvim
         end
       end
 
-      # Per-window status row at the bottom of the window.
-      out << move_to(win.row + win.height, win.col + 1)
-      out << (is_current ? REVERSE_ON : DIM_ON + REVERSE_ON)
-      out << pad_to_width(truncate_to_width(window_status(win, is_current), win.width), win.width)
-      out << REVERSE_OFF
-      out << DIM_OFF unless is_current
+      ls = @editor.settings.get(:laststatus).to_i
+      show_status = ls >= 2 || (ls == 1 && @editor.windows.size > 1)
+      if show_status
+        # Per-window status row at the bottom of the window.
+        out << move_to(win.row + win.height, win.col + 1)
+        out << (is_current ? REVERSE_ON : DIM_ON + REVERSE_ON)
+        out << pad_to_width(truncate_to_width(window_status(win, is_current), win.width), win.width)
+        out << REVERSE_OFF
+        out << DIM_OFF unless is_current
+      end
 
       if is_current && @editor.completion_popup && !@editor.completion_popup.empty?
         out << render_completion_popup(win, gw, content_width, wrap_on)
