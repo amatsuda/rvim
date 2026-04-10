@@ -288,6 +288,7 @@ module Rvim
     def swap_to_tab(idx)
       return if idx < 0 || idx >= @tabs.size || idx == @current_tab_index
 
+      autowrite_if_modified
       save_current_tab_state
       @current_tab_index = idx
       load_current_tab_state
@@ -358,6 +359,7 @@ module Rvim
       insert_at = after ? idx + 1 : idx
       @windows.insert(insert_at, win)
       @current_window = win
+      equalize_windows if @settings.get(:equalalways)
     end
 
     private def mixed_split_error
@@ -1084,6 +1086,7 @@ module Rvim
       @current_window = @windows[idx] || @windows.last
       @split_orientation = nil if @windows.size == 1
       activate_window(@current_window) if @current_window
+      equalize_windows if @settings.get(:equalalways)
     end
 
     private def activate_window(win)
@@ -1131,9 +1134,19 @@ module Rvim
     def cycle_buffer(direction)
       return if @buffer_order.size <= 1
 
+      autowrite_if_modified
+
       idx = @buffer_order.index(@current_buffer.id) || 0
       target_id = @buffer_order[(idx + direction) % @buffer_order.size]
       swap_to_buffer(@buffers[target_id])
+    end
+
+    def autowrite_if_modified
+      return unless @settings.get(:autowrite)
+      return unless @current_buffer && @modified
+      return unless @filepath
+
+      save
     end
 
     def delete_current_buffer(force: false)
@@ -2148,7 +2161,9 @@ module Rvim
       return if @ex_history.last == line
 
       @ex_history << line
-      @ex_history.shift while @ex_history.size > EX_HISTORY_MAX
+      max = @settings.get(:history).to_i
+      max = EX_HISTORY_MAX if max <= 0
+      @ex_history.shift while @ex_history.size > max
     end
 
     private def refresh_incremental_search

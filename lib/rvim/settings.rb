@@ -45,6 +45,9 @@ module Rvim
       showmode: true,
       incsearch: true,
       lazyredraw: false,
+      autowrite: false,
+      equalalways: true,
+      history: 100,
     }.freeze
 
     ALIASES = {
@@ -84,6 +87,9 @@ module Rvim
       'smd' => :showmode,
       'is' => :incsearch,
       'lz' => :lazyredraw,
+      'aw' => :autowrite,
+      'ea' => :equalalways,
+      'hi' => :history,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
