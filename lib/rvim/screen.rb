@@ -757,6 +757,10 @@ module Rvim
     end
 
     def bottom_line
+      if @editor.confirm_question
+        return "#{@editor.confirm_question} (#{@editor.confirm_options.join('/')}): "
+      end
+
       case @editor.prompt_mode
       when :ex then ":#{@editor.prompt_buffer}"
       when :search_forward then "/#{@editor.prompt_buffer}"

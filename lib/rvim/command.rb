@@ -1429,7 +1429,11 @@ module Rvim
       end
 
       if any_modified?(editor) && !parsed.bang
-        editor.status_message = 'E37: No write since last change (add ! to override)'
+        if editor.settings.get(:confirm)
+          confirm_destructive_quit(editor)
+        else
+          editor.status_message = 'E37: No write since last change (add ! to override)'
+        end
       else
         editor.quit!
       end
@@ -1437,9 +1441,40 @@ module Rvim
 
     def self.execute_quit_all(editor, parsed)
       if any_modified?(editor) && !parsed.bang
-        editor.status_message = 'E37: No write since last change (add ! to override)'
+        if editor.settings.get(:confirm)
+          confirm_destructive_quit(editor)
+        else
+          editor.status_message = 'E37: No write since last change (add ! to override)'
+        end
       else
         editor.quit!
+      end
+    end
+
+    def self.confirm_destructive_quit(editor)
+      editor.confirm_prompt('Save changes before closing?', %w[y n c]) do |choice|
+        case choice
+        when 'y'
+          save_all_modified(editor)
+          editor.quit! unless any_modified?(editor)
+        when 'n'
+          editor.quit!
+        when 'c'
+          editor.status_message = 'Cancelled'
+        end
+      end
+    end
+
+    def self.save_all_modified(editor)
+      editor.send(:save_current_buffer) if editor.current_buffer
+      editor.buffers.values.each do |b|
+        next unless b.modified
+        next unless b.filepath
+
+        previous = editor.current_buffer
+        editor.swap_to_buffer(b)
+        editor.save
+        editor.swap_to_buffer(previous) if previous && previous != b
       end
     end
 

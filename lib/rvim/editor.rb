@@ -86,6 +86,9 @@ module Rvim
       @alternate_filepath = nil
       @rvim_pending_format_op = false
       @rvim_pending_filter_op = false
+      @confirm_question = nil
+      @confirm_options = nil
+      @confirm_callback = nil
       @autocommands = Rvim::Autocommands.new
       @quickfix = Rvim::Quickfix.new
       install_key_bindings
@@ -1391,6 +1394,11 @@ module Rvim
         return
       end
 
+      if @confirm_question
+        handle_confirm_key(key)
+        return
+      end
+
       if @digraph_pending
         capture_digraph_key(key)
         return
@@ -2657,6 +2665,35 @@ module Rvim
 
     private def rvim_filter_operator(key, arg: 1)
       @rvim_pending_filter_op = true
+    end
+
+    attr_reader :confirm_question, :confirm_options
+
+    def confirm_prompt(question, options, &block)
+      @confirm_question = question.to_s
+      @confirm_options = Array(options).map { |o| o.to_s.downcase }
+      @confirm_callback = block
+    end
+
+    private def handle_confirm_key(key)
+      ch = key.char.to_s
+      if ch == "\e" || ch == "\x03"
+        cancel_confirm_prompt
+        return
+      end
+
+      norm = ch.downcase
+      return unless @confirm_options&.include?(norm)
+
+      cb = @confirm_callback
+      cancel_confirm_prompt
+      cb&.call(norm)
+    end
+
+    def cancel_confirm_prompt
+      @confirm_question = nil
+      @confirm_options = nil
+      @confirm_callback = nil
     end
 
     private def rvim_keyword_lookup(key, arg: 1)

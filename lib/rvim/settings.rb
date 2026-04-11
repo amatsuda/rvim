@@ -57,6 +57,7 @@ module Rvim
       pumheight: 0,
       linebreak: false,
       backup: false,
+      confirm: false,
     }.freeze
 
     ALIASES = {
@@ -108,6 +109,7 @@ module Rvim
       'ph' => :pumheight,
       'lbr' => :linebreak,
       'bk' => :backup,
+      'cf' => :confirm,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
