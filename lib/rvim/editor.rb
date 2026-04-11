@@ -1,6 +1,7 @@
 # frozen_string_literal: true
 
 require 'reline'
+require 'fileutils'
 
 module Rvim
   class Editor < Reline::LineEditor
@@ -540,6 +541,11 @@ module Rvim
       @completion_chain_pending = true
     end
 
+    private def configured_pum_height
+      h = @settings.get(:pumheight).to_i
+      h.positive? ? h : Rvim::CompletionPopup::DEFAULT_MAX_HEIGHT
+    end
+
     private def start_completion_with_source(source, delta)
       line = @buffer_of_lines[@line_index] || ''
       case source
@@ -568,7 +574,7 @@ module Rvim
       @completion_base = base
       @completion_base_byte = base_byte
       @completion_line_index = @line_index
-      @completion_popup = Rvim::CompletionPopup.new(contents: candidates, pointer: @completion_index)
+      @completion_popup = Rvim::CompletionPopup.new(contents: candidates, pointer: @completion_index, max_height: configured_pum_height)
       replace_completion_with(@completion_candidates[@completion_index])
       update_completion_status
     end
@@ -678,7 +684,7 @@ module Rvim
       @completion_base = base
       @completion_base_byte = Rvim::Completion.base_start(line, @byte_pointer)
       @completion_line_index = @line_index
-      @completion_popup = Rvim::CompletionPopup.new(contents: candidates, pointer: @completion_index)
+      @completion_popup = Rvim::CompletionPopup.new(contents: candidates, pointer: @completion_index, max_height: configured_pum_height)
       replace_completion_with(@completion_candidates[@completion_index])
       update_completion_status
     end
@@ -1320,6 +1326,9 @@ module Rvim
       raise 'no file path' unless target
 
       @autocommands&.fire(:bufwritepre, target.to_s, self)
+      if @settings.get(:backup) && File.exist?(target)
+        FileUtils.cp(target, "#{target}~")
+      end
       ff = @current_buffer&.fileformat || @settings.get(:fileformat) || 'unix'
       sep = case ff
             when 'dos' then "\r\n"
@@ -2204,7 +2213,7 @@ module Rvim
       return if candidates.empty?
 
       @cmdline_completion_context = ctx
-      @cmdline_popup = Rvim::CompletionPopup.new(contents: candidates, pointer: direction < 0 ? candidates.size - 1 : 0)
+      @cmdline_popup = Rvim::CompletionPopup.new(contents: candidates, pointer: direction < 0 ? candidates.size - 1 : 0, max_height: configured_pum_height)
       apply_cmdline_completion
     end
 

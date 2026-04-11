@@ -54,6 +54,9 @@ module Rvim
       smartindent: false,
       startofline: true,
       keywordprg: 'man',
+      pumheight: 0,
+      linebreak: false,
+      backup: false,
     }.freeze
 
     ALIASES = {
@@ -102,6 +105,9 @@ module Rvim
       'si' => :smartindent,
       'sol' => :startofline,
       'kp' => :keywordprg,
+      'ph' => :pumheight,
+      'lbr' => :linebreak,
+      'bk' => :backup,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze

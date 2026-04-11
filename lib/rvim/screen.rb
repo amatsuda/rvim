@@ -400,6 +400,7 @@ module Rvim
     def split_line_segments(line, max_width)
       return [[0, line]] if max_width <= 0
 
+      linebreak = @editor.settings.get(:linebreak)
       segments = []
       offset = 0
       total = line.bytesize
@@ -407,10 +408,19 @@ module Rvim
         seg = take_display_width(line, offset, max_width)
         bytes = seg.bytesize
         if bytes.zero?
-          # Defensive: if a single char doesn't fit, take one char anyway.
           ch = line.byteslice(offset, total - offset).each_char.first || ''
           bytes = ch.bytesize
           seg = ch
+        elsif linebreak && offset + bytes < total && !line.byteslice(offset + bytes, 1).match?(/\s/)
+          # We're about to split mid-word. Try to back up to the last whitespace
+          # within the segment so the break aligns to a word boundary.
+          last_ws = seg.rindex(/\s/)
+          if last_ws && last_ws.positive?
+            # Slice up to and including the whitespace
+            new_bytes = seg.byteslice(0, last_ws + 1).bytesize
+            seg = seg.byteslice(0, last_ws + 1)
+            bytes = new_bytes
+          end
         end
         segments << [offset, seg]
         offset += bytes
