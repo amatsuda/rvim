@@ -32,17 +32,38 @@ module Rvim
       @editor.current_window.scroll_top = value if @editor.current_window
     end
 
+    MOUSE_ENABLE = "\e[?1000h\e[?1006h"
+    MOUSE_DISABLE = "\e[?1006l\e[?1000l"
+
     def setup
       $stdout.write(SMCUP)
       $stdout.write(CLEAR)
       $stdout.write(HOME)
+      enable_mouse if mouse_enabled?
       $stdout.flush
     end
 
     def teardown
+      disable_mouse
       $stdout.write(SHOW_CURSOR)
       $stdout.write(RMCUP)
       $stdout.flush
+    end
+
+    def mouse_enabled?
+      !@editor.settings.get(:mouse).to_s.empty?
+    end
+
+    def enable_mouse
+      $stdout.write(MOUSE_ENABLE)
+    end
+
+    def disable_mouse
+      $stdout.write(MOUSE_DISABLE)
+    end
+
+    def gutter_width_for(buffer)
+      gutter_width(buffer)
     end
 
     def render

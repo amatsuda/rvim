@@ -1399,6 +1399,11 @@ module Rvim
         return
       end
 
+      if mouse_event?(key)
+        handle_mouse_event(key)
+        return
+      end
+
       if @digraph_pending
         capture_digraph_key(key)
         return
@@ -2694,6 +2699,71 @@ module Rvim
       @confirm_question = nil
       @confirm_options = nil
       @confirm_callback = nil
+    end
+
+    MOUSE_SGR_RE = /\A\e\[<(\d+);(\d+);(\d+)([Mm])\z/
+
+    private def mouse_event?(key)
+      return false if @settings.get(:mouse).to_s.empty?
+      return false unless key.char.is_a?(String)
+
+      key.char.match?(MOUSE_SGR_RE)
+    end
+
+    private def handle_mouse_event(key)
+      m = MOUSE_SGR_RE.match(key.char)
+      return unless m
+
+      button = m[1].to_i
+      col = m[2].to_i
+      row = m[3].to_i
+      press = m[4] == 'M'
+
+      case button
+      when 0
+        mouse_left_click(col, row) if press
+      when 64
+        scroll_via_mouse(-3)
+      when 65
+        scroll_via_mouse(+3)
+      end
+    end
+
+    private def mouse_left_click(col, row)
+      win = window_at(row, col)
+      return unless win
+
+      activate_window(win) if win != @current_window
+
+      buffer_line = win.scroll_top + (row - win.row - 1)
+      buffer_line = buffer_line.clamp(0, [@buffer_of_lines.size - 1, 0].max)
+      @line_index = buffer_line
+
+      gw = @screen ? @screen.gutter_width_for(win.buffer) : 0
+      target_byte = col - win.col - gw - 1
+      line = @buffer_of_lines[@line_index] || ''
+      @byte_pointer = target_byte.clamp(0, [line.bytesize - 1, 0].max)
+    end
+
+    private def window_at(row, col)
+      @windows.find do |w|
+        row > w.row && row <= w.row + w.height &&
+          col > w.col && col <= w.col + w.width
+      end
+    end
+
+    private def scroll_via_mouse(delta)
+      return unless @current_window
+
+      content_rows = [@current_window.height - 1, 1].max
+      step = delta.abs.clamp(1, content_rows)
+      direction = delta.positive? ? +1 : -1
+      target = (@line_index + step * direction).clamp(0, [@buffer_of_lines.size - 1, 0].max)
+      return if target == @line_index
+
+      @line_index = target
+      target_line = @buffer_of_lines[@line_index] || ''
+      @byte_pointer = @byte_pointer.clamp(0, [target_line.bytesize - 1, 0].max)
     end
 
     private def rvim_keyword_lookup(key, arg: 1)
