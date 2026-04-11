@@ -51,6 +51,9 @@ module Rvim
       autoindent: false,
       laststatus: 2,
       nrformats: 'bin,hex',
+      smartindent: false,
+      startofline: true,
+      keywordprg: 'man',
     }.freeze
 
     ALIASES = {
@@ -96,6 +99,9 @@ module Rvim
       'ai' => :autoindent,
       'ls' => :laststatus,
       'nf' => :nrformats,
+      'si' => :smartindent,
+      'sol' => :startofline,
+      'kp' => :keywordprg,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze

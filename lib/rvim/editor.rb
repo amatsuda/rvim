@@ -158,6 +158,7 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_command, [0x1D], :rvim_tag_jump)   # Ctrl-]
       @config.add_default_key_binding_by_keymap(:vi_command, [0x14], :rvim_tag_pop)    # Ctrl-T
       @config.add_default_key_binding_by_keymap(:vi_command, [?!.ord], :rvim_filter_operator)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?K.ord], :rvim_keyword_lookup)
       @config.add_default_key_binding_by_keymap(:vi_command, [?(.ord], :rvim_sentence_backward)
       @config.add_default_key_binding_by_keymap(:vi_command, [?).ord], :rvim_sentence_forward)
       @config.add_default_key_binding_by_keymap(:vi_command, [?{.ord], :rvim_paragraph_backward)
@@ -577,7 +578,21 @@ module Rvim
       head = cur_line.byteslice(0, @byte_pointer) || +''
       tail = cur_line.byteslice(@byte_pointer, cur_line.bytesize - @byte_pointer) || +''
 
-      indent = @settings.get(:autoindent) ? cur_line[/\A[ \t]*/].to_s : ''
+      ai = @settings.get(:autoindent)
+      si = @settings.get(:smartindent)
+      indent = (ai || si) ? cur_line[/\A[ \t]*/].to_s.dup : ''
+
+      if si
+        sw = @settings.get(:shiftwidth).to_i
+        sw = 2 if sw <= 0
+        if head.rstrip.end_with?('{')
+          indent << (' ' * sw)
+        end
+        if tail.lstrip.start_with?('}')
+          remove = [sw, indent.length].min
+          indent = indent[0...indent.length - remove].to_s
+        end
+      end
 
       @buffer_of_lines[@line_index] = String.new(head, encoding: encoding)
       new_line = String.new(indent + tail, encoding: encoding)
@@ -1705,6 +1720,13 @@ module Rvim
       i
     end
 
+    private def sol_byte_for(line_index)
+      return 0 unless @settings.get(:startofline)
+
+      line = @buffer_of_lines[line_index] || ''
+      first_non_whitespace_col(line)
+    end
+
     private def rvim_jump_back(key, arg: 1)
       arg.times do
         if @jump_index == @jump_list.size
@@ -2444,7 +2466,7 @@ module Rvim
       target = arg.is_a?(Integer) && arg > 0 ? arg - 1 : @buffer_of_lines.size - 1
       @line_index = target.clamp(0, @buffer_of_lines.size - 1)
       snap_to_visible
-      @byte_pointer = 0
+      @byte_pointer = sol_byte_for(@line_index)
     end
 
     private def skip_into_fold(direction)
@@ -2591,7 +2613,7 @@ module Rvim
         when 'g', 'g'.ord
           push_jump
           @line_index = 0
-          @byte_pointer = 0
+          @byte_pointer = sol_byte_for(@line_index)
         when 'v', 'v'.ord
           reselect_last_visual
         when 't', 't'.ord
@@ -2626,6 +2648,26 @@ module Rvim
 
     private def rvim_filter_operator(key, arg: 1)
       @rvim_pending_filter_op = true
+    end
+
+    private def rvim_keyword_lookup(key, arg: 1)
+      word = word_at_cursor
+      unless word
+        @status_message = 'E348: No string under cursor'
+        return
+      end
+
+      prg = @settings.get(:keywordprg).to_s
+      prg = 'man' if prg.empty?
+      result = Rvim::Filter.run("#{prg} #{word}")
+      if result.success?
+        lines = result.stdout.lines.map(&:chomp)
+        lines = ['(no output)'] if lines.empty?
+        show_list(lines)
+      else
+        msg = result.stderr.lines.first&.chomp || "exit #{result.status.exitstatus}"
+        @status_message = "K: #{msg}"
+      end
     end
 
     def apply_format_to_lines(start_line, end_line)
