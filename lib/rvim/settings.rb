@@ -58,6 +58,10 @@ module Rvim
       linebreak: false,
       backup: false,
       confirm: false,
+      title: false,
+      titlestring: '',
+      showtabline: 1,
+      scrolljump: 1,
     }.freeze
 
     ALIASES = {
@@ -110,6 +114,10 @@ module Rvim
       'lbr' => :linebreak,
       'bk' => :backup,
       'cf' => :confirm,
+      'tl' => :title,
+      'stl_str' => :titlestring,
+      'stal' => :showtabline,
+      'sj' => :scrolljump,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze

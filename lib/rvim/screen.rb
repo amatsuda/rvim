@@ -66,16 +66,36 @@ module Rvim
       gutter_width(buffer)
     end
 
+    def tabline_height
+      stal = @editor.settings.get(:showtabline).to_i
+      return 0 if stal <= 0
+      return 1 if stal >= 2
+      # stal == 1: only when more than one tab
+      @editor.tabs.size > 1 ? 1 : 0
+    end
+
+    def render_title
+      str = @editor.settings.get(:titlestring).to_s
+      title = if str.empty?
+                name = @editor.filepath ? File.basename(@editor.filepath) : '[No Name]'
+                "#{name} - rvim"
+              else
+                str
+              end
+      "\e]0;#{title}\a"
+    end
+
     def render
       @rows, @cols = Reline::IOGate.get_screen_size
       reserved = @editor.prompt_mode == :listing ? list_overlay_rows + 1 : 1
-      reserved_top = @editor.tabs.size > 1 ? 1 : 0
+      reserved_top = tabline_height
       layout_windows(@rows - reserved - reserved_top, @cols)
       if reserved_top.positive?
         @editor.windows.each { |w| w.row += reserved_top }
       end
 
       out = +HIDE_CURSOR
+      out << render_title if @editor.settings.get(:title)
       out << render_tabline if reserved_top.positive?
       @editor.windows.each { |win| out << render_window(win) }
       out << render_vertical_dividers
@@ -582,10 +602,24 @@ module Rvim
       buffer = win.buffer
       cursor_line = (win == @editor.current_window) ? @editor.line_index : buffer.line_index
       offset = @editor.settings.get(:scrolloff).to_i.clamp(0, [visible / 2 - 1, 0].max)
+      jump = [@editor.settings.get(:scrolljump).to_i, 1].max
+      old_top = win.scroll_top
+
       if cursor_line < win.scroll_top + offset
-        win.scroll_top = [cursor_line - offset, 0].max
+        target = [cursor_line - offset, 0].max
+        # If a scroll is happening, ensure we move at least `jump` lines.
+        if old_top - target < jump && target < old_top
+          target = [old_top - jump, 0].max
+        end
+        win.scroll_top = target
       elsif cursor_line >= win.scroll_top + visible - offset
-        win.scroll_top = cursor_line - visible + offset + 1
+        target = cursor_line - visible + offset + 1
+        if target - old_top < jump && target > old_top
+          target = old_top + jump
+        end
+        # But don't scroll past where the cursor would still be off screen
+        target = [target, cursor_line - visible + offset + 1].max
+        win.scroll_top = target
       end
       win.scroll_top = 0 if win.scroll_top.negative?
     end
