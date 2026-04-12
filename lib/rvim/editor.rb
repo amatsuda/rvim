@@ -163,6 +163,7 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_command, [0x14], :rvim_tag_pop)    # Ctrl-T
       @config.add_default_key_binding_by_keymap(:vi_command, [?!.ord], :rvim_filter_operator)
       @config.add_default_key_binding_by_keymap(:vi_command, [?K.ord], :rvim_keyword_lookup)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?~.ord], :rvim_tilde)
       @config.add_default_key_binding_by_keymap(:vi_command, [?(.ord], :rvim_sentence_backward)
       @config.add_default_key_binding_by_keymap(:vi_command, [?).ord], :rvim_sentence_forward)
       @config.add_default_key_binding_by_keymap(:vi_command, [?{.ord], :rvim_paragraph_backward)
@@ -1345,8 +1346,12 @@ module Rvim
       raise 'no file path' unless target
 
       @autocommands&.fire(:bufwritepre, target.to_s, self)
-      if @settings.get(:backup) && File.exist?(target)
-        FileUtils.cp(target, backup_path(target))
+      keep_backup = @settings.get(:backup)
+      writebackup = @settings.get(:writebackup)
+      backup = nil
+      if (keep_backup || writebackup) && File.exist?(target)
+        backup = backup_path(target)
+        FileUtils.cp(target, backup)
       end
       ff = @current_buffer&.fileformat || @settings.get(:fileformat) || 'unix'
       sep = case ff
@@ -1361,6 +1366,11 @@ module Rvim
       File.binwrite(target, content)
       @filepath = target
       @modified = false
+      # Successful write: remove the transient writebackup if backup setting
+      # didn't ask us to keep it.
+      if backup && !keep_backup
+        File.delete(backup) if File.exist?(backup)
+      end
       Rvim::UndoFile.write(target, @undo_redo_history, @undo_redo_index) if @settings.get(:undofile)
       @autocommands&.fire(:bufwritepost, target.to_s, self)
     end
@@ -2780,6 +2790,34 @@ module Rvim
       @line_index = target
       target_line = @buffer_of_lines[@line_index] || ''
       @byte_pointer = @byte_pointer.clamp(0, [target_line.bytesize - 1, 0].max)
+    end
+
+    private def rvim_tilde(key, arg: 1)
+      if @settings.get(:tildeop)
+        start_case_op(:toggle, arg)
+      else
+        toggle_case_at_cursor
+      end
+    end
+
+    private def toggle_case_at_cursor
+      line = @buffer_of_lines[@line_index] || ''
+      return if line.empty?
+
+      bp = [@byte_pointer, line.bytesize - 1].min
+      ch = line.byteslice(bp, 1)
+      flipped = if ch =~ /[A-Z]/
+                  ch.downcase
+                elsif ch =~ /[a-z]/
+                  ch.upcase
+                else
+                  ch
+                end
+      head = line.byteslice(0, bp)
+      tail = line.byteslice(bp + 1, line.bytesize - bp - 1) || +''
+      @buffer_of_lines[@line_index] = String.new(head + flipped + tail, encoding: encoding)
+      @byte_pointer = (bp + 1).clamp(0, line.bytesize - 1)
+      @modified = true
     end
 
     private def rvim_keyword_lookup(key, arg: 1)

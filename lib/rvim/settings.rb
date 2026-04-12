@@ -65,6 +65,9 @@ module Rvim
       backupext: '~',
       backupdir: '.',
       showbreak: '',
+      tildeop: false,
+      writebackup: true,
+      shell: '/bin/sh',
     }.freeze
 
     ALIASES = {
@@ -124,6 +127,9 @@ module Rvim
       'bex' => :backupext,
       'bdir' => :backupdir,
       'sbr' => :showbreak,
+      'top' => :tildeop,
+      'wb' => :writebackup,
+      'sh' => :shell,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
