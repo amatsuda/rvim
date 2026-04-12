@@ -62,6 +62,9 @@ module Rvim
       titlestring: '',
       showtabline: 1,
       scrolljump: 1,
+      backupext: '~',
+      backupdir: '.',
+      showbreak: '',
     }.freeze
 
     ALIASES = {
@@ -118,6 +121,9 @@ module Rvim
       'stl_str' => :titlestring,
       'stal' => :showtabline,
       'sj' => :scrolljump,
+      'bex' => :backupext,
+      'bdir' => :backupdir,
+      'sbr' => :showbreak,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze

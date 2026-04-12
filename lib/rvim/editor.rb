@@ -1324,13 +1324,29 @@ module Rvim
       @folds&.shift_after(idx, additions.size)
     end
 
+    def backup_path(target)
+      ext = @settings.get(:backupext).to_s
+      ext = '~' if ext.empty?
+      dir = @settings.get(:backupdir).to_s
+      dir = '.' if dir.empty?
+
+      basename = File.basename(target.to_s) + ext
+      if dir == '.'
+        # Vim's '.' means alongside the file
+        File.join(File.dirname(target.to_s), basename)
+      else
+        FileUtils.mkdir_p(File.expand_path(dir))
+        File.join(File.expand_path(dir), basename)
+      end
+    end
+
     def save(path = nil)
       target = path || @filepath
       raise 'no file path' unless target
 
       @autocommands&.fire(:bufwritepre, target.to_s, self)
       if @settings.get(:backup) && File.exist?(target)
-        FileUtils.cp(target, "#{target}~")
+        FileUtils.cp(target, backup_path(target))
       end
       ff = @current_buffer&.fileformat || @settings.get(:fileformat) || 'unix'
       sep = case ff

@@ -223,6 +223,7 @@ module Rvim
       display_rows = build_display_rows(buffer, win.scroll_top, content_rows, content_width, wrap_on)
 
       cursorline_on = @editor.settings.get(:cursorline)
+      sbr = @editor.settings.get(:showbreak).to_s
       out = +''
       display_rows.each_with_index do |row, i|
         line_idx, byte_off, segment, is_fold = row
@@ -240,6 +241,9 @@ module Rvim
                      else
                        truncate_to_width(segment, content_width)
                      end
+          if !sbr.empty? && byte_off.is_a?(Integer) && byte_off > 0
+            rendered = truncate_to_width(sbr + rendered, content_width)
+          end
         end
         out << move_to(win.row + i + 1, win.col + 1)
         line_payload = gutter + pad_render_to_width(rendered, content_width)
