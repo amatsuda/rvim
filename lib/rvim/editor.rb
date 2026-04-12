@@ -250,6 +250,9 @@ module Rvim
     def swap_to_buffer(buf)
       @alternate_filepath = @filepath if @current_buffer && @filepath != buf.filepath
       save_current_buffer if @current_buffer
+      if @settings.get(:autoread) && buf.file_changed_externally? && !buf.modified
+        buf.reload(encoding: encoding)
+      end
       @current_buffer = buf
       @filepath = buf.filepath
       @buffer_of_lines = buf.lines
@@ -1218,6 +1221,7 @@ module Rvim
     end
 
     private def save_current_buffer
+      cap_undo_history
       @current_buffer.lines = @buffer_of_lines
       @current_buffer.line_index = @line_index
       @current_buffer.byte_pointer = @byte_pointer
@@ -1228,6 +1232,17 @@ module Rvim
       @current_buffer.undo_redo_index = @undo_redo_index
       @current_buffer.filepath = @filepath
       @current_buffer.folds = @folds
+    end
+
+    private def cap_undo_history
+      cap = @settings.get(:undolevels).to_i
+      return if cap <= 0
+      return unless @undo_redo_history.is_a?(Array)
+      return if @undo_redo_history.size <= cap
+
+      drop = @undo_redo_history.size - cap
+      @undo_redo_history = @undo_redo_history.last(cap)
+      @undo_redo_index = [@undo_redo_index - drop, 0].max
     end
 
     attr_reader :buffers, :current_buffer, :buffer_order
@@ -1243,6 +1258,10 @@ module Rvim
     def cycle_buffer(direction)
       return if @buffer_order.size <= 1
 
+      if @modified && !@settings.get(:hidden) && !@settings.get(:autowrite)
+        @status_message = 'E37: No write since last change (add ! to override)'
+        return
+      end
       autowrite_if_modified
 
       idx = @buffer_order.index(@current_buffer.id) || 0

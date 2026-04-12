@@ -68,6 +68,9 @@ module Rvim
       tildeop: false,
       writebackup: true,
       shell: '/bin/sh',
+      autoread: false,
+      hidden: true,
+      undolevels: 1000,
     }.freeze
 
     ALIASES = {
@@ -130,6 +133,9 @@ module Rvim
       'top' => :tildeop,
       'wb' => :writebackup,
       'sh' => :shell,
+      'ar' => :autoread,
+      'hid' => :hidden,
+      'ul' => :undolevels,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze

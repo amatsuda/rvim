@@ -7,15 +7,17 @@ module Rvim
     attr_accessor :undo_redo_history, :undo_redo_index, :last_visual
     attr_accessor :local_settings, :folds
     attr_accessor :diff_active, :diff_status
-    attr_accessor :fileformat, :fileencoding
+    attr_accessor :fileformat, :fileencoding, :mtime
 
     def initialize(id, filepath = nil, encoding: Encoding::UTF_8)
       @id = id
       @filepath = filepath
       @fileformat = 'unix'
       @fileencoding = encoding.to_s.downcase
+      @mtime = nil
       if filepath && File.exist?(filepath)
         raw = File.binread(filepath)
+        @mtime = File.mtime(filepath)
         @fileformat = detect_fileformat(raw)
         decoded = decode_with_encoding(raw, encoding)
         @lines = split_with_format(decoded, @fileformat).map { |l| String.new(l, encoding: encoding) }
@@ -38,6 +40,27 @@ module Rvim
 
     def display_name
       @filepath || '[No Name]'
+    end
+
+    def file_changed_externally?
+      return false unless @filepath && File.exist?(@filepath)
+      return false if @mtime.nil?
+
+      File.mtime(@filepath) > @mtime
+    end
+
+    def reload(encoding: Encoding::UTF_8)
+      return unless @filepath && File.exist?(@filepath)
+
+      raw = File.binread(@filepath)
+      @mtime = File.mtime(@filepath)
+      @fileformat = detect_fileformat(raw)
+      decoded = decode_with_encoding(raw, encoding)
+      @lines = split_with_format(decoded, @fileformat).map { |l| String.new(l, encoding: encoding) }
+      @lines = [String.new('', encoding: encoding)] if @lines.empty?
+      @line_index = @line_index.clamp(0, [@lines.size - 1, 0].max)
+      target = @lines[@line_index] || ''
+      @byte_pointer = @byte_pointer.clamp(0, [target.bytesize - 1, 0].max)
     end
 
     private def decode_with_encoding(raw, target_encoding)
