@@ -5,7 +5,7 @@ module Rvim
     # Collect unique \w+ tokens from all buffer lines, drop the bare base,
     # filter to those starting with base, sort alphabetically. base = '' returns
     # every distinct word.
-    def self.candidates(buffer_lines, base)
+    def self.candidates(buffer_lines, base, infercase: false)
       seen = {}
       buffer_lines.each do |line|
         line.to_s.scan(/\w+/) { |w| seen[w] = true }
@@ -13,8 +13,39 @@ module Rvim
       base = base.to_s
       seen.delete(base)
       words = seen.keys
-      words = words.select { |w| w.start_with?(base) } unless base.empty?
+
+      unless base.empty?
+        if infercase
+          base_lower = base.downcase
+          words = words.select { |w| w.downcase.start_with?(base_lower) }
+          words = words.map { |w| match_case_to_base(w, base) }
+        else
+          words = words.select { |w| w.start_with?(base) }
+        end
+      end
+
       words.sort
+    end
+
+    def self.match_case_to_base(candidate, base)
+      return candidate if base.empty?
+
+      n = [base.length, candidate.length].min
+      adjusted = candidate.dup
+      n.times do |i|
+        bc = base[i]
+        cc = candidate[i]
+        next if bc.nil? || cc.nil?
+
+        adjusted[i] = if bc =~ /[A-Z]/
+                       cc.upcase
+                     elsif bc =~ /[a-z]/
+                       cc.downcase
+                     else
+                       cc
+                     end
+      end
+      adjusted
     end
 
     # Walk left from byte_pointer over word characters; return the byte slice.

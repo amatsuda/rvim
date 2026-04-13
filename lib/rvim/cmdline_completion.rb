@@ -61,7 +61,9 @@ module Rvim
               EX_COMMANDS.select { |c| c.start_with?(context.partial) }
             when :filename
               glob = context.partial.empty? ? '*' : "#{context.partial}*"
-              Dir.glob(glob).map { |path| File.directory?(path) ? "#{path}/" : path }.sort
+              paths = Dir.glob(glob).map { |path| File.directory?(path) ? "#{path}/" : path }
+              paths = filter_wildignore(paths, editor)
+              paths.sort
             when :setting
               Rvim::Settings::DEFAULTS.keys.map(&:to_s).select { |k| k.start_with?(context.partial) }.sort
             else
@@ -69,6 +71,15 @@ module Rvim
             end
       # Drop the bare partial so cycling moves to richer candidates.
       raw.reject { |c| c == context.partial }
+    end
+
+    def self.filter_wildignore(paths, editor)
+      patterns = editor.settings.get(:wildignore).to_s.split(',').map(&:strip).reject(&:empty?)
+      return paths if patterns.empty?
+
+      paths.reject do |path|
+        patterns.any? { |pat| File.fnmatch?(pat, path) || File.fnmatch?(pat, File.basename(path)) }
+      end
     end
   end
 end

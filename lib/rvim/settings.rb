@@ -75,6 +75,9 @@ module Rvim
       formatprg: '',
       paste: false,
       pastetoggle: '',
+      wildignore: '',
+      endofline: true,
+      infercase: false,
     }.freeze
 
     ALIASES = {
@@ -144,6 +147,9 @@ module Rvim
       'fp' => :formatprg,
       'ps' => :paste,
       'pt' => :pastetoggle,
+      'wig' => :wildignore,
+      'eol' => :endofline,
+      'inf' => :infercase,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze

@@ -680,7 +680,7 @@ module Rvim
     private def start_completion(delta)
       line = @buffer_of_lines[@line_index] || ''
       base = Rvim::Completion.base_at(line, @byte_pointer)
-      candidates = Rvim::Completion.candidates(@buffer_of_lines, base)
+      candidates = Rvim::Completion.candidates(@buffer_of_lines, base, infercase: @settings.get(:infercase))
       if candidates.empty?
         @status_message = 'Pattern not found'
         return
@@ -1381,7 +1381,9 @@ module Rvim
             end
       enc = @settings.get(:fileencoding).to_s
       enc = 'utf-8' if enc.empty?
-      content = @buffer_of_lines.join(sep) + sep
+      eol = @settings.get(:endofline)
+      content = @buffer_of_lines.join(sep)
+      content += sep if eol
       content = content.encode(enc, invalid: :replace, undef: :replace) if enc.downcase != 'utf-8'
       File.binwrite(target, content)
       @filepath = target
