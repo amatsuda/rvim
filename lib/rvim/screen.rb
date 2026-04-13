@@ -585,8 +585,12 @@ module Rvim
     def gutter_width(buffer)
       return 0 unless @editor.settings.get(:number) || @editor.settings.get(:relativenumber)
 
+      configured = @editor.settings.get(:numberwidth).to_i
+      configured = 4 if configured <= 0
       digits = Math.log10([buffer.lines.size, 1].max).floor + 1
-      [digits.clamp(2, 6) + 1, 4].max
+      # Width grows past `configured` if there are more digits than would fit.
+      width = [digits + 1, configured].max
+      width.clamp(2, 12)
     end
 
     def gutter_text(idx, cursor_idx, total, gw, has_line)

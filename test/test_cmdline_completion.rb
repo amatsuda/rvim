@@ -60,7 +60,8 @@ class TestCmdlineCompletionCandidates < Test::Unit::TestCase
   def test_setting_candidates
     ctx = Rvim::CmdlineCompletion::Context.new(kind: :setting, partial: 'num', prefix: 'set ')
     candidates = Rvim::CmdlineCompletion.candidates(ctx, @editor)
-    assert_equal ['number'], candidates
+    assert candidates.include?('number')
+    assert candidates.include?('numberwidth')
   end
 
   def test_filename_candidates

@@ -71,6 +71,10 @@ module Rvim
       autoread: false,
       hidden: true,
       undolevels: 1000,
+      numberwidth: 4,
+      formatprg: '',
+      paste: false,
+      pastetoggle: '',
     }.freeze
 
     ALIASES = {
@@ -136,6 +140,10 @@ module Rvim
       'ar' => :autoread,
       'hid' => :hidden,
       'ul' => :undolevels,
+      'nuw' => :numberwidth,
+      'fp' => :formatprg,
+      'ps' => :paste,
+      'pt' => :pastetoggle,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze

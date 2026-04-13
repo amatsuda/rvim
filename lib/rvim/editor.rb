@@ -591,11 +591,12 @@ module Rvim
       head = cur_line.byteslice(0, @byte_pointer) || +''
       tail = cur_line.byteslice(@byte_pointer, cur_line.bytesize - @byte_pointer) || +''
 
+      paste = @settings.get(:paste)
       ai = @settings.get(:autoindent)
       si = @settings.get(:smartindent)
-      indent = (ai || si) ? cur_line[/\A[ \t]*/].to_s.dup : ''
+      indent = (!paste && (ai || si)) ? cur_line[/\A[ \t]*/].to_s.dup : ''
 
-      if si
+      if !paste && si
         sw = @settings.get(:shiftwidth).to_i
         sw = 2 if sw <= 0
         if head.rstrip.end_with?('{')
@@ -2866,7 +2867,19 @@ module Rvim
       lo = start_line.clamp(0, [@buffer_of_lines.size - 1, 0].max)
       hi = end_line.clamp(0, [@buffer_of_lines.size - 1, 0].max)
       lines = @buffer_of_lines[lo..hi].map(&:to_s)
-      reformatted = Rvim::Reformat.wrap(lines, width)
+
+      formatprg = @settings.get(:formatprg).to_s
+      reformatted = if formatprg.empty?
+                      Rvim::Reformat.wrap(lines, width)
+                    else
+                      result = Rvim::Filter.run(formatprg, input: lines.join("\n"), shell: @settings.get(:shell))
+                      if result.success?
+                        result.stdout.chomp("\n").split("\n", -1)
+                      else
+                        @status_message = "formatprg: #{result.stderr.lines.first&.chomp || 'failed'}"
+                        return
+                      end
+                    end
       replace_line_range(lo, hi, reformatted)
     end
 
