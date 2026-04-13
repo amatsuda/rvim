@@ -2751,7 +2751,7 @@ module Rvim
       prg = @settings.get(:equalprg).to_s
       return if prg.empty?
 
-      result = Rvim::Filter.run(prg, input: lines.join("\n"), shell: @settings.get(:shell))
+      result = Rvim::Filter.run(prg, input: lines.join("\n"), shell: @settings.get(:shell), shellcmdflag: @settings.get(:shellcmdflag))
       if result.success?
         out_lines = result.stdout.chomp("\n").split("\n", -1)
         replace_line_range(lo, hi, out_lines)
@@ -2891,7 +2891,7 @@ module Rvim
 
       prg = @settings.get(:keywordprg).to_s
       prg = 'man' if prg.empty?
-      result = Rvim::Filter.run("#{prg} #{word}")
+      result = Rvim::Filter.run("#{prg} #{word}", shell: @settings.get(:shell), shellcmdflag: @settings.get(:shellcmdflag))
       if result.success?
         lines = result.stdout.lines.map(&:chomp)
         lines = ['(no output)'] if lines.empty?
@@ -2914,7 +2914,7 @@ module Rvim
       reformatted = if formatprg.empty?
                       Rvim::Reformat.wrap(lines, width)
                     else
-                      result = Rvim::Filter.run(formatprg, input: lines.join("\n"), shell: @settings.get(:shell))
+                      result = Rvim::Filter.run(formatprg, input: lines.join("\n"), shell: @settings.get(:shell), shellcmdflag: @settings.get(:shellcmdflag))
                       if result.success?
                         result.stdout.chomp("\n").split("\n", -1)
                       else

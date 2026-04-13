@@ -81,6 +81,9 @@ module Rvim
       equalprg: '',
       breakindent: false,
       fixendofline: true,
+      shellcmdflag: '-c',
+      grepformat: '%f:%l:%c:%m,%f:%l:%m',
+      belloff: 'all',
     }.freeze
 
     ALIASES = {
@@ -156,6 +159,9 @@ module Rvim
       'ep' => :equalprg,
       'bri' => :breakindent,
       'fixeol' => :fixendofline,
+      'shcf' => :shellcmdflag,
+      'gfm' => :grepformat,
+      'bo' => :belloff,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze

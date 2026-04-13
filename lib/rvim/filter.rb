@@ -10,9 +10,10 @@ module Rvim
       end
     end
 
-    def self.run(cmd, input: '', shell: '/bin/sh')
-      shell_argv = shell.to_s.empty? ? ['/bin/sh', '-c'] : [shell, '-c']
-      out, err, status = Open3.capture3(*shell_argv, cmd.to_s, stdin_data: input.to_s)
+    def self.run(cmd, input: '', shell: '/bin/sh', shellcmdflag: '-c')
+      sh = shell.to_s.empty? ? '/bin/sh' : shell
+      flag = shellcmdflag.to_s.empty? ? '-c' : shellcmdflag
+      out, err, status = Open3.capture3(sh, flag, cmd.to_s, stdin_data: input.to_s)
       Result.new(stdout: out, stderr: err, status: status)
     rescue => e
       Result.new(stdout: '', stderr: e.message, status: failed_status)

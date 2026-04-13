@@ -700,7 +700,7 @@ module Rvim
       prg = editor.settings.get(:makeprg).to_s
       prg = 'make' if prg.empty?
       cmd = args.empty? ? prg : "#{prg} #{args}"
-      result = Rvim::Filter.run(cmd, shell: editor.settings.get(:shell))
+      result = Rvim::Filter.run(cmd, shell: editor.settings.get(:shell), shellcmdflag: editor.settings.get(:shellcmdflag))
       output = result.stdout.to_s + result.stderr.to_s
       entries = Rvim::Errorformat.parse(output, editor.settings.get(:errorformat))
       editor.quickfix.set(entries)
@@ -726,9 +726,11 @@ module Rvim
             else
               "#{prg} #{args}"
             end
-      result = Rvim::Filter.run(cmd, shell: editor.settings.get(:shell))
+      result = Rvim::Filter.run(cmd, shell: editor.settings.get(:shell), shellcmdflag: editor.settings.get(:shellcmdflag))
       output = result.stdout.to_s
-      entries = Rvim::Errorformat.parse(output, editor.settings.get(:errorformat))
+      gfm = editor.settings.get(:grepformat).to_s
+      gfm = editor.settings.get(:errorformat).to_s if gfm.empty?
+      entries = Rvim::Errorformat.parse(output, gfm)
       editor.quickfix.set(entries)
       if entries.empty?
         editor.status_message = "E480: No match: #{args}"
@@ -1037,7 +1039,7 @@ module Rvim
       prg = editor.settings.get(:makeprg).to_s
       prg = 'make' if prg.empty?
       cmd = args.empty? ? prg : "#{prg} #{args}"
-      result = Rvim::Filter.run(cmd, shell: editor.settings.get(:shell))
+      result = Rvim::Filter.run(cmd, shell: editor.settings.get(:shell), shellcmdflag: editor.settings.get(:shellcmdflag))
       output = result.stdout.to_s + result.stderr.to_s
       entries = Rvim::Errorformat.parse(output, editor.settings.get(:errorformat))
       list.set(entries)
@@ -1057,8 +1059,10 @@ module Rvim
       prg = editor.settings.get(:grepprg).to_s
       prg = 'grep -n $* /dev/null' if prg.empty?
       cmd = prg.include?('$*') ? prg.sub('$*', args) : "#{prg} #{args}"
-      result = Rvim::Filter.run(cmd, shell: editor.settings.get(:shell))
-      entries = Rvim::Errorformat.parse(result.stdout.to_s, editor.settings.get(:errorformat))
+      result = Rvim::Filter.run(cmd, shell: editor.settings.get(:shell), shellcmdflag: editor.settings.get(:shellcmdflag))
+      gfm = editor.settings.get(:grepformat).to_s
+      gfm = editor.settings.get(:errorformat).to_s if gfm.empty?
+      entries = Rvim::Errorformat.parse(result.stdout.to_s, gfm)
       list.set(entries)
       report_list_status(editor, entries, parsed.bang, "E480: No match: #{args}")
     end
@@ -1304,7 +1308,7 @@ module Rvim
       cmd = expand_filenames(editor, cmd)
       editor.last_bang_cmd = cmd
 
-      result = Rvim::Filter.run(cmd, shell: editor.settings.get(:shell))
+      result = Rvim::Filter.run(cmd, shell: editor.settings.get(:shell), shellcmdflag: editor.settings.get(:shellcmdflag))
       if result.success?
         lines = result.stdout.chomp("\n").split("\n", -1)
         lines = ['(no output)'] if lines.empty? || lines == ['']
@@ -1318,7 +1322,7 @@ module Rvim
       start_line, end_line = resolve_sub_range(editor, parsed.range)
       input = editor.buffer_of_lines[start_line..end_line].join("\n")
       cmd = expand_filenames(editor, parsed.arg.to_s)
-      result = Rvim::Filter.run(cmd, input: input, shell: editor.settings.get(:shell))
+      result = Rvim::Filter.run(cmd, input: input, shell: editor.settings.get(:shell), shellcmdflag: editor.settings.get(:shellcmdflag))
       unless result.success?
         editor.status_message = filter_error_status(result)
         return
@@ -1338,7 +1342,7 @@ module Rvim
 
       if arg.start_with?('!')
         cmd = arg.sub(/\A!\s*/, '')
-        result = Rvim::Filter.run(cmd, shell: editor.settings.get(:shell))
+        result = Rvim::Filter.run(cmd, shell: editor.settings.get(:shell), shellcmdflag: editor.settings.get(:shellcmdflag))
         unless result.success?
           editor.status_message = filter_error_status(result)
           return
