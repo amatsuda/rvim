@@ -76,15 +76,30 @@ class TestEndofline < Test::Unit::TestCase
     f&.unlink
   end
 
-  def test_save_no_trailing_newline_when_off
+  def test_save_no_trailing_newline_when_both_off
     f = Tempfile.new(['eol', '.txt'])
     f.binmode; f.write("hello\n"); f.close
     @editor.open(f.path)
     @editor.buffer_of_lines[0] = +'changed'
     @editor.settings.set(:endofline, false)
+    @editor.settings.set(:fixendofline, false)
     @editor.save
     bytes = File.binread(f.path)
     assert_equal 'changed', bytes
+  ensure
+    f&.unlink
+  end
+
+  def test_fixendofline_forces_trailing_newline
+    f = Tempfile.new(['eol', '.txt'])
+    f.binmode; f.write("hello\n"); f.close
+    @editor.open(f.path)
+    @editor.buffer_of_lines[0] = +'changed'
+    @editor.settings.set(:endofline, false)
+    @editor.settings.set(:fixendofline, true)
+    @editor.save
+    bytes = File.binread(f.path)
+    assert_equal "changed\n", bytes
   ensure
     f&.unlink
   end

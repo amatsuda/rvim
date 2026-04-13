@@ -86,6 +86,7 @@ module Rvim
       @alternate_filepath = nil
       @rvim_pending_format_op = false
       @rvim_pending_filter_op = false
+      @rvim_pending_equal_op = false
       @confirm_question = nil
       @confirm_options = nil
       @confirm_callback = nil
@@ -164,6 +165,7 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_command, [?!.ord], :rvim_filter_operator)
       @config.add_default_key_binding_by_keymap(:vi_command, [?K.ord], :rvim_keyword_lookup)
       @config.add_default_key_binding_by_keymap(:vi_command, [?~.ord], :rvim_tilde)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?=.ord], :rvim_equal_operator)
       @config.add_default_key_binding_by_keymap(:vi_command, [?(.ord], :rvim_sentence_backward)
       @config.add_default_key_binding_by_keymap(:vi_command, [?).ord], :rvim_sentence_forward)
       @config.add_default_key_binding_by_keymap(:vi_command, [?{.ord], :rvim_paragraph_backward)
@@ -1381,9 +1383,10 @@ module Rvim
             end
       enc = @settings.get(:fileencoding).to_s
       enc = 'utf-8' if enc.empty?
-      eol = @settings.get(:endofline)
+      # fixendofline forces a trailing separator regardless of endofline.
+      add_eol = @settings.get(:fixendofline) || @settings.get(:endofline)
       content = @buffer_of_lines.join(sep)
-      content += sep if eol
+      content += sep if add_eol
       content = content.encode(enc, invalid: :replace, undef: :replace) if enc.downcase != 'utf-8'
       File.binwrite(target, content)
       @filepath = target
@@ -1520,6 +1523,23 @@ module Rvim
         post = [@line_index, @byte_pointer]
         start_line, end_line = [pre[0], post[0]].minmax
         start_filter_prompt(start_line, end_line)
+        return
+      end
+
+      if @rvim_pending_equal_op
+        ch = key.char
+        if ch == '='
+          @rvim_pending_equal_op = false
+          apply_equal_to_lines(@line_index, @line_index)
+          return
+        end
+
+        pre = [@line_index, @byte_pointer]
+        @rvim_pending_equal_op = false
+        super
+        post = [@line_index, @byte_pointer]
+        start_line, end_line = [pre[0], post[0]].minmax
+        apply_equal_to_lines(start_line, end_line)
         return
       end
 
@@ -2718,6 +2738,26 @@ module Rvim
 
     private def rvim_filter_operator(key, arg: 1)
       @rvim_pending_filter_op = true
+    end
+
+    private def rvim_equal_operator(key, arg: 1)
+      @rvim_pending_equal_op = true
+    end
+
+    def apply_equal_to_lines(start_line, end_line)
+      lo = start_line.clamp(0, [@buffer_of_lines.size - 1, 0].max)
+      hi = end_line.clamp(0, [@buffer_of_lines.size - 1, 0].max)
+      lines = @buffer_of_lines[lo..hi].map(&:to_s)
+      prg = @settings.get(:equalprg).to_s
+      return if prg.empty?
+
+      result = Rvim::Filter.run(prg, input: lines.join("\n"), shell: @settings.get(:shell))
+      if result.success?
+        out_lines = result.stdout.chomp("\n").split("\n", -1)
+        replace_line_range(lo, hi, out_lines)
+      else
+        @status_message = "equalprg: #{result.stderr.lines.first&.chomp || 'failed'}"
+      end
     end
 
     attr_reader :confirm_question, :confirm_options

@@ -78,6 +78,9 @@ module Rvim
       wildignore: '',
       endofline: true,
       infercase: false,
+      equalprg: '',
+      breakindent: false,
+      fixendofline: true,
     }.freeze
 
     ALIASES = {
@@ -150,6 +153,9 @@ module Rvim
       'wig' => :wildignore,
       'eol' => :endofline,
       'inf' => :infercase,
+      'ep' => :equalprg,
+      'bri' => :breakindent,
+      'fixeol' => :fixendofline,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze

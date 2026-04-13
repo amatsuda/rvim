@@ -244,6 +244,10 @@ module Rvim
           if !sbr.empty? && byte_off.is_a?(Integer) && byte_off > 0
             rendered = truncate_to_width(sbr + rendered, content_width)
           end
+          if @editor.settings.get(:breakindent) && byte_off.is_a?(Integer) && byte_off > 0
+            indent = (buffer.lines[line_idx] || '')[/\A[ \t]*/].to_s
+            rendered = truncate_to_width(indent + rendered, content_width) if indent && !indent.empty?
+          end
         end
         out << move_to(win.row + i + 1, win.col + 1)
         line_payload = gutter + pad_render_to_width(rendered, content_width)
