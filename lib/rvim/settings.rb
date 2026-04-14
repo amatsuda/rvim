@@ -93,6 +93,11 @@ module Rvim
       magic: true,
       eadirection: 'both',
       completeopt: 'menu',
+      timeout: true,
+      timeoutlen: 1000,
+      ttimeoutlen: -1,
+      isfname: '@,48-57,/,.,-,_,+,,,#,$,%,~,=',
+      isident: '@,48-57,_,192-255',
     }.freeze
 
     ALIASES = {
@@ -179,6 +184,10 @@ module Rvim
       'swb' => :switchbuf,
       'ead' => :eadirection,
       'cot' => :completeopt,
+      'to' => :timeout,
+      'tm' => :timeoutlen,
+      'isf' => :isfname,
+      'isi' => :isident,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
