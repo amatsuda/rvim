@@ -2133,6 +2133,11 @@ module Rvim
         return
       end
       @registers.write(name, text, kind)
+      # When 'clipboard' includes 'unnamedplus', mirror unnamed yanks to the
+      # system clipboard register too.
+      if register.nil? && @settings.get(:clipboard).to_s.split(',').include?('unnamedplus')
+        Rvim::SystemClipboard.write(text.is_a?(Array) ? text.join("\n") : text.to_s)
+      end
     end
 
     def read_register(name = nil)

@@ -87,6 +87,9 @@ module Rvim
       signcolumn: 'auto',
       updatetime: 4000,
       shortmess: 'filnxtToOS',
+      clipboard: '',
+      background: 'dark',
+      switchbuf: 'uselast',
     }.freeze
 
     ALIASES = {
@@ -168,6 +171,9 @@ module Rvim
       'scl' => :signcolumn,
       'ut' => :updatetime,
       'shm' => :shortmess,
+      'cb' => :clipboard,
+      'bg' => :background,
+      'swb' => :switchbuf,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
