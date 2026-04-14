@@ -84,6 +84,9 @@ module Rvim
       shellcmdflag: '-c',
       grepformat: '%f:%l:%c:%m,%f:%l:%m',
       belloff: 'all',
+      signcolumn: 'auto',
+      updatetime: 4000,
+      shortmess: 'filnxtToOS',
     }.freeze
 
     ALIASES = {
@@ -162,6 +165,9 @@ module Rvim
       'shcf' => :shellcmdflag,
       'gfm' => :grepformat,
       'bo' => :belloff,
+      'scl' => :signcolumn,
+      'ut' => :updatetime,
+      'shm' => :shortmess,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze

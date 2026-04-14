@@ -587,14 +587,26 @@ module Rvim
     end
 
     def gutter_width(buffer)
-      return 0 unless @editor.settings.get(:number) || @editor.settings.get(:relativenumber)
+      width = 0
+      if @editor.settings.get(:number) || @editor.settings.get(:relativenumber)
+        configured = @editor.settings.get(:numberwidth).to_i
+        configured = 4 if configured <= 0
+        digits = Math.log10([buffer.lines.size, 1].max).floor + 1
+        width = [digits + 1, configured].max
+        width = width.clamp(2, 12)
+      end
+      width += sign_column_width
+      width
+    end
 
-      configured = @editor.settings.get(:numberwidth).to_i
-      configured = 4 if configured <= 0
-      digits = Math.log10([buffer.lines.size, 1].max).floor + 1
-      # Width grows past `configured` if there are more digits than would fit.
-      width = [digits + 1, configured].max
-      width.clamp(2, 12)
+    def sign_column_width
+      case @editor.settings.get(:signcolumn).to_s
+      when 'yes' then 2
+      when 'number'
+        # signs displayed in the number column — no extra space
+        0
+      else 0 # 'auto' / 'no' — no signs, no column (we have no sign system)
+      end
     end
 
     def gutter_text(idx, cursor_idx, total, gw, has_line)
