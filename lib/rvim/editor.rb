@@ -414,9 +414,17 @@ module Rvim
     end
 
     def equalize_windows
+      ead = @settings.get(:eadirection).to_s
       @windows.each do |w|
-        w.extra_rows = 0
-        w.extra_cols = 0
+        case ead
+        when 'hor'
+          w.extra_rows = 0
+        when 'ver'
+          w.extra_cols = 0
+        else
+          w.extra_rows = 0
+          w.extra_cols = 0
+        end
       end
     end
 
@@ -695,8 +703,12 @@ module Rvim
       @completion_base_byte = Rvim::Completion.base_start(line, @byte_pointer)
       @completion_line_index = @line_index
       @completion_popup = Rvim::CompletionPopup.new(contents: candidates, pointer: @completion_index, max_height: configured_pum_height)
-      replace_completion_with(@completion_candidates[@completion_index])
+      replace_completion_with(@completion_candidates[@completion_index]) unless completeopt_flags.include?('noinsert')
       update_completion_status
+    end
+
+    private def completeopt_flags
+      @settings.get(:completeopt).to_s.split(',').map(&:strip)
     end
 
     private def replace_completion_with(word)

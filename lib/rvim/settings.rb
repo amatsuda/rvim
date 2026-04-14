@@ -90,6 +90,9 @@ module Rvim
       clipboard: '',
       background: 'dark',
       switchbuf: 'uselast',
+      magic: true,
+      eadirection: 'both',
+      completeopt: 'menu',
     }.freeze
 
     ALIASES = {
@@ -174,6 +177,8 @@ module Rvim
       'cb' => :clipboard,
       'bg' => :background,
       'swb' => :switchbuf,
+      'ead' => :eadirection,
+      'cot' => :completeopt,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
