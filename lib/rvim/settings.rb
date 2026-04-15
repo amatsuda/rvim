@@ -108,6 +108,11 @@ module Rvim
       commentstring: '/*%s*/',
       path: '.,,',
       winminheight: 1,
+      winheight: 1,
+      winwidth: 20,
+      winminwidth: 1,
+      synmaxcol: 3000,
+      redrawtime: 2000,
     }.freeze
 
     ALIASES = {
@@ -207,6 +212,11 @@ module Rvim
       'cms' => :commentstring,
       'pa' => :path,
       'wmh' => :winminheight,
+      'wh' => :winheight,
+      'wiw' => :winwidth,
+      'wmw' => :winminwidth,
+      'smc' => :synmaxcol,
+      'rdt' => :redrawtime,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
