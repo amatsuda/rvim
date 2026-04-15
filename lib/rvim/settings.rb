@@ -103,6 +103,11 @@ module Rvim
       report: 2,
       iskeyword: '@,48-57,_,192-255',
       matchpairs: '(:),{:},[:]',
+      formatoptions: 'tcq',
+      comments: 's1:/*,mb:*,ex:*/,://,b:#,:%,:XCOMM,n:>,fb:-',
+      commentstring: '/*%s*/',
+      path: '.,,',
+      winminheight: 1,
     }.freeze
 
     ALIASES = {
@@ -197,6 +202,11 @@ module Rvim
       'ch' => :cmdheight,
       'isk' => :iskeyword,
       'mps' => :matchpairs,
+      'fo' => :formatoptions,
+      'com' => :comments,
+      'cms' => :commentstring,
+      'pa' => :path,
+      'wmh' => :winminheight,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
