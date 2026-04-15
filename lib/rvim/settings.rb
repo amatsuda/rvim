@@ -98,6 +98,11 @@ module Rvim
       ttimeoutlen: -1,
       isfname: '@,48-57,/,.,-,_,+,,,#,$,%,~,=',
       isident: '@,48-57,_,192-255',
+      wrapscan: true,
+      cmdheight: 1,
+      report: 2,
+      iskeyword: '@,48-57,_,192-255',
+      matchpairs: '(:),{:},[:]',
     }.freeze
 
     ALIASES = {
@@ -188,6 +193,10 @@ module Rvim
       'tm' => :timeoutlen,
       'isf' => :isfname,
       'isi' => :isident,
+      'ws' => :wrapscan,
+      'ch' => :cmdheight,
+      'isk' => :iskeyword,
+      'mps' => :matchpairs,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze

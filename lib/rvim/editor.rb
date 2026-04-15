@@ -2480,10 +2480,12 @@ module Rvim
       @search_pattern = pattern
       @search_direction = direction
       @search_matches = matches
-      target = Rvim::Search.next_match(matches, @line_index, @byte_pointer, direction)
+      target = Rvim::Search.next_match(matches, @line_index, @byte_pointer, direction, wrapscan: @settings.get(:wrapscan))
       if target
         push_jump
         move_cursor_to(target[0], target[1])
+      else
+        @status_message = "E385: Search hit BOTTOM without match for: #{word}"
       end
     end
 
@@ -2506,12 +2508,14 @@ module Rvim
       return unless @search_pattern
 
       @search_matches = scan_pattern(@search_pattern) if @search_matches.empty?
-      target = Rvim::Search.next_match(@search_matches, @line_index, @byte_pointer, direction)
+      target = Rvim::Search.next_match(@search_matches, @line_index, @byte_pointer, direction, wrapscan: @settings.get(:wrapscan))
       if target
         push_jump
         move_cursor_to(target[0], target[1])
-      else
+      elsif @settings.get(:wrapscan)
         @status_message = "E486: Pattern not found: #{@search_pattern}"
+      else
+        @status_message = direction == :forward ? "E385: Search hit BOTTOM without match for: #{@search_pattern}" : "E384: Search hit TOP without match for: #{@search_pattern}"
       end
     end
 
@@ -3092,7 +3096,7 @@ module Rvim
     def select_next_search_match(direction)
       return unless @search_pattern && !@search_matches.empty?
 
-      target = Rvim::Search.next_match(@search_matches, @line_index, @byte_pointer, direction)
+      target = Rvim::Search.next_match(@search_matches, @line_index, @byte_pointer, direction, wrapscan: @settings.get(:wrapscan))
       return unless target
 
       line, byte_start, byte_end = target
