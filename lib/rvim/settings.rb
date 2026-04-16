@@ -123,6 +123,11 @@ module Rvim
       wrapmargin: 0,
       selection: 'inclusive',
       selectmode: '',
+      conceallevel: 0,
+      concealcursor: '',
+      breakat: " \t!@*-+;:,./?",
+      matchtime: 5,
+      cmdwinheight: 7,
     }.freeze
 
     ALIASES = {
@@ -236,6 +241,11 @@ module Rvim
       'wm' => :wrapmargin,
       'sel' => :selection,
       'slm' => :selectmode,
+      'cole' => :conceallevel,
+      'cocu' => :concealcursor,
+      'brk' => :breakat,
+      'mat' => :matchtime,
+      'cwh' => :cmdwinheight,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
