@@ -118,6 +118,11 @@ module Rvim
       cinwords: 'if,else,while,do,for,switch',
       lisp: false,
       lispwords: 'defun,define,defmacro,set!,lambda,if,case,let,flet,let*,letrec,do,do*,define-syntax,let-syntax,letrec-syntax,destructuring-bind,defpackage,defparameter,defstruct,deftype,defvar,do-all-symbols,do-external-symbols,do-symbols,dolist,dotimes,ecase,etypecase,eval-when,labels,macrolet,multiple-value-bind,multiple-value-prog1,multiple-value-setq,prog1,progv,typecase,unless,unwind-protect,when,with-input-from-string,with-open-file,with-open-stream,with-output-to-string,with-package-iterator,define-condition,handler-bind,handler-case,restart-bind,restart-case,with-simple-restart,store-value,use-value,muffle-warning,abort,continue',
+      softtabstop: 0,
+      smarttab: true,
+      wrapmargin: 0,
+      selection: 'inclusive',
+      selectmode: '',
     }.freeze
 
     ALIASES = {
@@ -226,6 +231,11 @@ module Rvim
       'cino' => :cinoptions,
       'cinw' => :cinwords,
       'lw' => :lispwords,
+      'sts' => :softtabstop,
+      'sta' => :smarttab,
+      'wm' => :wrapmargin,
+      'sel' => :selection,
+      'slm' => :selectmode,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
