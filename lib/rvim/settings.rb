@@ -128,6 +128,11 @@ module Rvim
       breakat: " \t!@*-+;:,./?",
       matchtime: 5,
       cmdwinheight: 7,
+      swapfile: true,
+      directory: '.,~/tmp,/var/tmp,/tmp',
+      updatecount: 200,
+      viewdir: '~/.vim/view',
+      viewoptions: 'folds,cursor,curdir',
     }.freeze
 
     ALIASES = {
@@ -246,6 +251,11 @@ module Rvim
       'brk' => :breakat,
       'mat' => :matchtime,
       'cwh' => :cmdwinheight,
+      'swf' => :swapfile,
+      'dir' => :directory,
+      'uc' => :updatecount,
+      'vdir' => :viewdir,
+      'vop' => :viewoptions,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
