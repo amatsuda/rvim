@@ -133,6 +133,11 @@ module Rvim
       updatecount: 200,
       viewdir: '~/.vim/view',
       viewoptions: 'folds,cursor,curdir',
+      runtimepath: '~/.vim,/usr/share/vim/vimfiles,/usr/share/vim,/usr/share/vim/vimfiles/after,~/.vim/after',
+      cdpath: ',,',
+      define: '^\s*#\s*define',
+      include: '^\s*#\s*include',
+      sessionoptions: 'blank,buffers,curdir,folds,help,options,tabpages,winsize,terminal',
     }.freeze
 
     ALIASES = {
@@ -256,6 +261,11 @@ module Rvim
       'uc' => :updatecount,
       'vdir' => :viewdir,
       'vop' => :viewoptions,
+      'rtp' => :runtimepath,
+      'cd' => :cdpath,
+      'def' => :define,
+      'inc' => :include,
+      'ssop' => :sessionoptions,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
