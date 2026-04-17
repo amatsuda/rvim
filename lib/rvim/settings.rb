@@ -148,6 +148,11 @@ module Rvim
       shellpipe: '2>&1| tee',
       shellredir: '>%s 2>&1',
       shellslash: false,
+      cinkeys: '0{,0},0),0],:,0#,!^F,o,O,e',
+      helpheight: 20,
+      helplang: 'en',
+      tagcase: 'followic',
+      tagstack: true,
     }.freeze
 
     ALIASES = {
@@ -286,6 +291,11 @@ module Rvim
       'sp' => :shellpipe,
       'srr' => :shellredir,
       'ssl' => :shellslash,
+      'cink' => :cinkeys,
+      'hh' => :helpheight,
+      'hlg' => :helplang,
+      'tc' => :tagcase,
+      'tgst' => :tagstack,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
