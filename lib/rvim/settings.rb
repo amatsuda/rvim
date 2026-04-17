@@ -138,6 +138,11 @@ module Rvim
       define: '^\s*#\s*define',
       include: '^\s*#\s*include',
       sessionoptions: 'blank,buffers,curdir,folds,help,options,tabpages,winsize,terminal',
+      cpoptions: 'aABceFs',
+      display: 'lastline',
+      fillchars: '',
+      tabline: '',
+      verbose: 0,
     }.freeze
 
     ALIASES = {
@@ -266,6 +271,11 @@ module Rvim
       'def' => :define,
       'inc' => :include,
       'ssop' => :sessionoptions,
+      'cpo' => :cpoptions,
+      'dy' => :display,
+      'fcs' => :fillchars,
+      'tal' => :tabline,
+      'vbs' => :verbose,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
