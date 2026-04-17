@@ -143,6 +143,11 @@ module Rvim
       fillchars: '',
       tabline: '',
       verbose: 0,
+      scrollbind: false,
+      cursorbind: false,
+      shellpipe: '2>&1| tee',
+      shellredir: '>%s 2>&1',
+      shellslash: false,
     }.freeze
 
     ALIASES = {
@@ -276,6 +281,11 @@ module Rvim
       'fcs' => :fillchars,
       'tal' => :tabline,
       'vbs' => :verbose,
+      'scb' => :scrollbind,
+      'crb' => :cursorbind,
+      'sp' => :shellpipe,
+      'srr' => :shellredir,
+      'ssl' => :shellslash,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
