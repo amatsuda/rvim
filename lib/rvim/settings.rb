@@ -163,6 +163,11 @@ module Rvim
       regexpengine: 0,
       taglength: 0,
       tagrelative: true,
+      wildchar: 9,
+      wildcharm: 0,
+      wildmode: 'full',
+      previewheight: 12,
+      joinspaces: true,
     }.freeze
 
     ALIASES = {
@@ -314,6 +319,11 @@ module Rvim
       'lmap' => :langmap,
       're' => :regexpengine,
       'tr' => :tagrelative,
+      'wc' => :wildchar,
+      'wcm' => :wildcharm,
+      'wim' => :wildmode,
+      'pvh' => :previewheight,
+      'js' => :joinspaces,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
