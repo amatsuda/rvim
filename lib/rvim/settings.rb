@@ -153,6 +153,11 @@ module Rvim
       helplang: 'en',
       tagcase: 'followic',
       tagstack: true,
+      mousehide: true,
+      mousemodel: 'extend',
+      mousetime: 500,
+      iminsert: 0,
+      imsearch: -1,
     }.freeze
 
     ALIASES = {
@@ -296,6 +301,11 @@ module Rvim
       'hlg' => :helplang,
       'tc' => :tagcase,
       'tgst' => :tagstack,
+      'mh' => :mousehide,
+      'mousem' => :mousemodel,
+      'mouset' => :mousetime,
+      'imi' => :iminsert,
+      'ims' => :imsearch,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
