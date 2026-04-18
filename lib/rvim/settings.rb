@@ -168,6 +168,11 @@ module Rvim
       wildmode: 'full',
       previewheight: 12,
       joinspaces: true,
+      winfixheight: false,
+      winfixwidth: false,
+      cscopetag: false,
+      cscopeprg: 'cscope',
+      cscopetagorder: 0,
     }.freeze
 
     ALIASES = {
@@ -324,6 +329,11 @@ module Rvim
       'wim' => :wildmode,
       'pvh' => :previewheight,
       'js' => :joinspaces,
+      'wfh' => :winfixheight,
+      'wfw' => :winfixwidth,
+      'cst' => :cscopetag,
+      'csprg' => :cscopeprg,
+      'csto' => :cscopetagorder,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
