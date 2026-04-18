@@ -158,6 +158,11 @@ module Rvim
       mousetime: 500,
       iminsert: 0,
       imsearch: -1,
+      langmap: '',
+      langremap: false,
+      regexpengine: 0,
+      taglength: 0,
+      tagrelative: true,
     }.freeze
 
     ALIASES = {
@@ -306,6 +311,9 @@ module Rvim
       'mouset' => :mousetime,
       'imi' => :iminsert,
       'ims' => :imsearch,
+      'lmap' => :langmap,
+      're' => :regexpengine,
+      'tr' => :tagrelative,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
