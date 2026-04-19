@@ -183,6 +183,11 @@ module Rvim
       more: true,
       cedit: "\x06",
       wildoptions: '',
+      casemap: 'internal,keepascii',
+      quoteescape: '\\',
+      formatlistpat: '^\s*\d\+[\]:.)}\t ]\s*',
+      keymap: '',
+      winaltkeys: 'menu',
     }.freeze
 
     ALIASES = {
@@ -351,6 +356,11 @@ module Rvim
       'gd' => :gdefault,
       'ex' => :exrc,
       'wop' => :wildoptions,
+      'cmp' => :casemap,
+      'qe' => :quoteescape,
+      'flp' => :formatlistpat,
+      'kmp' => :keymap,
+      'wak' => :winaltkeys,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
