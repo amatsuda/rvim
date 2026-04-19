@@ -188,6 +188,11 @@ module Rvim
       formatlistpat: '^\s*\d\+[\]:.)}\t ]\s*',
       keymap: '',
       winaltkeys: 'menu',
+      omnifunc: '',
+      operatorfunc: '',
+      tagfunc: '',
+      formatexpr: '',
+      indentexpr: '',
     }.freeze
 
     ALIASES = {
@@ -361,6 +366,11 @@ module Rvim
       'flp' => :formatlistpat,
       'kmp' => :keymap,
       'wak' => :winaltkeys,
+      'ofu' => :omnifunc,
+      'opfunc' => :operatorfunc,
+      'tfu' => :tagfunc,
+      'fex' => :formatexpr,
+      'inde' => :indentexpr,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
