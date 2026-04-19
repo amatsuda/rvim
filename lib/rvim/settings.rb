@@ -178,6 +178,11 @@ module Rvim
       dictionary: '',
       thesaurus: '',
       gdefault: false,
+      secure: false,
+      exrc: false,
+      more: true,
+      cedit: "\x06",
+      wildoptions: '',
     }.freeze
 
     ALIASES = {
@@ -344,6 +349,8 @@ module Rvim
       'dict' => :dictionary,
       'tsr' => :thesaurus,
       'gd' => :gdefault,
+      'ex' => :exrc,
+      'wop' => :wildoptions,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
