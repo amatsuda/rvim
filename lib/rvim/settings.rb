@@ -173,6 +173,11 @@ module Rvim
       cscopetag: false,
       cscopeprg: 'cscope',
       cscopetagorder: 0,
+      viminfo: "!,'100,<50,s10,h",
+      complete: '.,w,b,u,t',
+      dictionary: '',
+      thesaurus: '',
+      gdefault: false,
     }.freeze
 
     ALIASES = {
@@ -334,6 +339,11 @@ module Rvim
       'cst' => :cscopetag,
       'csprg' => :cscopeprg,
       'csto' => :cscopetagorder,
+      'vi' => :viminfo,
+      'cpt' => :complete,
+      'dict' => :dictionary,
+      'tsr' => :thesaurus,
+      'gd' => :gdefault,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
