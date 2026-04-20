@@ -203,6 +203,11 @@ module Rvim
       ttyfast: true,
       termguicolors: false,
       termencoding: '',
+      spellcapcheck: '[.?!]\_[\])\'"\t ]\+',
+      spellfile: '',
+      spellsuggest: 'best',
+      spelloptions: '',
+      digraph: false,
     }.freeze
 
     ALIASES = {
@@ -391,6 +396,10 @@ module Rvim
       'tf' => :ttyfast,
       'tgc' => :termguicolors,
       'tenc' => :termencoding,
+      'spc' => :spellcapcheck,
+      'spf' => :spellfile,
+      'sps' => :spellsuggest,
+      'dg' => :digraph,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
