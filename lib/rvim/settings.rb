@@ -193,6 +193,11 @@ module Rvim
       tagfunc: '',
       formatexpr: '',
       indentexpr: '',
+      indentkeys: '0{,0},0),0],:,0#,!^F,o,O,e',
+      foldexpr: '0',
+      foldtext: 'foldtext()',
+      foldminlines: 1,
+      foldnestmax: 20,
     }.freeze
 
     ALIASES = {
@@ -371,6 +376,11 @@ module Rvim
       'tfu' => :tagfunc,
       'fex' => :formatexpr,
       'inde' => :indentexpr,
+      'indk' => :indentkeys,
+      'fde' => :foldexpr,
+      'fdt' => :foldtext,
+      'fml' => :foldminlines,
+      'fdn' => :foldnestmax,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
