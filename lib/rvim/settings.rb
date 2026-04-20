@@ -208,6 +208,11 @@ module Rvim
       spellsuggest: 'best',
       spelloptions: '',
       digraph: false,
+      revins: false,
+      rightleft: false,
+      rightleftcmd: 'search',
+      fileformats: 'unix,dos',
+      fileignorecase: false,
     }.freeze
 
     ALIASES = {
@@ -400,6 +405,11 @@ module Rvim
       'spf' => :spellfile,
       'sps' => :spellsuggest,
       'dg' => :digraph,
+      'ri' => :revins,
+      'rl' => :rightleft,
+      'rlc' => :rightleftcmd,
+      'ffs' => :fileformats,
+      'fic' => :fileignorecase,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
