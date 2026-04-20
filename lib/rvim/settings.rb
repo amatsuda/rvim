@@ -198,6 +198,11 @@ module Rvim
       foldtext: 'foldtext()',
       foldminlines: 1,
       foldnestmax: 20,
+      errorbells: false,
+      visualbell: false,
+      ttyfast: true,
+      termguicolors: false,
+      termencoding: '',
     }.freeze
 
     ALIASES = {
@@ -381,6 +386,11 @@ module Rvim
       'fdt' => :foldtext,
       'fml' => :foldminlines,
       'fdn' => :foldnestmax,
+      'eb' => :errorbells,
+      'vb' => :visualbell,
+      'tf' => :ttyfast,
+      'tgc' => :termguicolors,
+      'tenc' => :termencoding,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
