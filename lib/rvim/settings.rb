@@ -218,6 +218,11 @@ module Rvim
       maxmemtot: 1_048_576,
       maxmapdepth: 1000,
       maxfuncdepth: 100,
+      write: true,
+      writeany: false,
+      writedelay: 0,
+      autowriteall: false,
+      fsync: false,
     }.freeze
 
     ALIASES = {
@@ -420,6 +425,10 @@ module Rvim
       'mmt' => :maxmemtot,
       'mmd' => :maxmapdepth,
       'mfd' => :maxfuncdepth,
+      'wa' => :writeany,
+      'wd' => :writedelay,
+      'awa' => :autowriteall,
+      'fs' => :fsync,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
