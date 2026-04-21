@@ -228,6 +228,11 @@ module Rvim
       terse: false,
       warn: true,
       tagbsearch: true,
+      sidescroll: 0,
+      pumwidth: 15,
+      splitkeep: 'cursor',
+      suffixes: '.bak,~,.o,.h,.info,.swp,.obj',
+      suffixesadd: '',
     }.freeze
 
     ALIASES = {
@@ -437,6 +442,11 @@ module Rvim
       'deco' => :delcombine,
       'emo' => :emoji,
       'tbs' => :tagbsearch,
+      'ss' => :sidescroll,
+      'pw' => :pumwidth,
+      'spk' => :splitkeep,
+      'su' => :suffixes,
+      'sua' => :suffixesadd,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
