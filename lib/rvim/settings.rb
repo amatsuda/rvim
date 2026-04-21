@@ -223,6 +223,11 @@ module Rvim
       writedelay: 0,
       autowriteall: false,
       fsync: false,
+      delcombine: false,
+      emoji: true,
+      terse: false,
+      warn: true,
+      tagbsearch: true,
     }.freeze
 
     ALIASES = {
@@ -429,6 +434,9 @@ module Rvim
       'wd' => :writedelay,
       'awa' => :autowriteall,
       'fs' => :fsync,
+      'deco' => :delcombine,
+      'emo' => :emoji,
+      'tbs' => :tagbsearch,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
