@@ -213,6 +213,11 @@ module Rvim
       rightleftcmd: 'search',
       fileformats: 'unix,dos',
       fileignorecase: false,
+      maxmem: 1_048_576,
+      maxmempattern: 1000,
+      maxmemtot: 1_048_576,
+      maxmapdepth: 1000,
+      maxfuncdepth: 100,
     }.freeze
 
     ALIASES = {
@@ -410,6 +415,11 @@ module Rvim
       'rlc' => :rightleftcmd,
       'ffs' => :fileformats,
       'fic' => :fileignorecase,
+      'mm' => :maxmem,
+      'mmp' => :maxmempattern,
+      'mmt' => :maxmemtot,
+      'mmd' => :maxmapdepth,
+      'mfd' => :maxfuncdepth,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
