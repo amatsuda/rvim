@@ -248,6 +248,11 @@ module Rvim
       cscopequickfix: '',
       cscopeverbose: false,
       ttimeout: true,
+      isprint: '@,161-255',
+      helpfile: '$VIMRUNTIME/doc/help.txt',
+      langnoremap: true,
+      langmenu: '',
+      quickfixtextfunc: '',
     }.freeze
 
     ALIASES = {
@@ -476,6 +481,10 @@ module Rvim
       'cspc' => :cscopepathcomp,
       'csqf' => :cscopequickfix,
       'csverb' => :cscopeverbose,
+      'isp' => :isprint,
+      'hf' => :helpfile,
+      'lm' => :langmenu,
+      'qftf' => :quickfixtextfunc,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
