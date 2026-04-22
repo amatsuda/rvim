@@ -238,6 +238,11 @@ module Rvim
       wildignorecase: false,
       loadplugins: true,
       tabpagemax: 50,
+      printheader: '%<%f%h%m%=Page %N',
+      printoptions: '',
+      printfont: 'courier',
+      printencoding: '',
+      printexpr: '',
     }.freeze
 
     ALIASES = {
@@ -457,6 +462,11 @@ module Rvim
       'wic' => :wildignorecase,
       'lpl' => :loadplugins,
       'tpm' => :tabpagemax,
+      'pheader' => :printheader,
+      'popt' => :printoptions,
+      'pfn' => :printfont,
+      'penc' => :printencoding,
+      'pexpr' => :printexpr,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
