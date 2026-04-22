@@ -243,6 +243,11 @@ module Rvim
       printfont: 'courier',
       printencoding: '',
       printexpr: '',
+      cscoperelative: false,
+      cscopepathcomp: 0,
+      cscopequickfix: '',
+      cscopeverbose: false,
+      ttimeout: true,
     }.freeze
 
     ALIASES = {
@@ -467,6 +472,10 @@ module Rvim
       'pfn' => :printfont,
       'penc' => :printencoding,
       'pexpr' => :printexpr,
+      'csre' => :cscoperelative,
+      'cspc' => :cscopepathcomp,
+      'csqf' => :cscopequickfix,
+      'csverb' => :cscopeverbose,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
