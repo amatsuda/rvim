@@ -233,6 +233,11 @@ module Rvim
       splitkeep: 'cursor',
       suffixes: '.bak,~,.o,.h,.info,.swp,.obj',
       suffixesadd: '',
+      filetype: '',
+      eventignore: '',
+      wildignorecase: false,
+      loadplugins: true,
+      tabpagemax: 50,
     }.freeze
 
     ALIASES = {
@@ -447,6 +452,11 @@ module Rvim
       'spk' => :splitkeep,
       'su' => :suffixes,
       'sua' => :suffixesadd,
+      'ft' => :filetype,
+      'ei' => :eventignore,
+      'wic' => :wildignorecase,
+      'lpl' => :loadplugins,
+      'tpm' => :tabpagemax,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
