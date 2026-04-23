@@ -15,7 +15,77 @@ module Rvim
       when '{', '}', 'B' then bracket(editor, '{', '}', inclusive: inclusive)
       when '<', '>' then bracket(editor, '<', '>', inclusive: inclusive)
       when 'p' then paragraph(editor, inclusive: inclusive)
+      when 's' then sentence(editor, inclusive: inclusive)
       end
+    end
+
+    def sentence(editor, inclusive:)
+      buffer = editor.buffer_of_lines
+      cur_line = editor.line_index
+      cur_col = editor.byte_pointer
+      return nil if buffer.empty?
+
+      start_pos = sentence_start(buffer, cur_line, cur_col)
+      end_punct = sentence_end_punct(buffer, cur_line, cur_col)
+      return nil unless start_pos && end_punct
+
+      if inclusive
+        # Include trailing whitespace up to the next sentence start.
+        el, ec = end_punct
+        line = buffer[el] || ''
+        j = ec + 1
+        while j < line.bytesize && line.byteslice(j, 1) =~ /\s/
+          j += 1
+        end
+        end_pos = j > ec + 1 ? [el, j - 1] : [el, ec]
+      else
+        end_pos = end_punct
+      end
+
+      Rvim::Selection.from(:char, start_pos, end_pos, buffer)
+    end
+
+    def sentence_start(buffer, line_index, byte_pointer)
+      # Walk backwards to find sentence-end punctuation; the start is one
+      # non-blank past it. If none found, the start is buffer's first non-blank.
+      li = line_index
+      bp = byte_pointer - 1
+      while li >= 0
+        line = buffer[li] || ''
+        bp = line.bytesize - 1 if bp >= line.bytesize
+        while bp >= 0
+          c = line.byteslice(bp, 1)
+          if c =~ /[.!?]/
+            return Rvim::TextMotion.advance_to_first_nonblank(buffer, li, bp + 1)
+          end
+
+          bp -= 1
+        end
+        li -= 1
+        bp = li >= 0 ? (buffer[li] || '').bytesize - 1 : -1
+      end
+
+      Rvim::TextMotion.advance_to_first_nonblank(buffer, 0, 0)
+    end
+
+    def sentence_end_punct(buffer, line_index, byte_pointer)
+      # Find the next sentence-ending punctuation at or after the cursor.
+      li = line_index
+      bp = byte_pointer
+      while li < buffer.size
+        line = buffer[li] || ''
+        i = bp
+        while i < line.bytesize
+          return [li, i] if line.byteslice(i, 1) =~ /[.!?]/
+
+          i += 1
+        end
+        li += 1
+        bp = 0
+      end
+      # No punctuation found — return last byte of buffer.
+      last_line = buffer.size - 1
+      [last_line, [(buffer[last_line] || '').bytesize - 1, 0].max]
     end
 
     def word(editor, inclusive:, big:)
