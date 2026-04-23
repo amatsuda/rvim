@@ -258,6 +258,11 @@ module Rvim
       winblend: 0,
       mousescroll: 'ver:3,hor:6',
       cinscopedecls: 'public,protected,private',
+      restorescreen: true,
+      lispoptions: '',
+      viminfofile: '',
+      smoothscroll: false,
+      statuscolumn: '',
     }.freeze
 
     ALIASES = {
@@ -493,6 +498,9 @@ module Rvim
       'icm' => :inccommand,
       'winbl' => :winblend,
       'cinsd' => :cinscopedecls,
+      'rs' => :restorescreen,
+      'lop' => :lispoptions,
+      'vif' => :viminfofile,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
