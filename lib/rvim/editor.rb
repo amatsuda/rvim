@@ -170,6 +170,8 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_command, [?).ord], :rvim_sentence_forward)
       @config.add_default_key_binding_by_keymap(:vi_command, [?{.ord], :rvim_paragraph_backward)
       @config.add_default_key_binding_by_keymap(:vi_command, [?}.ord], :rvim_paragraph_forward)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?R.ord], :rvim_enter_replace_mode)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?r.ord], :rvim_replace_one)
     end
 
     def open(path)
@@ -664,6 +666,82 @@ module Rvim
       @buffer_of_lines[@line_index] = String.new(head + s + tail, encoding: encoding)
       @byte_pointer += s.bytesize
       @modified = true
+    end
+
+    private def rvim_enter_replace_mode(key)
+      @replace_mode = true
+      @replace_originals = []
+      @config.editing_mode = :vi_insert
+    end
+
+    private def rvim_replace_one(key, arg: 1)
+      count = arg
+      @waiting_proc = lambda do |k, _sym|
+        @waiting_proc = nil
+        ch = k.is_a?(Integer) ? k.chr : k.to_s
+        next if ch.nil? || ch.empty?
+        next if ch == "\e" # Esc cancels
+
+        replace_chars_at_cursor(ch, count)
+      end
+    end
+
+    def replace_chars_at_cursor(ch, count)
+      line = @buffer_of_lines[@line_index] || +''
+      pos = @byte_pointer
+      count.times do
+        break if pos >= line.bytesize
+
+        size = Reline::Unicode.get_next_mbchar_size(line, pos)
+        size = 1 if size <= 0
+        line = String.new(line.byteslice(0, pos).to_s + ch + line.byteslice(pos + size, line.bytesize - pos - size).to_s, encoding: encoding)
+        pos += ch.bytesize
+      end
+      @buffer_of_lines[@line_index] = line
+      @byte_pointer = [pos - ch.bytesize, 0].max
+      @modified = true
+    end
+
+    def replace_overwrite_at_cursor(s)
+      line = @buffer_of_lines[@line_index] || +''
+      pos = @byte_pointer
+      if pos >= line.bytesize
+        @replace_originals << :extend
+        @buffer_of_lines[@line_index] = String.new(line + s, encoding: encoding)
+      else
+        size = Reline::Unicode.get_next_mbchar_size(line, pos)
+        size = 1 if size <= 0
+        original = line.byteslice(pos, size)
+        @replace_originals << original
+        @buffer_of_lines[@line_index] = String.new(line.byteslice(0, pos).to_s + s + line.byteslice(pos + size, line.bytesize - pos - size).to_s, encoding: encoding)
+      end
+      @byte_pointer += s.bytesize
+      @modified = true
+    end
+
+    def replace_undo_at_cursor
+      return false if @replace_originals.empty?
+
+      original = @replace_originals.pop
+      line = @buffer_of_lines[@line_index] || +''
+      if original == :extend
+        # Char was appended past the original EOL — drop the last byte.
+        return false if @byte_pointer <= 0
+
+        size = Reline::Unicode.get_prev_mbchar_size(line, @byte_pointer)
+        @buffer_of_lines[@line_index] = String.new(line.byteslice(0, @byte_pointer - size).to_s + line.byteslice(@byte_pointer, line.bytesize - @byte_pointer).to_s, encoding: encoding)
+        @byte_pointer -= size
+      else
+        # Step back over the inserted char and restore the original byte(s).
+        return false if @byte_pointer <= 0
+
+        size = Reline::Unicode.get_prev_mbchar_size(line, @byte_pointer)
+        before = line.byteslice(0, @byte_pointer - size).to_s
+        after = line.byteslice(@byte_pointer, line.bytesize - @byte_pointer).to_s
+        @buffer_of_lines[@line_index] = String.new(before + original + after, encoding: encoding)
+        @byte_pointer -= size
+      end
+      true
     end
 
     private def rvim_complete_next(key, arg: 1)
@@ -1578,6 +1656,13 @@ module Rvim
         consume_text_object_key(key)
       elsif operator_pending? && text_object_prefix?(key)
         @rvim_text_object_pending = key.char == 'a' ? :around : :inner
+      elsif @replace_mode && editing_mode_label == :vi_insert && replace_mode_self_insert?(key)
+        ch = key.char.is_a?(Integer) ? key.char.chr : key.char.to_s
+        if ch == "\b" || ch == "\x7F" # Backspace / DEL
+          replace_undo_at_cursor
+        else
+          replace_overwrite_at_cursor(ch)
+        end
       else
         @status_message = nil
         super
@@ -1704,11 +1789,26 @@ module Rvim
       cur_mode = editing_mode_label
       if pre_mode == :vi_insert && cur_mode == :vi_command
         @last_insert_pos = [@line_index, @byte_pointer]
+        @replace_mode = false
+        @replace_originals = nil
         @autocommands&.fire(:insertleave, @filepath.to_s, self)
       elsif pre_mode == :vi_command && cur_mode == :vi_insert
         @autocommands&.fire(:insertenter, @filepath.to_s, self)
       end
     end
+
+    private def replace_mode_self_insert?(key)
+      ch = key.char
+      return false if ch.nil?
+
+      ch_str = ch.is_a?(Integer) ? ch.chr : ch.to_s
+      return true if ch_str == "\b" || ch_str == "\x7F"
+
+      # Single printable char (not Esc, not control except handled bsp).
+      ch_str.bytes.size >= 1 && (ch_str.bytes.first >= 0x20 && ch_str.bytes.first != 0x7F)
+    end
+
+    attr_reader :replace_mode
 
     private def idle_for_recording?
       @prompt_mode.nil? &&
