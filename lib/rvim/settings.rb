@@ -253,6 +253,11 @@ module Rvim
       langnoremap: true,
       langmenu: '',
       quickfixtextfunc: '',
+      inccommand: 'nosplit',
+      pumblend: 0,
+      winblend: 0,
+      mousescroll: 'ver:3,hor:6',
+      cinscopedecls: 'public,protected,private',
     }.freeze
 
     ALIASES = {
@@ -485,6 +490,9 @@ module Rvim
       'hf' => :helpfile,
       'lm' => :langmenu,
       'qftf' => :quickfixtextfunc,
+      'icm' => :inccommand,
+      'winbl' => :winblend,
+      'cinsd' => :cinscopedecls,
     }.freeze
 
     KNOWN = (DEFAULTS.keys + ALIASES.values).uniq.freeze
