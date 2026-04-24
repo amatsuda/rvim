@@ -70,6 +70,9 @@ module Rvim
       when '.md', '.markdown' then :markdown
       when '.json' then :json
       when '.sh', '.bash', '.zsh', '.ksh' then :shell
+      when '.py', '.pyw' then :python
+      when '.js', '.mjs', '.cjs', '.jsx', '.ts', '.tsx' then :javascript
+      when '.yml', '.yaml' then :yaml
       end
     end
   end
