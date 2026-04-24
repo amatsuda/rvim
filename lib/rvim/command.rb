@@ -123,6 +123,8 @@ module Rvim
              when 'resize', 'res' then :resize
              when 'vertical' then :vertical
              when 'source', 'so' then :source
+             when 'runtime', 'runt' then :runtime
+             when 'packadd' then :packadd
              when 'history', 'his' then :history
              when 'map' then :map
              when 'nmap' then :nmap
@@ -341,6 +343,10 @@ module Rvim
         else
           editor.source(parsed.arg)
         end
+      when :runtime
+        execute_runtime(editor, parsed)
+      when :packadd
+        execute_packadd(editor, parsed)
       when :history
         editor.show_list(format_history(editor))
       when :map, :nmap, :vmap, :imap, :omap, :cmap,
@@ -1474,6 +1480,67 @@ module Rvim
     def self.execute_abclear(editor, parsed)
       modes = ABBREV_MODES[parsed.verb] || %i[insert cmdline]
       editor.abbreviations.clear(modes)
+    end
+
+    def self.execute_runtime(editor, parsed)
+      arg = parsed.arg.to_s.strip
+      if arg.empty?
+        editor.status_message = 'E471: Argument required'
+        return
+      end
+
+      bang = parsed.bang
+      pattern = arg
+      paths = runtime_paths(editor).flat_map do |dir|
+        Dir.glob(File.expand_path(File.join(dir, pattern)))
+      end.uniq
+
+      if paths.empty?
+        editor.status_message = "E484: Can't find file in 'runtimepath': #{pattern}"
+        return
+      end
+
+      if bang
+        paths.each { |p| editor.source(p) }
+      else
+        editor.source(paths.first)
+      end
+    end
+
+    def self.execute_packadd(editor, parsed)
+      arg = parsed.arg.to_s.strip
+      if arg.empty?
+        editor.status_message = 'E471: Argument required'
+        return
+      end
+
+      bang = parsed.bang
+      home = File.expand_path('~/.vim')
+      candidates = []
+      candidates += Dir.glob(File.join(home, 'pack', '*', 'start', arg))
+      candidates += Dir.glob(File.join(home, 'pack', '*', 'opt', arg))
+
+      if candidates.empty?
+        editor.status_message = "E919: Directory not found in 'packpath': #{arg}"
+        return
+      end
+
+      pkg_dir = candidates.first
+      # Append to runtimepath if not already present.
+      rtp = editor.settings.get(:runtimepath).to_s
+      unless rtp.split(',').include?(pkg_dir)
+        editor.settings.set(:runtimepath, rtp.empty? ? pkg_dir : "#{rtp},#{pkg_dir}")
+      end
+
+      # Source plugin/*.vim files unless !bang (which loads structure only).
+      return if bang
+
+      Dir.glob(File.join(pkg_dir, 'plugin', '*.vim')).sort.each { |p| editor.source(p) }
+    end
+
+    def self.runtime_paths(editor)
+      rtp = editor.settings.get(:runtimepath).to_s
+      rtp.split(',').map { |p| File.expand_path(p.strip) }.reject(&:empty?)
     end
 
     ABBREV_MODE_TAGS = { insert: 'i', cmdline: 'c' }.freeze
