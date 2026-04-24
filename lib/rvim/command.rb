@@ -148,6 +148,18 @@ module Rvim
              when 'cnoremap', 'cno' then :cnoremap
              when 'cunmap', 'cun' then :cunmap
              when 'cmapclear', 'cmapc' then :cmapclear
+             when 'abbreviate', 'abbrev', 'ab' then :abbrev
+             when 'iabbrev', 'iab' then :iabbrev
+             when 'cabbrev', 'ca' then :cabbrev
+             when 'noreabbrev', 'norea' then :noreabbrev
+             when 'inoreabbrev', 'inoreab' then :inoreabbrev
+             when 'cnoreabbrev', 'cnorea' then :cnoreabbrev
+             when 'unabbreviate', 'una' then :unabbrev
+             when 'iunabbrev', 'iuna' then :iunabbrev
+             when 'cunabbrev', 'cuna' then :cunabbrev
+             when 'abclear', 'abc' then :abclear
+             when 'iabclear', 'iabc' then :iabclear
+             when 'cabclear', 'cabc' then :cabclear
              when 'let' then :let
              when 'fold', 'fo' then :fold
              when 'autocmd', 'au' then :autocmd
@@ -338,6 +350,12 @@ module Rvim
         execute_unmap(editor, parsed)
       when :mapclear, :nmapclear, :vmapclear, :imapclear, :omapclear, :cmapclear
         execute_mapclear(editor, parsed)
+      when :abbrev, :iabbrev, :cabbrev, :noreabbrev, :inoreabbrev, :cnoreabbrev
+        execute_abbrev(editor, parsed)
+      when :unabbrev, :iunabbrev, :cunabbrev
+        execute_unabbrev(editor, parsed)
+      when :abclear, :iabclear, :cabclear
+        execute_abclear(editor, parsed)
       when :let
         execute_let(editor, parsed)
       when :fold
@@ -1406,6 +1424,73 @@ module Rvim
     def self.execute_mapclear(editor, parsed)
       modes = Rvim::Keymap.modes_for(parsed.verb, bang: parsed.bang)
       editor.keymap.clear(modes)
+    end
+
+    ABBREV_MODES = {
+      abbrev: %i[insert cmdline],
+      iabbrev: %i[insert],
+      cabbrev: %i[cmdline],
+      noreabbrev: %i[insert cmdline],
+      inoreabbrev: %i[insert],
+      cnoreabbrev: %i[cmdline],
+      unabbrev: %i[insert cmdline],
+      iunabbrev: %i[insert],
+      cunabbrev: %i[cmdline],
+      abclear: %i[insert cmdline],
+      iabclear: %i[insert],
+      cabclear: %i[cmdline],
+    }.freeze
+
+    def self.execute_abbrev(editor, parsed)
+      arg = parsed.arg.to_s.strip
+      modes = ABBREV_MODES[parsed.verb] || %i[insert cmdline]
+
+      if arg.empty?
+        editor.show_list(format_abbreviations(editor, modes))
+        return
+      end
+
+      lhs, rhs = arg.split(/\s+/, 2)
+      if rhs.nil? || rhs.empty?
+        editor.show_list(format_abbreviations(editor, modes, lhs_filter: lhs))
+        return
+      end
+
+      recursive = !%i[noreabbrev inoreabbrev cnoreabbrev].include?(parsed.verb)
+      editor.abbreviations.add(modes, lhs, rhs, recursive: recursive)
+    end
+
+    def self.execute_unabbrev(editor, parsed)
+      arg = parsed.arg.to_s.strip
+      if arg.empty?
+        editor.status_message = 'E474: Argument required'
+        return
+      end
+
+      modes = ABBREV_MODES[parsed.verb] || %i[insert cmdline]
+      editor.abbreviations.remove(modes, arg)
+    end
+
+    def self.execute_abclear(editor, parsed)
+      modes = ABBREV_MODES[parsed.verb] || %i[insert cmdline]
+      editor.abbreviations.clear(modes)
+    end
+
+    ABBREV_MODE_TAGS = { insert: 'i', cmdline: 'c' }.freeze
+
+    def self.format_abbreviations(editor, modes, lhs_filter: nil)
+      header = '   mode  lhs                rhs'
+      rows = []
+      modes.each do |mode|
+        editor.abbreviations.each(mode) do |lhs, entry|
+          next if lhs_filter && lhs != lhs_filter
+
+          tag = ABBREV_MODE_TAGS[mode] || ' '
+          marker = entry.recursive ? ' ' : '*'
+          rows << format('   %s%s    %-18s %s', tag, marker, lhs, entry.rhs)
+        end
+      end
+      [header] + rows
     end
 
     def self.execute_write(editor, parsed)

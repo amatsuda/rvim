@@ -60,6 +60,7 @@ module Rvim
       @history_cursor = nil
       @history_pending = nil
       @keymap = Rvim::Keymap.new
+      @abbreviations = Rvim::Abbreviations.new
       @map_pending_keys = +''
       @map_recursion_depth = 0
       @map_noremap_active = false
@@ -110,6 +111,8 @@ module Rvim
     attr_reader :ex_history
 
     attr_reader :keymap
+
+    attr_reader :abbreviations
 
     attr_reader :settings
 
@@ -1667,6 +1670,7 @@ module Rvim
         @status_message = nil
         super
         @modified = true if pre_buffer != @buffer_of_lines
+        maybe_expand_insert_abbreviation(key)
       end
 
       capture_special_marks(pre_buffer, pre_mode)
@@ -1795,6 +1799,47 @@ module Rvim
       elsif pre_mode == :vi_command && cur_mode == :vi_insert
         @autocommands&.fire(:insertenter, @filepath.to_s, self)
       end
+    end
+
+    private def maybe_expand_insert_abbreviation(key)
+      return if @abbreviations.nil? || @abbreviations.empty?(:insert)
+      return unless editing_mode_label == :vi_insert
+      return if @prompt_mode
+
+      ch = key.char
+      return if ch.nil?
+
+      ch_str = ch.is_a?(Integer) ? ch.chr : ch.to_s
+      return unless word_terminator?(ch_str)
+
+      line = @buffer_of_lines[@line_index] || ''
+      detection = @abbreviations.detect(line, @byte_pointer, :insert)
+      return unless detection
+
+      word_start, word_end, entry = detection
+      head = line.byteslice(0, word_start) || +''
+      tail = line.byteslice(word_end, line.bytesize - word_end) || +''
+      @buffer_of_lines[@line_index] = String.new(head + entry.rhs + tail, encoding: encoding)
+      @byte_pointer = word_start + entry.rhs.bytesize + (line.bytesize - word_end)
+      @modified = true
+    end
+
+    private def word_terminator?(ch_str)
+      return false if ch_str.empty?
+
+      ch_str !~ /[A-Za-z0-9_]/
+    end
+
+    def expand_abbreviation_in_buffer(buf, mode)
+      return buf if @abbreviations.nil? || @abbreviations.empty?(mode)
+
+      detection = @abbreviations.detect(buf, buf.bytesize, mode)
+      return buf unless detection
+
+      word_start, word_end, entry = detection
+      head = buf.byteslice(0, word_start) || +''
+      tail = buf.byteslice(word_end, buf.bytesize - word_end) || +''
+      head + entry.rhs + tail
     end
 
     private def replace_mode_self_insert?(key)
@@ -2392,8 +2437,22 @@ module Rvim
         clear_cmdline_completion
         @prompt_buffer << ch.to_s
         clear_history_cursor
+        maybe_expand_cmdline_abbreviation(ch.to_s) if @prompt_mode == :ex
       end
       refresh_incremental_search
+    end
+
+    private def maybe_expand_cmdline_abbreviation(ch)
+      return if @abbreviations.nil? || @abbreviations.empty?(:cmdline)
+      return unless word_terminator?(ch)
+
+      detection = @abbreviations.detect(@prompt_buffer, @prompt_buffer.bytesize, :cmdline)
+      return unless detection
+
+      word_start, word_end, entry = detection
+      head = @prompt_buffer.byteslice(0, word_start) || +''
+      tail = @prompt_buffer.byteslice(word_end, @prompt_buffer.bytesize - word_end) || +''
+      @prompt_buffer = +(head + entry.rhs + tail)
     end
 
     private def cmdline_complete(direction)
