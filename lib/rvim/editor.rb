@@ -249,9 +249,27 @@ module Rvim
       @buffer_order << buf.id
 
       ft = Rvim::Syntax.detect_language(path)
-      Rvim::FileType.run(ft, buf, self) if ft
+      if ft
+        Rvim::FileType.run(ft, buf, self)
+        load_filetype_scripts(ft)
+      end
 
       buf
+    end
+
+    def load_filetype_scripts(ft)
+      return unless ft
+
+      ft = ft.to_s
+      rtp = @settings.get(:runtimepath).to_s.split(',').map { |p| File.expand_path(p.strip) }.reject(&:empty?)
+      return if rtp.empty?
+
+      %w[ftplugin indent syntax].each do |kind|
+        rtp.each do |dir|
+          path = File.join(dir, kind, "#{ft}.vim")
+          source(path) if File.file?(path)
+        end
+      end
     end
 
     def swap_to_buffer(buf)
