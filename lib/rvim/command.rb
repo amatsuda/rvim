@@ -130,6 +130,8 @@ module Rvim
              when 'silent', 'sil' then :silent
              when 'verbose', 'verb' then :verbose
              when 'redir', 'red' then :redir
+             when 'command', 'com' then :user_command_def
+             when 'delcommand', 'delc' then :user_command_del
              when 'history', 'his' then :history
              when 'map' then :map
              when 'nmap' then :nmap
@@ -362,6 +364,10 @@ module Rvim
         execute_verbose(editor, parsed)
       when :redir
         execute_redir(editor, parsed)
+      when :user_command_def
+        execute_user_command_def(editor, parsed)
+      when :user_command_del
+        execute_user_command_del(editor, parsed)
       when :history
         editor.show_list(format_history(editor))
       when :map, :nmap, :vmap, :imap, :omap, :cmap,
@@ -480,7 +486,11 @@ module Rvim
       when :grep
         execute_grep(editor, parsed)
       else
-        editor.status_message = "E492: Not an editor command: #{parsed.verb}"
+        if (uc = editor.user_commands[parsed.verb.to_s])
+          execute_user_command(editor, uc, parsed)
+        else
+          editor.status_message = "E492: Not an editor command: #{parsed.verb}"
+        end
       end
     end
 
@@ -1608,6 +1618,52 @@ module Rvim
       execute(editor, sub) if sub
     ensure
       editor.settings.set(:verbose, saved) if saved
+    end
+
+    UserCommand = Struct.new(:name, :nargs, :body, keyword_init: true)
+
+    USER_COMMAND_RE = /\A(?:-nargs=(?<nargs>[01*+?])\s+)?(?<name>[A-Z][A-Za-z0-9_]*)\s+(?<body>.+)\z/m.freeze
+
+    def self.execute_user_command_def(editor, parsed)
+      arg = parsed.arg.to_s.strip
+      if arg.empty?
+        rows = ['user commands:'] + editor.user_commands.values.map { |uc| "  #{uc.name}    #{uc.body}" }
+        editor.show_list(rows)
+        return
+      end
+
+      m = USER_COMMAND_RE.match(arg)
+      unless m
+        editor.status_message = 'E182: Invalid command name'
+        return
+      end
+
+      name = m[:name]
+      if !parsed.bang && editor.user_commands.key?(name)
+        editor.status_message = "E174: Command already exists: add ! to replace it: #{name}"
+        return
+      end
+
+      editor.user_commands[name] = UserCommand.new(name: name, nargs: m[:nargs] || '0', body: m[:body])
+    end
+
+    def self.execute_user_command_del(editor, parsed)
+      arg = parsed.arg.to_s.strip
+      if arg.empty?
+        editor.status_message = 'E471: Argument required'
+        return
+      end
+      unless editor.user_commands.delete(arg)
+        editor.status_message = "E184: No such user-defined command: #{arg}"
+      end
+    end
+
+    def self.execute_user_command(editor, uc, parsed)
+      args = parsed.arg.to_s
+      body = uc.body.gsub('<args>', args).gsub('<bang>', parsed.bang ? '!' : '')
+      cmd = body.start_with?(':') ? body : ":#{body}"
+      sub = parse(cmd)
+      execute(editor, sub) if sub
     end
 
     def self.execute_redir(editor, parsed)

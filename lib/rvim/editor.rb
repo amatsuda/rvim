@@ -76,6 +76,7 @@ module Rvim
       @history_pending = nil
       @keymap = Rvim::Keymap.new
       @abbreviations = Rvim::Abbreviations.new
+      @user_commands = {}
       @map_pending_keys = +''
       @map_recursion_depth = 0
       @map_noremap_active = false
@@ -128,6 +129,8 @@ module Rvim
     attr_reader :keymap
 
     attr_reader :abbreviations
+
+    attr_reader :user_commands
 
     attr_reader :settings
 
