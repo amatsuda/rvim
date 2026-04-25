@@ -323,6 +323,37 @@ module Rvim
       @redir_sink = nil
     end
 
+    HELP_PATH = File.expand_path(File.join(__dir__, 'help', 'help.txt')).freeze
+
+    def open_help_buffer(topic = nil)
+      unless File.file?(HELP_PATH)
+        @status_message = 'E149: No help available'
+        return
+      end
+
+      open(HELP_PATH)
+      jump_to_help_tag(topic) if topic
+    end
+
+    def close_help_buffer
+      buf = @buffers.values.find { |b| b.filepath == HELP_PATH }
+      return unless buf
+
+      remove_buffer(buf) if respond_to?(:remove_buffer)
+    end
+
+    private def jump_to_help_tag(topic)
+      tag_pattern = "*#{topic}*"
+      lines = @buffer_of_lines || []
+      idx = lines.find_index { |line| line.include?(tag_pattern) }
+      if idx
+        @line_index = idx
+        @byte_pointer = (lines[idx] || '').index(tag_pattern) || 0
+      else
+        @status_message = "E149: Sorry, no help for #{topic}"
+      end
+    end
+
     def load_filetype_scripts(ft)
       return unless ft
 

@@ -1,0 +1,73 @@
+*help.txt*  rvim quick reference
+
+==============================================================================
+NAVIGATION                                              *navigation*
+
+  h j k l         left/down/up/right                    *h* *j* *k* *l*
+  w b e           next-word, prev-word, end-word        *w* *b* *e*
+  0 ^ $           start-of-line, first-non-blank, EOL   *0* *^* *$*
+  gg G            top, bottom of buffer                 *gg* *G*
+  Ctrl-f Ctrl-b   page down, page up                    *Ctrl-f* *Ctrl-b*
+  / ?             search forward, backward              */* *?*
+  n N             next/prev match                       *n* *N*
+  * #             search-word forward, backward         *star* *hash*
+
+==============================================================================
+EDITING                                                 *editing*
+
+  i a I A o O     enter insert mode (variants)          *i* *a*
+  R r             replace mode, replace one char        *R* *r*
+  x X             delete char (forward, backward)       *x* *X*
+  d{motion}       delete                                *d*
+  c{motion}       change                                *c*
+  y{motion}       yank                                  *y*
+  p P             paste after, before                   *p* *P*
+  u Ctrl-r        undo, redo                            *u*
+  .               repeat last change                    *dot*
+
+==============================================================================
+TEXT OBJECTS                                            *text-objects*
+
+  iw aw           inner/around word                     *iw* *aw*
+  ip ap           inner/around paragraph                *ip* *ap*
+  is as           inner/around sentence                 *is* *as*
+  i" a"           inner/around double-quoted            *iquot*
+  i( a(           inner/around parens                   *iparen*
+  i{ a{           inner/around braces                   *ibrace*
+
+==============================================================================
+EX COMMANDS                                             *ex-commands*
+
+  :w              write buffer                          *:w*
+  :q              quit                                  *:q*
+  :wq             write and quit                        *:wq*
+  :e {file}       edit file                             *:e*
+  :sp :vsp        horizontal/vertical split             *:sp* *:vsp*
+  :tabnew         new tab                               *:tabnew*
+  :set {opt}      set option                            *:set*
+  :%s/x/y/g       substitute                            *:s*
+  :help {topic}   open help                             *:help*
+  :runtime {pat}  source a runtimepath file             *:runtime*
+  :packadd {pkg}  load a package                        *:packadd*
+  :command Name   define a user command                 *:command*
+  :iabbrev        define an insert-mode abbrev          *:iabbrev*
+  :messages       show recent status messages           *:messages*
+  :mksession      save the session                      *:mksession*
+  :earlier {N}    rewind N changes                      *:earlier*
+  :later {N}      replay N changes                      *:later*
+
+==============================================================================
+WINDOWS                                                 *windows*
+
+  Ctrl-w h/j/k/l  move between windows                  *Ctrl-w*
+  Ctrl-w +/-      grow/shrink height                    *Ctrl-w-+*
+  Ctrl-w o        only this window                      *Ctrl-w-o*
+
+==============================================================================
+TABS                                                    *tabs*
+
+  gt gT           next, prev tab                        *gt* *gT*
+  :tabclose       close tab                             *:tabclose*
+  :tabnext N      go to tab N                           *:tabnext*
+
+vim:tw=78:ts=8:ft=help:norl:

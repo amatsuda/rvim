@@ -132,6 +132,8 @@ module Rvim
              when 'redir', 'red' then :redir
              when 'command', 'com' then :user_command_def
              when 'delcommand', 'delc' then :user_command_del
+             when 'help', 'h' then :help
+             when 'helpclose', 'helpc' then :helpclose
              when 'history', 'his' then :history
              when 'map' then :map
              when 'nmap' then :nmap
@@ -368,6 +370,10 @@ module Rvim
         execute_user_command_def(editor, parsed)
       when :user_command_del
         execute_user_command_del(editor, parsed)
+      when :help
+        execute_help(editor, parsed)
+      when :helpclose
+        editor.close_help_buffer
       when :history
         editor.show_list(format_history(editor))
       when :map, :nmap, :vmap, :imap, :omap, :cmap,
@@ -1656,6 +1662,11 @@ module Rvim
       unless editor.user_commands.delete(arg)
         editor.status_message = "E184: No such user-defined command: #{arg}"
       end
+    end
+
+    def self.execute_help(editor, parsed)
+      topic = parsed.arg.to_s.strip
+      editor.open_help_buffer(topic.empty? ? nil : topic)
     end
 
     def self.execute_user_command(editor, uc, parsed)
