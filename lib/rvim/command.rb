@@ -125,6 +125,11 @@ module Rvim
              when 'source', 'so' then :source
              when 'runtime', 'runt' then :runtime
              when 'packadd' then :packadd
+             when 'messages', 'mes', 'mess' then :messages
+             when 'execute', 'exe' then :execute_cmd
+             when 'silent', 'sil' then :silent
+             when 'verbose', 'verb' then :verbose
+             when 'redir', 'red' then :redir
              when 'history', 'his' then :history
              when 'map' then :map
              when 'nmap' then :nmap
@@ -347,6 +352,16 @@ module Rvim
         execute_runtime(editor, parsed)
       when :packadd
         execute_packadd(editor, parsed)
+      when :messages
+        editor.show_list(['Messages:'] + (editor.messages || []))
+      when :execute_cmd
+        execute_execute(editor, parsed)
+      when :silent
+        execute_silent(editor, parsed)
+      when :verbose
+        execute_verbose(editor, parsed)
+      when :redir
+        execute_redir(editor, parsed)
       when :history
         editor.show_list(format_history(editor))
       when :map, :nmap, :vmap, :imap, :omap, :cmap,
@@ -1541,6 +1556,82 @@ module Rvim
     def self.runtime_paths(editor)
       rtp = editor.settings.get(:runtimepath).to_s
       rtp.split(',').map { |p| File.expand_path(p.strip) }.reject(&:empty?)
+    end
+
+    def self.execute_execute(editor, parsed)
+      arg = parsed.arg.to_s.strip
+      if arg.empty?
+        editor.status_message = 'E471: Argument required'
+        return
+      end
+
+      # Strip a single pair of surrounding quotes; vim's :execute concatenates
+      # quoted strings. For v1 we accept a single-quoted form.
+      cmd = if (arg.start_with?("'") && arg.end_with?("'") && arg.length >= 2) ||
+               (arg.start_with?('"') && arg.end_with?('"') && arg.length >= 2)
+              arg[1..-2]
+            else
+              arg
+            end
+
+      cmd = cmd.start_with?(':') ? cmd : ":#{cmd}"
+      sub = parse(cmd)
+      execute(editor, sub) if sub
+    end
+
+    def self.execute_silent(editor, parsed)
+      arg = parsed.arg.to_s.strip
+      return if arg.empty?
+
+      cmd = arg.start_with?(':') ? arg : ":#{arg}"
+      sub = parse(cmd)
+      execute(editor, sub) if sub
+      # Suppress whatever status_message the inner command set.
+      editor.status_message = nil
+    end
+
+    def self.execute_verbose(editor, parsed)
+      arg = parsed.arg.to_s.strip
+      return if arg.empty?
+
+      # Optional level prefix: :verbose 9 cmd. Default 1.
+      level = 1
+      m = arg.match(/\A(\d+)\s+(.*)\z/)
+      if m
+        level = m[1].to_i
+        arg = m[2]
+      end
+      saved = editor.settings.get(:verbose)
+      editor.settings.set(:verbose, level)
+      cmd = arg.start_with?(':') ? arg : ":#{arg}"
+      sub = parse(cmd)
+      execute(editor, sub) if sub
+    ensure
+      editor.settings.set(:verbose, saved) if saved
+    end
+
+    def self.execute_redir(editor, parsed)
+      arg = parsed.arg.to_s.strip
+      if arg == 'END' || arg.upcase == 'END'
+        editor.close_redir
+        return
+      end
+
+      m = arg.match(/\A(>>?)\s*(.+)\z/)
+      if m
+        path = File.expand_path(m[2].strip)
+        mode = m[1] == '>>' ? 'a' : 'w'
+        editor.open_redir_file(path, mode)
+        return
+      end
+
+      m = arg.match(/\A@([A-Za-z*"+])\z/)
+      if m
+        editor.open_redir_register(m[1])
+        return
+      end
+
+      editor.status_message = 'E474: Invalid argument: usage: :redir > file'
     end
 
     ABBREV_MODE_TAGS = { insert: 'i', cmdline: 'c' }.freeze

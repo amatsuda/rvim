@@ -6,7 +6,20 @@ require 'fileutils'
 module Rvim
   class Editor < Reline::LineEditor
     attr_reader :filepath, :visual_mode, :visual_anchor, :prompt_mode, :prompt_buffer
-    attr_accessor :modified, :status_message
+    attr_accessor :modified
+    attr_reader :status_message, :messages
+
+    MESSAGES_MAX = 200
+
+    def status_message=(msg)
+      @status_message = msg
+      return if msg.nil? || msg.to_s.empty?
+
+      @messages ||= []
+      @messages << msg.to_s
+      @messages.shift while @messages.size > MESSAGES_MAX
+      @redir_sink&.<<(msg.to_s)
+    end
 
     def initialize(config)
       super
@@ -20,6 +33,8 @@ module Rvim
       @prompt_mode = nil
       @prompt_buffer = +''
       @status_message = nil
+      @messages = []
+      @redir_sink = nil
       @visual_mode = nil
       @visual_anchor = nil
       @last_visual = nil
@@ -255,6 +270,54 @@ module Rvim
       end
 
       buf
+    end
+
+    class RedirFile
+      def initialize(path, mode)
+        @file = File.open(path, mode)
+      end
+
+      def <<(msg)
+        @file.puts(msg)
+        @file.flush
+      end
+
+      def close
+        @file.close
+      end
+    end
+
+    class RedirRegister
+      def initialize(editor, name)
+        @editor = editor
+        @name = name
+        @buf = +''
+      end
+
+      def <<(msg)
+        @buf << msg.to_s << "\n"
+      end
+
+      def close
+        @editor.write_register(@buf, :line, register: @name) if @editor.respond_to?(:write_register)
+      end
+    end
+
+    def open_redir_file(path, mode)
+      close_redir
+      @redir_sink = RedirFile.new(path, mode)
+    rescue => e
+      @status_message = "E484: Can't open file #{path}: #{e.message}"
+    end
+
+    def open_redir_register(name)
+      close_redir
+      @redir_sink = RedirRegister.new(self, name)
+    end
+
+    def close_redir
+      @redir_sink&.close
+      @redir_sink = nil
     end
 
     def load_filetype_scripts(ft)
