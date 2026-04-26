@@ -139,6 +139,7 @@ module Rvim
              when 'undolist', 'undol' then :undolist
              when 'mksession', 'mks' then :mksession
              when 'badd', 'bad' then :badd
+             when 'terminal', 'term' then :terminal
              when 'history', 'his' then :history
              when 'map' then :map
              when 'nmap' then :nmap
@@ -391,6 +392,8 @@ module Rvim
         if parsed.arg && !parsed.arg.empty?
           editor.add_buffer(parsed.arg.strip)
         end
+      when :terminal
+        execute_terminal(editor, parsed)
       when :history
         editor.show_list(format_history(editor))
       when :map, :nmap, :vmap, :imap, :omap, :cmap,
@@ -1719,6 +1722,25 @@ module Rvim
       when 'h' then [n * 3600, :seconds]
       when 'd' then [n * 86_400, :seconds]
       end
+    end
+
+    def self.execute_terminal(editor, parsed)
+      cmd = parsed.arg.to_s.strip
+      cmd = editor.settings.get(:shell).to_s if cmd.empty?
+      cmd = '/bin/sh' if cmd.empty?
+
+      result = Rvim::Filter.run(
+        cmd,
+        shell: editor.settings.get(:shell).to_s,
+        shellcmdflag: editor.settings.get(:shellcmdflag).to_s,
+      )
+
+      output = result.stdout.to_s
+      output += result.stderr.to_s if result.stderr && !result.stderr.empty?
+      lines = output.lines.map { |l| l.chomp }
+      lines = [''] if lines.empty?
+
+      editor.open_terminal_buffer("term://#{cmd}", lines, status: result.status.exitstatus)
     end
 
     def self.execute_mksession(editor, parsed)

@@ -261,6 +261,19 @@ module Rvim
       find_or_create_buffer(path)
     end
 
+    def open_terminal_buffer(name, lines, status: 0)
+      buf = Rvim::Buffer.new(@next_buffer_id, name, encoding: encoding)
+      @next_buffer_id += 1
+      buf.lines = lines.map { |l| l.dup.force_encoding(encoding) }
+      buf.line_index = 0
+      buf.byte_pointer = 0
+      buf.modified = false
+      @buffers[buf.id] = buf
+      @buffer_order << buf.id
+      swap_to_buffer(buf)
+      @status_message = "[terminal] #{name} exited #{status}"
+    end
+
     private def find_or_create_buffer(path)
       existing = @buffers.values.find { |b| b.filepath == path } if path
       return existing if existing
