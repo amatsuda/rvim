@@ -132,6 +132,10 @@ module Rvim
 
     attr_reader :user_commands
 
+    def lua
+      @lua ||= Rvim::Lua::Runtime.new(self)
+    end
+
     attr_reader :settings
 
     attr_reader :search_pattern, :search_direction, :search_matches
@@ -235,6 +239,11 @@ module Rvim
       if depth > SOURCE_MAX_DEPTH
         @status_message = "E22: Scripts nested too deep"
         return false
+      end
+
+      if expanded.end_with?('.lua')
+        lua.load_file(expanded)
+        return true
       end
 
       File.foreach(expanded) do |line|

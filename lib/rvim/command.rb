@@ -140,6 +140,8 @@ module Rvim
              when 'mksession', 'mks' then :mksession
              when 'badd', 'bad' then :badd
              when 'terminal', 'term' then :terminal
+             when 'lua' then :lua_chunk
+             when 'luafile' then :luafile
              when 'history', 'his' then :history
              when 'map' then :map
              when 'nmap' then :nmap
@@ -394,6 +396,14 @@ module Rvim
         end
       when :terminal
         execute_terminal(editor, parsed)
+      when :lua_chunk
+        editor.lua.eval(parsed.arg.to_s)
+      when :luafile
+        if parsed.arg.nil? || parsed.arg.empty?
+          editor.status_message = 'E471: Argument required'
+        else
+          editor.lua.load_file(File.expand_path(parsed.arg.to_s.strip))
+        end
       when :history
         editor.show_list(format_history(editor))
       when :map, :nmap, :vmap, :imap, :omap, :cmap,
