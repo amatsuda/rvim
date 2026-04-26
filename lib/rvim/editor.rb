@@ -323,6 +323,46 @@ module Rvim
       @redir_sink = nil
     end
 
+    attr_reader :undo_timestamps
+
+    def push_undo_redo(modified)
+      super
+      @undo_timestamps ||= []
+      if modified
+        # Reline replaces history past @undo_redo_index then pushes one.
+        # Mirror that for our timestamps array.
+        @undo_timestamps = @undo_timestamps[0..(@undo_redo_index - 1)] || []
+        @undo_timestamps.push(Time.now)
+      else
+        # Same-index update — refresh that timestamp.
+        @undo_timestamps[@undo_redo_index] = Time.now
+      end
+    end
+
+    def travel_undo_seconds(delta)
+      stamps = @undo_timestamps || []
+      return if stamps.empty?
+
+      target_time = Time.now + delta
+      # Find the nearest history entry whose timestamp is <= target_time when
+      # going earlier, or >= target_time when going later. Default to clamping.
+      target_index = if delta < 0
+                       i = stamps.size - 1
+                       i -= 1 while i > 0 && stamps[i] && stamps[i] > target_time
+                       i
+                     else
+                       i = 0
+                       i += 1 while i < stamps.size - 1 && stamps[i] && stamps[i] < target_time
+                       i
+                     end
+      diff = target_index - @undo_redo_index
+      if diff < 0
+        diff.abs.times { send(:undo, nil) }
+      elsif diff > 0
+        diff.times { send(:redo, nil) }
+      end
+    end
+
     HELP_PATH = File.expand_path(File.join(__dir__, 'help', 'help.txt')).freeze
 
     def open_help_buffer(topic = nil)

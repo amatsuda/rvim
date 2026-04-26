@@ -134,6 +134,9 @@ module Rvim
              when 'delcommand', 'delc' then :user_command_del
              when 'help', 'h' then :help
              when 'helpclose', 'helpc' then :helpclose
+             when 'earlier', 'ear' then :earlier
+             when 'later', 'lat' then :later
+             when 'undolist', 'undol' then :undolist
              when 'history', 'his' then :history
              when 'map' then :map
              when 'nmap' then :nmap
@@ -374,6 +377,12 @@ module Rvim
         execute_help(editor, parsed)
       when :helpclose
         editor.close_help_buffer
+      when :earlier
+        execute_earlier(editor, parsed)
+      when :later
+        execute_later(editor, parsed)
+      when :undolist
+        editor.show_list(format_undo_list(editor))
       when :history
         editor.show_list(format_history(editor))
       when :map, :nmap, :vmap, :imap, :omap, :cmap,
@@ -1667,6 +1676,53 @@ module Rvim
     def self.execute_help(editor, parsed)
       topic = parsed.arg.to_s.strip
       editor.open_help_buffer(topic.empty? ? nil : topic)
+    end
+
+    def self.execute_earlier(editor, parsed)
+      count, unit = parse_undo_arg(parsed.arg)
+      if unit == :count
+        count.times { editor.send(:undo, nil) }
+      elsif unit == :seconds
+        editor.travel_undo_seconds(-count)
+      end
+    end
+
+    def self.execute_later(editor, parsed)
+      count, unit = parse_undo_arg(parsed.arg)
+      if unit == :count
+        count.times { editor.send(:redo, nil) }
+      elsif unit == :seconds
+        editor.travel_undo_seconds(count)
+      end
+    end
+
+    def self.parse_undo_arg(arg)
+      a = arg.to_s.strip
+      return [1, :count] if a.empty?
+
+      m = a.match(/\A(\d+)([smhd])?\z/)
+      return [1, :count] unless m
+
+      n = m[1].to_i
+      case m[2]
+      when nil then [n, :count]
+      when 's' then [n, :seconds]
+      when 'm' then [n * 60, :seconds]
+      when 'h' then [n * 3600, :seconds]
+      when 'd' then [n * 86_400, :seconds]
+      end
+    end
+
+    def self.format_undo_list(editor)
+      rows = ['number changes  when']
+      stamps = editor.undo_timestamps || []
+      hist = editor.instance_variable_get(:@undo_redo_history) || []
+      hist.each_with_index do |_, i|
+        when_ago = stamps[i] ? "#{(Time.now - stamps[i]).to_i}s ago" : '?'
+        marker = i == editor.instance_variable_get(:@undo_redo_index) ? '>' : ' '
+        rows << format(' %s%5d %7d  %s', marker, i, i, when_ago)
+      end
+      rows
     end
 
     def self.execute_user_command(editor, uc, parsed)
