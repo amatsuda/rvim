@@ -137,6 +137,8 @@ module Rvim
              when 'earlier', 'ear' then :earlier
              when 'later', 'lat' then :later
              when 'undolist', 'undol' then :undolist
+             when 'mksession', 'mks' then :mksession
+             when 'badd', 'bad' then :badd
              when 'history', 'his' then :history
              when 'map' then :map
              when 'nmap' then :nmap
@@ -383,6 +385,12 @@ module Rvim
         execute_later(editor, parsed)
       when :undolist
         editor.show_list(format_undo_list(editor))
+      when :mksession
+        execute_mksession(editor, parsed)
+      when :badd
+        if parsed.arg && !parsed.arg.empty?
+          editor.add_buffer(parsed.arg.strip)
+        end
       when :history
         editor.show_list(format_history(editor))
       when :map, :nmap, :vmap, :imap, :omap, :cmap,
@@ -1711,6 +1719,43 @@ module Rvim
       when 'h' then [n * 3600, :seconds]
       when 'd' then [n * 86_400, :seconds]
       end
+    end
+
+    def self.execute_mksession(editor, parsed)
+      arg = parsed.arg.to_s.strip
+      target = arg.empty? ? 'Session.vim' : arg
+      target = File.expand_path(target)
+
+      if File.exist?(target) && !parsed.bang
+        editor.status_message = "E189: \"#{File.basename(target)}\" exists (add ! to override)"
+        return
+      end
+
+      lines = build_session_script(editor)
+      File.write(target, lines.join("\n") + "\n")
+      editor.status_message = "Session written to #{target}"
+    rescue => e
+      editor.status_message = "E: mksession: #{e.message}"
+    end
+
+    def self.build_session_script(editor)
+      out = []
+      out << '" rvim session script — re-source with :source <file>'
+      out << "cd #{Dir.pwd}"
+
+      # Buffers — :badd adds them without switching.
+      editor.buffers.each_value do |buf|
+        next unless buf.filepath
+
+        out << "badd #{buf.filepath}"
+      end
+
+      # Current file gets focused via :edit.
+      if editor.filepath
+        out << "edit #{editor.filepath}"
+      end
+
+      out
     end
 
     def self.format_undo_list(editor)

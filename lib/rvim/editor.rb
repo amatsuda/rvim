@@ -257,6 +257,10 @@ module Rvim
       false
     end
 
+    def add_buffer(path)
+      find_or_create_buffer(path)
+    end
+
     private def find_or_create_buffer(path)
       existing = @buffers.values.find { |b| b.filepath == path } if path
       return existing if existing
