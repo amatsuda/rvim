@@ -20,6 +20,7 @@ module Rvim
         Rvim::Lua::Notify.install(state, editor, runtime)
         Rvim::Lua::Opt.install(state, editor, runtime)
         Rvim::Lua::Vars.install(state, editor, runtime)
+        Rvim::Lua::Keymap.install(state, editor, runtime)
       end
     end
   end

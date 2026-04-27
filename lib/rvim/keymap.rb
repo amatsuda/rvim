@@ -2,7 +2,7 @@
 
 module Rvim
   class Keymap
-    Mapping = Struct.new(:lhs, :rhs, :recursive, :silent, keyword_init: true)
+    Mapping = Struct.new(:lhs, :rhs, :recursive, :silent, :callback, keyword_init: true)
 
     MODES = %i[normal visual insert op_pending cmdline].freeze
 
@@ -13,11 +13,11 @@ module Rvim
       @table = MODES.each_with_object({}) { |m, h| h[m] = {} }
     end
 
-    def add(modes, lhs, rhs, recursive: true, silent: false)
+    def add(modes, lhs, rhs, recursive: true, silent: false, callback: nil)
       Array(modes).each do |mode|
         next unless @table[mode]
 
-        @table[mode][lhs] = Mapping.new(lhs: lhs, rhs: rhs, recursive: recursive, silent: silent)
+        @table[mode][lhs] = Mapping.new(lhs: lhs, rhs: rhs, recursive: recursive, silent: silent, callback: callback)
       end
     end
 

@@ -1933,7 +1933,9 @@ module Rvim
 
       saved_status = @status_message if mapping.silent
       begin
-        if mapping.recursive
+        if mapping.callback
+          mapping.callback.call
+        elsif mapping.recursive
           mapping.rhs.each_char { |c| dispatch_synthesized_key(c) }
         else
           @map_noremap_active = true
