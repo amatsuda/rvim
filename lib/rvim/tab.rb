@@ -3,11 +3,13 @@
 module Rvim
   class Tab
     attr_accessor :windows, :current_window, :split_orientation
+    attr_accessor :vars
 
     def initialize(window)
       @windows = [window]
       @current_window = window
       @split_orientation = nil
+      @vars = {}
     end
 
     def display_name

@@ -4,6 +4,7 @@ module Rvim
   class Window
     attr_accessor :buffer, :scroll_top, :row, :col, :height, :width
     attr_accessor :extra_rows, :extra_cols
+    attr_accessor :vars
 
     def initialize(buffer)
       @buffer = buffer
@@ -15,6 +16,7 @@ module Rvim
       @extra_rows = 0
       @extra_cols = 0
       @location_list = nil
+      @vars = {}
     end
 
     def location_list

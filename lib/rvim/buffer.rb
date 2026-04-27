@@ -8,6 +8,7 @@ module Rvim
     attr_accessor :local_settings, :folds
     attr_accessor :diff_active, :diff_status
     attr_accessor :fileformat, :fileencoding, :mtime
+    attr_accessor :vars
 
     def initialize(id, filepath = nil, encoding: Encoding::UTF_8)
       @id = id
@@ -36,6 +37,7 @@ module Rvim
       @folds = Rvim::Folds.new
       @diff_active = false
       @diff_status = nil
+      @vars = {}
     end
 
     def display_name
