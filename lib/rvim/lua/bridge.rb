@@ -18,6 +18,7 @@ module Rvim
 
         Rvim::Lua::Cmd.install(state, editor, runtime)
         Rvim::Lua::Notify.install(state, editor, runtime)
+        Rvim::Lua::Opt.install(state, editor, runtime)
       end
     end
   end
