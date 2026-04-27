@@ -2,7 +2,7 @@
 
 module Rvim
   class Autocommands
-    Entry = Struct.new(:event, :pattern, :command, :group, keyword_init: true)
+    Entry = Struct.new(:event, :pattern, :command, :group, :callback, keyword_init: true)
 
     MAX_FIRE_DEPTH = 10
 
@@ -14,14 +14,15 @@ module Rvim
 
     attr_accessor :current_group
 
-    def add(events, patterns, command)
+    def add(events, patterns, command, callback: nil, group: nil)
       Array(events).each do |event|
         Array(patterns).each do |pattern|
           @entries << Entry.new(
             event: normalize_event(event),
             pattern: pattern.to_s,
             command: command.to_s,
-            group: @current_group,
+            group: group || @current_group,
+            callback: callback,
           )
         end
       end
@@ -56,8 +57,12 @@ module Rvim
           next unless entry.event == ev
           next unless pattern_matches?(entry.pattern, value)
 
-          parsed = Rvim::Command.parse(entry.command)
-          Rvim::Command.execute(editor, parsed) if parsed
+          if entry.callback
+            entry.callback.call(event: ev, file: value)
+          else
+            parsed = Rvim::Command.parse(entry.command)
+            Rvim::Command.execute(editor, parsed) if parsed
+          end
         end
       ensure
         @fire_depth -= 1
