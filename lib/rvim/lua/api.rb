@@ -66,6 +66,7 @@ module Rvim
         end
 
         install_buffer_api(state, editor)
+        install_window_api(state, editor)
 
         # Build vim.api as a Lua table mapping nvim_* names to the bridges.
         state.eval(<<~LUA)
@@ -83,7 +84,52 @@ module Rvim
           vim.api.nvim_buf_set_option       = _rvim_api_buf_set_option
           vim.api.nvim_get_current_buf      = _rvim_api_get_current_buf
           vim.api.nvim_set_current_buf      = _rvim_api_set_current_buf
+
+          vim.api.nvim_win_get_cursor       = _rvim_api_win_get_cursor
+          vim.api.nvim_win_set_cursor       = _rvim_api_win_set_cursor
+          vim.api.nvim_win_get_height       = _rvim_api_win_get_height
+          vim.api.nvim_win_set_height       = _rvim_api_win_set_height
+          vim.api.nvim_win_get_width        = _rvim_api_win_get_width
+          vim.api.nvim_win_get_buf          = _rvim_api_win_get_buf
+          vim.api.nvim_get_current_win      = _rvim_api_get_current_win
         LUA
+      end
+
+      def self.install_window_api(state, editor)
+        resolve = ->(winid) { resolve_window(editor, winid) }
+
+        state.function '_rvim_api_win_get_cursor' do |_winid|
+          # NeoVim returns {row(1-based), col(0-based)}.
+          [editor.line_index + 1, editor.byte_pointer]
+        end
+
+        state.function '_rvim_api_win_set_cursor' do |_winid, pos|
+          arr = if pos.respond_to?(:to_h)
+                  pos.to_h.values
+                elsif pos.is_a?(Array)
+                  pos
+                else
+                  []
+                end
+          row = arr[0].to_i - 1
+          col = arr[1].to_i
+          editor.instance_variable_set(:@line_index, [[row, 0].max, [editor.buffer_of_lines.size - 1, 0].max].min)
+          editor.instance_variable_set(:@byte_pointer, [col, 0].max)
+        end
+
+        state.function('_rvim_api_win_get_height') { |winid| (resolve.call(winid)&.height) || 24 }
+        state.function('_rvim_api_win_set_height') { |winid, h| w = resolve.call(winid); w.height = h.to_i if w }
+        state.function('_rvim_api_win_get_width')  { |winid| (resolve.call(winid)&.width) || 80 }
+        state.function('_rvim_api_win_get_buf')    { |winid| resolve.call(winid)&.buffer&.id || 0 }
+        state.function('_rvim_api_get_current_win') { (editor.windows || []).index(editor.current_window).to_i + 1 }
+      end
+
+      def self.resolve_window(editor, winid)
+        n = winid.to_i
+        return editor.current_window if n.zero?
+
+        idx = n - 1
+        (editor.windows || [])[idx] || editor.current_window
       end
 
       def self.install_buffer_api(state, editor)
