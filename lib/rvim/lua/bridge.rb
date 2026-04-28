@@ -22,6 +22,7 @@ module Rvim
         Rvim::Lua::Vars.install(state, editor, runtime)
         Rvim::Lua::Keymap.install(state, editor, runtime)
         Rvim::Lua::Api.install(state, editor, runtime)
+        Rvim::Lua::Loader.install(state, editor, runtime)
       end
     end
   end
