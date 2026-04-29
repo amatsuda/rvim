@@ -136,6 +136,11 @@ module Rvim
       @lua ||= Rvim::Lua::Runtime.new(self)
     end
 
+    def pump_lua_loop
+      sched = @lua_scheduler
+      sched&.pump || 0
+    end
+
     attr_reader :settings
 
     attr_reader :search_pattern, :search_direction, :search_matches

@@ -26,6 +26,7 @@ module Rvim
         Rvim::Lua::Fn.install(state, editor, runtime)
         Rvim::Lua::Util.install(state, editor, runtime)
         Rvim::Lua::Ui.install(state, editor, runtime)
+        Rvim::Lua::Loop.install(state, editor, runtime)
       end
     end
   end
