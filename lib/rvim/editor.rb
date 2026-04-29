@@ -3822,13 +3822,19 @@ module Rvim
       File.join(base, 'rvim', 'init.vim')
     end
 
+    def self.init_lua_path
+      base = ENV['XDG_CONFIG_HOME']
+      base = File.expand_path('~/.config') if base.nil? || base.empty?
+      File.join(base, 'rvim', 'init.lua')
+    end
+
     def self.start(*filepaths, norc: false)
       editor = new(Reline.core.config)
       filepaths = filepaths.flatten.compact
       editor.set_arg_list(filepaths)
       filepaths.each { |path| editor.open(path) }
       unless norc
-        [File.expand_path(RVIMRC_PATH), init_vim_path].each do |rc|
+        [File.expand_path(RVIMRC_PATH), init_vim_path, init_lua_path].each do |rc|
           editor.source(rc) if File.exist?(rc)
         end
       end
