@@ -18,6 +18,12 @@ module Rvim
     UNDERLINE_OFF = "\e[24m"
     ERASE_LINE = "\e[2K"
 
+    # DECSCUSR cursor shapes — match NeoVim's default 'guicursor' for
+    # n: block, i/c: vertical bar, r: underline.
+    CURSOR_BLOCK = "\e[2 q"
+    CURSOR_BAR = "\e[6 q"
+    CURSOR_UNDERLINE = "\e[4 q"
+
     def initialize(editor)
       @editor = editor
       @rows = 24
@@ -45,6 +51,7 @@ module Rvim
 
     def teardown
       disable_mouse
+      $stdout.write(CURSOR_BLOCK)
       $stdout.write(SHOW_CURSOR)
       $stdout.write(RMCUP)
       $stdout.flush
@@ -119,10 +126,21 @@ module Rvim
         cursor_col = cw.col + gw + display_col + 1
         out << move_to(cursor_row, cursor_col)
       end
+      out << cursor_shape_for_mode
       out << SHOW_CURSOR
 
       $stdout.write(out)
       $stdout.flush
+    end
+
+    def cursor_shape_for_mode
+      if @editor.respond_to?(:replace_mode) && @editor.replace_mode
+        CURSOR_UNDERLINE
+      elsif @editor.prompt_mode || @editor.editing_mode_label == :vi_insert
+        CURSOR_BAR
+      else
+        CURSOR_BLOCK
+      end
     end
 
     def content_width_for(win)
