@@ -30,7 +30,10 @@ module Rvim
       @marks = Rvim::Marks.new
       @line_index = 0
       @byte_pointer = 0
-      @undo_redo_history = [[[String.new('', encoding: encoding)], 0, 0]]
+      # Seed the undo history with the file's actual loaded content so the
+      # very first undo from a post-edit state restores the on-disk view,
+      # not Reline's empty default.
+      @undo_redo_history = [[@lines.map(&:dup), 0, 0]]
       @undo_redo_index = 0
       @last_visual = nil
       @local_settings = {}

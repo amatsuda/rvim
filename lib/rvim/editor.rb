@@ -1859,8 +1859,21 @@ module Rvim
         maybe_expand_insert_abbreviation(key)
       end
 
+      sync_current_buffer_lines
       capture_special_marks(pre_buffer, pre_mode)
       freeze_change_if_settled(pre_buffer) unless @replaying
+    end
+
+    # Reline's move_undo_redo replaces @buffer_of_lines with a new array
+    # reference. Our current_buffer.lines may still point to the old (now
+    # mutated) array. Re-bind so the screen renders the same content the
+    # editor logic sees.
+    private def sync_current_buffer_lines
+      return unless @current_buffer
+
+      if @current_buffer.lines.object_id != @buffer_of_lines.object_id
+        @current_buffer.lines = @buffer_of_lines
+      end
     end
 
     MAXMAPDEPTH = 1000
