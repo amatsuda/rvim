@@ -67,6 +67,7 @@ module Rvim
 
         install_buffer_api(state, editor)
         install_window_api(state, editor)
+        install_extended_api(state, editor)
 
         # Build vim.api as a Lua table mapping nvim_* names to the bridges.
         state.eval(<<~LUA)
@@ -92,7 +93,118 @@ module Rvim
           vim.api.nvim_win_get_width        = _rvim_api_win_get_width
           vim.api.nvim_win_get_buf          = _rvim_api_win_get_buf
           vim.api.nvim_get_current_win      = _rvim_api_get_current_win
+
+          vim.api.nvim_list_bufs            = _rvim_api_list_bufs
+          vim.api.nvim_buf_is_valid         = _rvim_api_buf_is_valid
+          vim.api.nvim_buf_is_loaded        = _rvim_api_buf_is_loaded
+          vim.api.nvim_buf_get_var          = _rvim_api_buf_get_var
+          vim.api.nvim_buf_set_var          = _rvim_api_buf_set_var
+          vim.api.nvim_buf_del_var          = _rvim_api_buf_del_var
+          vim.api.nvim_buf_get_changedtick  = _rvim_api_buf_get_changedtick
+
+          vim.api.nvim_list_wins            = _rvim_api_list_wins
+          vim.api.nvim_win_is_valid         = _rvim_api_win_is_valid
+
+          vim.api.nvim_get_var              = _rvim_api_get_var
+          vim.api.nvim_set_var              = _rvim_api_set_var
+          vim.api.nvim_del_var              = _rvim_api_del_var
+          vim.api.nvim_get_option           = _rvim_api_get_option
+          vim.api.nvim_set_option           = _rvim_api_set_option
+          vim.api.nvim_get_option_value     = _rvim_api_get_option_value
+          vim.api.nvim_set_option_value     = _rvim_api_set_option_value
+          vim.api.nvim_get_mode             = _rvim_api_get_mode
+          vim.api.nvim_command              = _rvim_api_command
+          vim.api.nvim_echo                 = _rvim_api_echo
+          vim.api.nvim_err_writeln          = _rvim_api_err_writeln
+          vim.api.nvim_out_write            = _rvim_api_out_write
+          vim.api.nvim_strwidth             = _rvim_api_strwidth
+          vim.api.nvim_replace_termcodes    = _rvim_api_replace_termcodes
+          vim.api.nvim_set_hl               = _rvim_api_set_hl
         LUA
+      end
+
+      def self.install_extended_api(state, editor)
+        state.function('_rvim_api_list_bufs') { (editor.buffers&.values || []).map(&:id) }
+        state.function('_rvim_api_buf_is_valid') { |bufnr| !resolve_buffer(editor, bufnr).nil? }
+        state.function('_rvim_api_buf_is_loaded') { |bufnr| !resolve_buffer(editor, bufnr).nil? }
+
+        state.function '_rvim_api_buf_get_var' do |bufnr, name|
+          buf = resolve_buffer(editor, bufnr)
+          buf&.vars&.[](name.to_s)
+        end
+        state.function '_rvim_api_buf_set_var' do |bufnr, name, value|
+          buf = resolve_buffer(editor, bufnr)
+          buf.vars[name.to_s] = value if buf
+        end
+        state.function '_rvim_api_buf_del_var' do |bufnr, name|
+          buf = resolve_buffer(editor, bufnr)
+          buf.vars.delete(name.to_s) if buf
+        end
+        state.function '_rvim_api_buf_get_changedtick' do |bufnr|
+          buf = resolve_buffer(editor, bufnr)
+          # Approximate via undo history index when present.
+          buf&.undo_redo_index.to_i
+        end
+
+        state.function('_rvim_api_list_wins') { (editor.windows || []).each_with_index.map { |_, i| i + 1 } }
+        state.function('_rvim_api_win_is_valid') { |winid| !resolve_window(editor, winid).nil? }
+
+        state.function('_rvim_api_get_var') { |name| editor.let_vars[name.to_s] }
+        state.function('_rvim_api_set_var') { |name, value| editor.let_vars[name.to_s] = value }
+        state.function('_rvim_api_del_var') { |name| editor.let_vars.delete(name.to_s) }
+
+        state.function('_rvim_api_get_option') { |name| editor.settings.get(name.to_s) }
+        state.function '_rvim_api_set_option' do |name, value|
+          coerced = value.is_a?(Float) && value == value.to_i ? value.to_i : value
+          editor.settings.set(name.to_s, coerced)
+        end
+
+        state.function '_rvim_api_get_option_value' do |name, opts|
+          opts_h = opts.respond_to?(:to_h) ? opts.to_h : {}
+          if opts_h['buf']
+            buf = resolve_buffer(editor, opts_h['buf'])
+            editor.settings.get(name.to_s, buffer: buf || :current)
+          else
+            editor.settings.get(name.to_s)
+          end
+        end
+
+        state.function '_rvim_api_set_option_value' do |name, value, opts|
+          coerced = value.is_a?(Float) && value == value.to_i ? value.to_i : value
+          opts_h = opts.respond_to?(:to_h) ? opts.to_h : {}
+          if opts_h['buf']
+            buf = resolve_buffer(editor, opts_h['buf'])
+            editor.settings.set(name.to_s, coerced, buffer: buf)
+          else
+            editor.settings.set(name.to_s, coerced)
+          end
+        end
+
+        state.function '_rvim_api_get_mode' do
+          { 'mode' => Rvim::Lua::Fn.mode(editor), 'blocking' => false }
+        end
+
+        state.function '_rvim_api_command' do |cmd|
+          parsed = Rvim::Command.parse(cmd.to_s)
+          Rvim::Command.execute(editor, parsed) if parsed
+        end
+
+        state.function('_rvim_api_echo') { |_chunks, history, _opts| editor.status_message = '' if history }
+        state.function('_rvim_api_err_writeln') { |msg| editor.status_message = "ERR: #{msg}" }
+        state.function('_rvim_api_out_write') { |msg| editor.status_message = msg.to_s }
+
+        state.function('_rvim_api_strwidth') { |s| s.to_s.length }
+
+        state.function '_rvim_api_replace_termcodes' do |s, _from_part, _do_lt, _special|
+          Rvim::Keymap.expand(s.to_s, leader: editor.mapleader)
+        end
+
+        state.function '_rvim_api_set_hl' do |_ns_id, name, _val|
+          # Highlight registry is mostly visual; for v1 stash the name so
+          # plugins probing for highlights see them as defined.
+          editor.instance_variable_get(:@lua_highlights) || editor.instance_variable_set(:@lua_highlights, {})
+          editor.instance_variable_get(:@lua_highlights)[name.to_s] = true
+        end
       end
 
       def self.install_window_api(state, editor)
