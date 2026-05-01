@@ -1851,6 +1851,7 @@ module Rvim
         unless result
           super
           @modified = true if pre_buffer != @buffer_of_lines
+          extend_visual_cursor_past_eol_if(key)
         end
       elsif @rvim_text_object_pending
         consume_text_object_key(key)
@@ -2369,6 +2370,22 @@ module Rvim
     end
 
     # Returns true if the key was fully handled and update should not call super.
+    # NeoVim allows the cursor to sit one past the last char of the line in
+    # visual character mode (so $ extends the selection through the newline
+    # position). Reline's vi-mode dispatch unconditionally clamps the cursor
+    # back onto the last byte after every command. Undo that clamp for the
+    # specific commands where vim's visual mode keeps the cursor at EOL.
+    private def extend_visual_cursor_past_eol_if(key)
+      return unless @visual_mode == :char || @visual_mode == :block
+
+      ch = key.char
+      ch_str = ch.is_a?(Integer) ? ch.chr : ch.to_s
+      return unless ch_str == '$'
+
+      line = @buffer_of_lines[@line_index] || ''
+      @byte_pointer = line.bytesize
+    end
+
     private def intercept_visual_key(key)
       ch = key.char
       sym = key.method_symbol
