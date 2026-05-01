@@ -77,6 +77,7 @@ module Rvim
       @keymap = Rvim::Keymap.new
       @abbreviations = Rvim::Abbreviations.new
       @user_commands = {}
+      @block_insert_state = nil
       @map_pending_keys = +''
       @map_recursion_depth = 0
       @map_noremap_active = false
@@ -131,6 +132,8 @@ module Rvim
     attr_reader :abbreviations
 
     attr_reader :user_commands
+
+    attr_reader :block_insert_state
 
     def lua
       @lua ||= Rvim::Lua::Runtime.new(self)
@@ -1996,6 +1999,7 @@ module Rvim
         @last_insert_pos = [@line_index, @byte_pointer]
         @replace_mode = false
         @replace_originals = nil
+        finalize_block_insert
         @autocommands&.fire(:insertleave, @filepath.to_s, self)
       elsif pre_mode == :vi_command && cur_mode == :vi_insert
         @autocommands&.fire(:insertenter, @filepath.to_s, self)
@@ -2413,6 +2417,21 @@ module Rvim
         end
         exit_visual
         return true
+      when 'I', 'A'
+        sel = selection
+        return true unless sel
+
+        if @visual_mode == :block
+          start_block_insert(sel, append: ch == 'A')
+        else
+          start_line = sel.start_line
+          col = ch == 'I' ? sol_byte_for(start_line) : (@buffer_of_lines[start_line] || '').bytesize
+          exit_visual
+          @line_index = start_line
+          @byte_pointer = col
+          @config.editing_mode = :vi_insert
+        end
+        return true
       when '>'
         sel = selection
         if sel
@@ -2575,6 +2594,64 @@ module Rvim
 
     private def rvim_visual_block(key)
       enter_visual(:block)
+    end
+
+    private def start_block_insert(sel, append:)
+      start_line = sel.start_line
+      end_line = sel.end_line
+      # Pick the leftmost column for I, the rightmost+1 for A — matches vim.
+      cols = (start_line..end_line).map { |li| (@buffer_of_lines[li] || '').bytesize }
+      col = if append
+              # Use the right edge of the selection, clamped to each line's
+              # length when applied later.
+              [sel.start_col, sel.end_col].max + 1
+            else
+              [sel.start_col, sel.end_col].min
+            end
+
+      original_lines = (start_line..end_line).each_with_object({}) do |li, h|
+        h[li] = (@buffer_of_lines[li] || '').dup
+      end
+
+      @block_insert_state = {
+        start_line: start_line,
+        end_line: end_line,
+        col: col,
+        append: append,
+        original_lines: original_lines,
+      }
+
+      exit_visual
+      @line_index = start_line
+      @byte_pointer = [col, (@buffer_of_lines[start_line] || '').bytesize].min
+      @config.editing_mode = :vi_insert
+    end
+
+    private def finalize_block_insert
+      state = @block_insert_state
+      return unless state
+
+      @block_insert_state = nil
+      first_line = @buffer_of_lines[state[:start_line]] || ''
+      original_first = state[:original_lines][state[:start_line]] || ''
+      delta = first_line.bytesize - original_first.bytesize
+      return if delta <= 0
+
+      col = state[:col]
+      inserted = first_line.byteslice(col, delta)
+      return if inserted.nil? || inserted.empty?
+
+      ((state[:start_line] + 1)..state[:end_line]).each do |li|
+        line = @buffer_of_lines[li] || +''
+        # When append is true, the cursor was at end-of-line in the start line;
+        # for shorter lines, append at end-of-line; for longer lines, splice in.
+        target_col = [col, line.bytesize].min
+        head = line.byteslice(0, target_col).to_s
+        tail = line.byteslice(target_col, line.bytesize - target_col).to_s
+        @buffer_of_lines[li] = String.new(head + inserted + tail, encoding: encoding)
+      end
+      sync_current_buffer_lines
+      @modified = true
     end
 
     private def process_listing_key(key)
