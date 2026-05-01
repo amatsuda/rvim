@@ -213,6 +213,7 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_command, [?}.ord], :rvim_paragraph_forward)
       @config.add_default_key_binding_by_keymap(:vi_command, [?R.ord], :rvim_enter_replace_mode)
       @config.add_default_key_binding_by_keymap(:vi_command, [?r.ord], :rvim_replace_one)
+      @config.add_default_key_binding_by_keymap(:vi_command, [0x1E], :rvim_alternate_file) # Ctrl-^
     end
 
     def open(path)
@@ -872,6 +873,21 @@ module Rvim
       @replace_mode = true
       @replace_originals = []
       @config.editing_mode = :vi_insert
+    end
+
+    private def rvim_alternate_file(key)
+      alt = @alternate_filepath
+      if alt.nil? || alt.empty?
+        @status_message = 'E23: No alternate file'
+        return
+      end
+      buf = @buffers.values.find { |b| b.filepath == alt }
+      if buf
+        swap_to_buffer(buf)
+      else
+        # Alternate file isn't in the buffer list — load it.
+        open(alt)
+      end
     end
 
     private def rvim_replace_one(key, arg: 1)
