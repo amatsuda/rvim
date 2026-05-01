@@ -144,6 +144,14 @@ module Rvim
       sched&.pump || 0
     end
 
+    # Re-sync Lua's package.path with the current &runtimepath. Called by
+    # Settings#set when the user (or a plugin) mutates :runtimepath.
+    def lua_loader_refresh
+      return unless @lua && @lua.available? && @lua.state
+
+      Rvim::Lua::Loader.refresh(@lua.state, self)
+    end
+
     attr_reader :settings
 
     attr_reader :search_pattern, :search_direction, :search_matches
@@ -3923,11 +3931,37 @@ module Rvim
       File.join(base, 'rvim', 'init.lua')
     end
 
+    def self.user_config_dir
+      base = ENV['XDG_CONFIG_HOME']
+      base = File.expand_path('~/.config') if base.nil? || base.empty?
+      File.join(base, 'rvim')
+    end
+
+    # NeoVim auto-prepends $XDG_CONFIG_HOME/nvim and its after/ to runtimepath
+    # so plugins authored as `~/.config/nvim/lua/<mod>.lua` are reachable via
+    # require('<mod>'). Mirror that for rvim.
+    def self.ensure_user_runtimepath(editor)
+      cfg = user_config_dir
+      after = File.join(cfg, 'after')
+      rtp = editor.settings.get(:runtimepath).to_s.split(',')
+      changed = false
+      unless rtp.include?(cfg)
+        rtp.unshift(cfg)
+        changed = true
+      end
+      unless rtp.include?(after)
+        rtp.push(after)
+        changed = true
+      end
+      editor.settings.set(:runtimepath, rtp.join(',')) if changed
+    end
+
     def self.start(*filepaths, norc: false)
       editor = new(Reline.core.config)
       filepaths = filepaths.flatten.compact
       editor.set_arg_list(filepaths)
       filepaths.each { |path| editor.open(path) }
+      ensure_user_runtimepath(editor) unless norc
       unless norc
         [File.expand_path(RVIMRC_PATH), init_vim_path, init_lua_path].each do |rc|
           editor.source(rc) if File.exist?(rc)

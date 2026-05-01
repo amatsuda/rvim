@@ -529,6 +529,11 @@ module Rvim
       else
         @options[key] = value
       end
+      # Notify the Lua runtime so package.path tracks &runtimepath edits
+      # made after init time (e.g. vim.opt.rtp:prepend in init.lua, :packadd).
+      if key == :runtimepath && @editor && @editor.respond_to?(:lua_loader_refresh)
+        @editor.lua_loader_refresh
+      end
       key
     end
 
