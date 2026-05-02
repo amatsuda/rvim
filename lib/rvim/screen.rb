@@ -795,8 +795,8 @@ module Rvim
       ranges = matches.select { |l, _, _| l == line_index }.map { |_, s, e| [s, e] }
       out = line.dup
       ranges.sort_by { |s, _| -s }.each do |s, e|
-        first = [s, out.bytesize].min
-        last = [e + 1, out.bytesize].min
+        first = snap_to_char_boundary(out, [s, out.bytesize].min)
+        last = snap_to_char_boundary(out, [e + 1, out.bytesize].min)
         head = out.byteslice(0, first) || +''
         mid = out.byteslice(first, last - first) || +''
         tail = out.byteslice(last, out.bytesize - last) || +''
@@ -806,8 +806,8 @@ module Rvim
     end
 
     def splice_highlight(line, first, last, width)
-      first = [first, line.bytesize].min
-      last = [last, line.bytesize].min
+      first = snap_to_char_boundary(line, [first, line.bytesize].min)
+      last = snap_to_char_boundary(line, [last, line.bytesize].min)
       head = line.byteslice(0, first) || ''
       mid = line.byteslice(first, last - first) || ''
       tail = line.byteslice(last, line.bytesize - last) || ''
@@ -907,8 +907,28 @@ module Rvim
 
     # Display width of a string ignoring ANSI escape sequences.
     def visible_width(str)
-      no_ansi = str.gsub(/\e\[[\d;]*[a-zA-Z]/, '')
+      safe = str.valid_encoding? ? str : str.scrub('?')
+      no_ansi = safe.gsub(/\e\[[\d;]*[a-zA-Z]/, '')
       Reline::Unicode.calculate_width(no_ansi)
+    end
+
+    # Move `byte` forward until it lands on a UTF-8 character boundary so
+    # that subsequent byteslice(...) returns a valid string. A multibyte
+    # char's continuation bytes are 10xxxxxx (0x80..0xBF); leading bytes are
+    # outside that range. Without this, slicing in the middle of e.g. 'あ'
+    # produces an invalid byte sequence and downstream regex/width work
+    # raises ArgumentError.
+    def snap_to_char_boundary(line, byte)
+      return byte if byte <= 0 || byte >= line.bytesize
+
+      while byte < line.bytesize
+        b = line.getbyte(byte)
+        break if b.nil?
+        break if b < 0x80 || b >= 0xC0 # ASCII or UTF-8 leading byte
+
+        byte += 1
+      end
+      byte
     end
 
     def move_to(row, col)
