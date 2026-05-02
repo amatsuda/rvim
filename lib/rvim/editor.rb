@@ -3149,6 +3149,13 @@ module Rvim
       return :space if byte.nil? || byte == ' ' || byte == "\t"
       return :word if big
 
+      # Any byte with the high bit set is a UTF-8 leading or continuation
+      # byte — treat the whole codepoint as a word character (matches vim's
+      # default iskeyword which includes 192-255). Without this, the regex
+      # match below raises ArgumentError on invalid byte sequences.
+      first = byte.getbyte(0)
+      return :word if first && first >= 0x80
+
       byte =~ /\w/ ? :word : :punct
     end
 
