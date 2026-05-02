@@ -214,6 +214,8 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_command, [?R.ord], :rvim_enter_replace_mode)
       @config.add_default_key_binding_by_keymap(:vi_command, [?r.ord], :rvim_replace_one)
       @config.add_default_key_binding_by_keymap(:vi_command, [0x1E], :rvim_alternate_file) # Ctrl-^
+      @config.add_default_key_binding_by_keymap(:vi_command, [?s.ord], :rvim_substitute_char)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?S.ord], :rvim_substitute_line)
     end
 
     def open(path)
@@ -872,6 +874,47 @@ module Rvim
     private def rvim_enter_replace_mode(key)
       @replace_mode = true
       @replace_originals = []
+      @config.editing_mode = :vi_insert
+    end
+
+    # `s` — substitute character: delete N chars under the cursor and enter
+    # insert mode. Equivalent to `cl` with a count. The deleted text goes
+    # into the unnamed register, matching vim.
+    private def rvim_substitute_char(key, arg: 1)
+      count = arg
+      line = @buffer_of_lines[@line_index] || +''
+      pos = @byte_pointer
+      remaining = line.bytesize - pos
+      take = [count, remaining].min
+      take = 1 if take.zero? && remaining.positive? # at least one char if any
+      if take.positive?
+        deleted = line.byteslice(pos, take)
+        write_register(deleted, :char) if deleted
+        @buffer_of_lines[@line_index] = String.new(
+          line.byteslice(0, pos).to_s + line.byteslice(pos + take, line.bytesize - pos - take).to_s,
+          encoding: encoding,
+        )
+        sync_current_buffer_lines
+        @modified = true
+      end
+      @config.editing_mode = :vi_insert
+    end
+
+    # `S` — substitute line: blank out the current line and enter insert at
+    # column 0 (or at the autoindent column if set). Same as `cc`.
+    private def rvim_substitute_line(key, arg: 1)
+      yanked = []
+      arg.times do |i|
+        li = @line_index + i
+        break if li >= @buffer_of_lines.size
+
+        yanked << (@buffer_of_lines[li] || '').dup
+        @buffer_of_lines[li] = String.new('', encoding: encoding)
+      end
+      write_register(yanked.join("\n"), :line) unless yanked.empty?
+      @byte_pointer = 0
+      sync_current_buffer_lines
+      @modified = true
       @config.editing_mode = :vi_insert
     end
 
