@@ -3993,7 +3993,13 @@ module Rvim
       editor = new(Reline.core.config)
       filepaths = filepaths.flatten.compact
       editor.set_arg_list(filepaths)
-      filepaths.each { |path| editor.open(path) }
+      if filepaths.empty?
+        # vim's [No Name] buffer: create an empty unnamed buffer and swap to it
+        # so the screen has a current window/buffer to render into.
+        editor.open(nil)
+      else
+        filepaths.each { |path| editor.open(path) }
+      end
       ensure_user_runtimepath(editor) unless norc
       unless norc
         [File.expand_path(RVIMRC_PATH), init_vim_path, init_lua_path].each do |rc|
