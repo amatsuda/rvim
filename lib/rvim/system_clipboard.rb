@@ -9,11 +9,16 @@ module Rvim
     end
 
     def read
-      case detect_tool
-      when :pbpaste then `pbpaste`
-      when :xclip   then `xclip -selection clipboard -o 2>/dev/null`
-      else ''
-      end
+      raw = case detect_tool
+            when :pbpaste then `pbpaste`
+            when :xclip   then `xclip -selection clipboard -o 2>/dev/null`
+            else ''
+            end
+      # Backticks return a string in Encoding.default_external; force-label as
+      # UTF-8 and scrub any invalid byte sequences so downstream String#split
+      # / regex calls don't raise on (e.g.) a mid-paste binary blob.
+      raw = raw.dup.force_encoding(Encoding::UTF_8)
+      raw.valid_encoding? ? raw : raw.scrub('?')
     end
 
     def write(text)

@@ -862,6 +862,17 @@ module Rvim
       end
     end
 
+    # Coerce a string to valid UTF-8 so downstream String#split / regex work
+    # safely. Pasted content from the system clipboard, file contents loaded
+    # with a different external encoding, or yanked binary blobs may all
+    # arrive labeled as ASCII-8BIT or with invalid byte sequences.
+    private def ensure_utf8(s)
+      return s if s.encoding == Encoding::UTF_8 && s.valid_encoding?
+
+      out = s.dup.force_encoding(Encoding::UTF_8)
+      out.valid_encoding? ? out : out.scrub('?')
+    end
+
     def insert_at_cursor(s)
       line = @buffer_of_lines[@line_index] || +''
       head = line.byteslice(0, @byte_pointer) || +''
@@ -3900,7 +3911,7 @@ module Rvim
     private def paste_lines_after(content)
       return unless content
 
-      content.to_s.split("\n", -1).each_with_index do |line, i|
+      ensure_utf8(content.to_s).split("\n", -1).each_with_index do |line, i|
         @buffer_of_lines.insert(@line_index + 1 + i, String.new(line, encoding: encoding))
       end
       @line_index += 1
@@ -3910,7 +3921,7 @@ module Rvim
     private def paste_lines_before(content)
       return unless content
 
-      content.to_s.split("\n", -1).each_with_index do |line, i|
+      ensure_utf8(content.to_s).split("\n", -1).each_with_index do |line, i|
         @buffer_of_lines.insert(@line_index + i, String.new(line, encoding: encoding))
       end
       @byte_pointer = 0
@@ -3919,7 +3930,7 @@ module Rvim
     private def paste_char_after(content)
       return unless content
 
-      lines = content.to_s.split("\n", -1)
+      lines = ensure_utf8(content.to_s).split("\n", -1)
       current = @buffer_of_lines[@line_index] || (+'')
       insert_at = current.bytesize.zero? ? 0 : @byte_pointer + 1
       insert_at = [insert_at, current.bytesize].min
