@@ -3193,7 +3193,7 @@ module Rvim
         else
           # At EOF: clamp to last char of last line.
           last = @buffer_of_lines[@line_index] || ''
-          @byte_pointer = [last.bytesize - 1, 0].max
+          @byte_pointer = [last.bytesize - last_mbchar_size(last), 0].max
           return false
         end
       end
@@ -3939,9 +3939,10 @@ module Rvim
       tail = current.byteslice(insert_at, current.bytesize - insert_at) || +''
 
       if lines.size == 1
-        merged = head + lines.first + tail
+        pasted = lines.first
+        merged = head + pasted + tail
         @buffer_of_lines[@line_index] = String.new(merged, encoding: encoding)
-        @byte_pointer = insert_at + lines.first.bytesize - 1
+        @byte_pointer = insert_at + pasted.bytesize - last_mbchar_size(pasted)
         @byte_pointer = 0 if @byte_pointer.negative?
       else
         @buffer_of_lines[@line_index] = String.new(head + lines.first, encoding: encoding)
@@ -3954,8 +3955,17 @@ module Rvim
         end
         @buffer_of_lines.insert(@line_index + offset, last)
         @line_index += offset
-        @byte_pointer = [lines.last.bytesize - 1, 0].max
+        @byte_pointer = [lines.last.bytesize - last_mbchar_size(lines.last), 0].max
       end
+    end
+
+    # Bytes consumed by the final character of `text`. For "あ" returns 3,
+    # for "abc" returns 1, for "" returns 1 (cursor lands at 0).
+    private def last_mbchar_size(text)
+      return 1 if text.nil? || text.empty?
+
+      size = Reline::Unicode.get_prev_mbchar_size(text, text.bytesize)
+      size.positive? ? size : 1
     end
 
     private def paste_char_before(content)
