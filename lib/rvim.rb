@@ -1,5 +1,13 @@
 # frozen_string_literal: true
 
+# Pin the process to UTF-8 at both ends so every boundary (file IO, backticks,
+# Open3, network, etc.) hands us strings already labeled correctly, instead
+# of ASCII-8BIT or whatever LANG happened to be. Internal storage stays
+# byte-addressed (vim's @byte_pointer model), but the *labels* are now
+# uniform — String#split, regex, and friends never trip on mismatched tags.
+Encoding.default_external = Encoding::UTF_8
+Encoding.default_internal = Encoding::UTF_8
+
 require 'reline'
 
 module Rvim
