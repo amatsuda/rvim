@@ -3528,6 +3528,7 @@ module Rvim
       end
       target = @buffer_of_lines[@line_index] || ''
       @byte_pointer = @byte_pointer.clamp(0, [target.bytesize - 1, 0].max)
+      @byte_pointer = Rvim::DisplayMotion.snap_back_to_char_boundary(target, @byte_pointer)
     end
 
     private def start_case_op(kind, count_arg)

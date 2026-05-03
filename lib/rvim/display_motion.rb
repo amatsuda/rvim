@@ -49,7 +49,18 @@ module Rvim
       max_byte = [seg_text.bytesize - 1, 0].max
       byte = [desired_byte_in_seg, max_byte].min
       byte = 0 if byte.negative?
+      byte = snap_back_to_char_boundary(seg_text, byte)
       [line_index, seg_off + byte]
+    end
+
+    # If `byte` lands on a UTF-8 continuation byte (10xxxxxx, 0x80-0xBF),
+    # walk back to the leading byte of that codepoint so callers don't
+    # produce mid-character cursor positions.
+    def self.snap_back_to_char_boundary(text, byte)
+      while byte.positive? && (b = text.getbyte(byte)) && b >= 0x80 && b < 0xC0
+        byte -= 1
+      end
+      byte
     end
   end
 end
