@@ -44,6 +44,26 @@ class TestSubstituteChar < Test::Unit::TestCase
     @editor.insert_at_cursor('XYZ')
     assert_equal 'hXYZllo', @editor.buffer_of_lines[0]
   end
+
+  def test_s_on_multibyte_char_deletes_whole_codepoint
+    @editor.instance_variable_set(:@buffer_of_lines, [+'aあい'])
+    @editor.instance_variable_set(:@byte_pointer, 1) # cursor on 'あ'
+    send_keys('s')
+    assert_equal 'aい', @editor.buffer_of_lines[0]
+    assert @editor.buffer_of_lines[0].valid_encoding?
+    entry = @editor.read_register('"')
+    assert_equal 'あ', entry.text
+  end
+
+  def test_s_with_count_on_multibyte_chars
+    @editor.instance_variable_set(:@buffer_of_lines, [+'あいうえお'])
+    @editor.instance_variable_set(:@byte_pointer, 0)
+    @editor.send(:rvim_substitute_char, nil, arg: 3)
+    # Removes 'あ', 'い', 'う' — 9 bytes.
+    assert_equal 'えお', @editor.buffer_of_lines[0]
+    entry = @editor.read_register('"')
+    assert_equal 'あいう', entry.text
+  end
 end
 
 class TestSubstituteLine < Test::Unit::TestCase

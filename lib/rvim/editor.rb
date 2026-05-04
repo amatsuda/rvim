@@ -895,9 +895,17 @@ module Rvim
       count = arg
       line = @buffer_of_lines[@line_index] || +''
       pos = @byte_pointer
-      remaining = line.bytesize - pos
-      take = [count, remaining].min
-      take = 1 if take.zero? && remaining.positive? # at least one char if any
+      # Advance by `count` *characters* (mbchar-aware), not bytes — so `s` on
+      # 'あ' deletes the whole 3-byte codepoint, not a single leading byte
+      # that would leave invalid UTF-8 behind.
+      take = 0
+      remaining = count
+      while remaining.positive? && (pos + take) < line.bytesize
+        size = Reline::Unicode.get_next_mbchar_size(line, pos + take)
+        size = 1 if size <= 0
+        take += size
+        remaining -= 1
+      end
       if take.positive?
         deleted = line.byteslice(pos, take)
         write_register(deleted, :char) if deleted
