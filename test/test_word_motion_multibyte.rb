@@ -21,9 +21,12 @@ class TestWordMotionMultibyte < Test::Unit::TestCase
     assert_nothing_raised { @editor.send(:word_class, line.byteslice(0, 1), false) }
   end
 
-  def test_word_class_treats_multibyte_as_word
+  def test_word_class_classifies_hiragana_codepoint
+    # Pass the full mbchar (the way word-motion callers do); expect the
+    # specific Unicode-block class so 'abc' and 'あいう' are distinct
+    # word groups for `w`/`b`/`e` motions.
     line = +'あいうえお'
-    assert_equal :word, @editor.send(:word_class, line.byteslice(0, 1), false)
+    assert_equal :hiragana, @editor.send(:word_class, line.byteslice(0, 3), false)
   end
 
   def test_advance_word_start_on_japanese_does_not_raise

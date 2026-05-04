@@ -3164,42 +3164,95 @@ module Rvim
       arg.times { advance_word_end(big: true) || break }
     end
 
-    private def word_class(byte, big)
-      return :space if byte.nil? || byte == ' ' || byte == "\t"
+    # Classify a single character (which may be multibyte). Vim's word
+    # motion treats different Unicode blocks as separate word groups, so
+    # 'abc' (Latin) and 'あいう' (Hiragana) are distinct classes — 'w'
+    # stops at a script change. With `big: true` (for W/B/E motions) the
+    # only word boundary is whitespace, matching vim.
+    private def word_class(mbchar, big)
+      return :space if mbchar.nil? || mbchar.empty?
+
+      first = mbchar.getbyte(0)
+      return :space if first == 0x20 || first == 0x09 # space / tab
       return :word if big
 
-      # Any byte with the high bit set is a UTF-8 leading or continuation
-      # byte — treat the whole codepoint as a word character (matches vim's
-      # default iskeyword which includes 192-255). Without this, the regex
-      # match below raises ArgumentError on invalid byte sequences.
-      first = byte.getbyte(0)
-      return :word if first && first >= 0x80
+      if first < 0x80
+        mbchar =~ /\w/ ? :word : :punct
+      else
+        cp =
+          begin
+            mbchar.codepoints.first
+          rescue ArgumentError, Encoding::UndefinedConversionError
+            nil
+          end
+        return :other_mbword if cp.nil?
 
-      byte =~ /\w/ ? :word : :punct
+        case cp
+        when 0x3040..0x309F then :hiragana
+        when 0x30A0..0x30FF then :katakana
+        when 0x4E00..0x9FFF, 0x3400..0x4DBF then :cjk_ideograph
+        when 0xFF00..0xFFEF then :halfwidth
+        when 0x3000..0x303F then :cjk_punct
+        when 0x00A0..0x024F then :latin_extended
+        when 0x0400..0x04FF then :cyrillic
+        when 0x0370..0x03FF then :greek
+        when 0xAC00..0xD7AF then :hangul
+        else :other_mbword
+        end
+      end
+    end
+
+    private def mbchar_at(line, pos)
+      return nil if pos >= line.bytesize
+
+      size = Reline::Unicode.get_next_mbchar_size(line, pos)
+      size = 1 if size <= 0
+      line.byteslice(pos, size)
+    end
+
+    private def mbchar_size_forward(line, pos)
+      return 1 if pos >= line.bytesize
+
+      size = Reline::Unicode.get_next_mbchar_size(line, pos)
+      size > 0 ? size : 1
+    end
+
+    private def prev_mbchar_at(line, pos)
+      return nil if pos <= 0
+
+      size = Reline::Unicode.get_prev_mbchar_size(line, pos)
+      size = 1 if size <= 0
+      line.byteslice(pos - size, size)
+    end
+
+    private def mbchar_size_backward(line, pos)
+      return 1 if pos <= 0
+
+      size = Reline::Unicode.get_prev_mbchar_size(line, pos)
+      size > 0 ? size : 1
     end
 
     private def advance_word_start(big:)
       line = @buffer_of_lines[@line_index] || ''
-      # Step over the current run.
-      cur_class = @byte_pointer < line.bytesize ? word_class(line.byteslice(@byte_pointer, 1), big) : :space
-      while @byte_pointer < line.bytesize && word_class(line.byteslice(@byte_pointer, 1), big) == cur_class && cur_class != :space
-        @byte_pointer += 1
+      # Step over the current run (same character class).
+      cur_class = word_class(mbchar_at(line, @byte_pointer), big)
+      while @byte_pointer < line.bytesize &&
+            word_class(mbchar_at(line, @byte_pointer), big) == cur_class && cur_class != :space
+        @byte_pointer += mbchar_size_forward(line, @byte_pointer)
       end
       # Now skip whitespace (including line breaks) until we find a non-space.
       loop do
         line = @buffer_of_lines[@line_index] || ''
-        while @byte_pointer < line.bytesize && word_class(line.byteslice(@byte_pointer, 1), big) == :space
-          @byte_pointer += 1
+        while @byte_pointer < line.bytesize && word_class(mbchar_at(line, @byte_pointer), big) == :space
+          @byte_pointer += mbchar_size_forward(line, @byte_pointer)
         end
         return true if @byte_pointer < line.bytesize
 
         if @line_index + 1 < @buffer_of_lines.size
           @line_index += 1
           @byte_pointer = 0
-          # Empty line counts as a word boundary — stop here.
           return true if (@buffer_of_lines[@line_index] || '').empty?
         else
-          # At EOF: clamp to last char of last line.
           last = @buffer_of_lines[@line_index] || ''
           @byte_pointer = [last.bytesize - last_mbchar_size(last), 0].max
           return false
@@ -3208,7 +3261,6 @@ module Rvim
     end
 
     private def retreat_word_start(big:)
-      # If at start of line, jump to end of previous line.
       if @byte_pointer.zero?
         return false if @line_index.zero?
 
@@ -3216,26 +3268,25 @@ module Rvim
         prev = @buffer_of_lines[@line_index] || ''
         @byte_pointer = prev.bytesize
       end
-      # Step left past whitespace.
       line = @buffer_of_lines[@line_index] || ''
-      while @byte_pointer > 0 && word_class(line.byteslice(@byte_pointer - 1, 1), big) == :space
-        @byte_pointer -= 1
+      while @byte_pointer > 0 && word_class(prev_mbchar_at(line, @byte_pointer), big) == :space
+        @byte_pointer -= mbchar_size_backward(line, @byte_pointer)
       end
       return retreat_word_start(big: big) if @byte_pointer.zero?
 
-      # Now back up through the current word/punct run to its start.
-      cls = word_class(line.byteslice(@byte_pointer - 1, 1), big)
-      while @byte_pointer > 0 && word_class(line.byteslice(@byte_pointer - 1, 1), big) == cls
-        @byte_pointer -= 1
+      cls = word_class(prev_mbchar_at(line, @byte_pointer), big)
+      while @byte_pointer > 0 && word_class(prev_mbchar_at(line, @byte_pointer), big) == cls
+        @byte_pointer -= mbchar_size_backward(line, @byte_pointer)
       end
       true
     end
 
     private def advance_word_end(big:)
       line = @buffer_of_lines[@line_index] || ''
-      # Step forward by one position to escape the current word-end.
-      if @byte_pointer + 1 < line.bytesize
-        @byte_pointer += 1
+      # Step forward one mbchar to escape the current word-end.
+      step = mbchar_size_forward(line, @byte_pointer)
+      if @byte_pointer + step < line.bytesize
+        @byte_pointer += step
       elsif @line_index + 1 < @buffer_of_lines.size
         @line_index += 1
         @byte_pointer = 0
@@ -3246,8 +3297,8 @@ module Rvim
       # Skip whitespace (possibly across lines).
       loop do
         line = @buffer_of_lines[@line_index] || ''
-        while @byte_pointer < line.bytesize && word_class(line.byteslice(@byte_pointer, 1), big) == :space
-          @byte_pointer += 1
+        while @byte_pointer < line.bytesize && word_class(mbchar_at(line, @byte_pointer), big) == :space
+          @byte_pointer += mbchar_size_forward(line, @byte_pointer)
         end
         break if @byte_pointer < line.bytesize
         return false if @line_index + 1 >= @buffer_of_lines.size
@@ -3255,10 +3306,15 @@ module Rvim
         @line_index += 1
         @byte_pointer = 0
       end
-      # Advance through the current word/punct run; stop on the last char.
-      cls = word_class(line.byteslice(@byte_pointer, 1), big)
-      while @byte_pointer + 1 < line.bytesize && word_class(line.byteslice(@byte_pointer + 1, 1), big) == cls
-        @byte_pointer += 1
+      # Advance through the current run; stop on the LAST char (not past it).
+      cls = word_class(mbchar_at(line, @byte_pointer), big)
+      loop do
+        next_step = mbchar_size_forward(line, @byte_pointer)
+        next_pos = @byte_pointer + next_step
+        break if next_pos >= line.bytesize
+        break if word_class(mbchar_at(line, next_pos), big) != cls
+
+        @byte_pointer = next_pos
       end
       true
     end
