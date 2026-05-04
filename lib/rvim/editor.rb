@@ -4007,8 +4007,13 @@ module Rvim
     private def rvim_z_prefix(key)
       @waiting_proc = lambda do |key_for_proc, _sym|
         @waiting_proc = nil
-        if key_for_proc == 'Z' || key_for_proc == 'Z'.ord
+        ch = key_for_proc.is_a?(Integer) ? key_for_proc.chr : key_for_proc.to_s
+        case ch
+        when 'Z'
           save if @filepath
+          @quit = true
+        when 'Q'
+          # Quit without saving — same as :q!
           @quit = true
         end
       end
