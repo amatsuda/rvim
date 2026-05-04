@@ -827,15 +827,41 @@ module Rvim
       modified = (is_current ? @editor.modified : buffer.modified) ? ' [+]' : ''
       recording = is_current && @editor.recording_macro ? "  recording @#{@editor.recording_macro}" : ''
       ruler = if @editor.settings.get(:ruler)
-                total = (is_current ? @editor.buffer_of_lines : buffer.lines).size
-                ln = (is_current ? @editor.line_index : buffer.line_index) + 1
-                col = (is_current ? @editor.byte_pointer : buffer.byte_pointer) + 1
+                lines = is_current ? @editor.buffer_of_lines : buffer.lines
+                total = lines.size
+                ln_idx = is_current ? @editor.line_index : buffer.line_index
+                bp = is_current ? @editor.byte_pointer : buffer.byte_pointer
+                ln = ln_idx + 1
+                col = bp + 1
+                # Virtual / display column: count terminal cells consumed
+                # by the chars before the cursor. Differs from `col` whenever
+                # multibyte or wide characters precede the cursor on the line.
+                vcol = display_column(lines[ln_idx], bp) + 1
+                col_field = (vcol == col) ? "#{col}" : "#{col}-#{vcol}"
                 pct = total.zero? ? 0 : (ln * 100 / total)
-                "    #{ln},#{col}    #{pct}%"
+                "    #{ln},#{col_field}    #{pct}%"
               else
                 ''
               end
       " #{mode} #{name}#{modified}#{ruler}#{recording}".lstrip.then { |s| " #{s}" }
+    end
+
+    # Number of terminal cells the part of `line` before `byte_pointer`
+    # would occupy when rendered. Each ASCII char = 1 cell, each
+    # East-Asian wide char = 2 cells, etc.
+    def display_column(line, byte_pointer)
+      return 0 if line.nil? || byte_pointer <= 0
+
+      end_byte = [byte_pointer, line.bytesize].min
+      # Snap BACK to the leading byte of the codepoint the cursor is "on" so
+      # the cursor's display column reflects the start of its character,
+      # not the end (matching vim's semantics: cursor sits on a char,
+      # never between bytes).
+      end_byte = Rvim::DisplayMotion.snap_back_to_char_boundary(line, end_byte)
+      slice = line.byteslice(0, end_byte) || ''
+      Reline::Unicode.calculate_width(slice.to_s)
+    rescue ArgumentError
+      0
     end
 
     def mode_label
@@ -870,9 +896,7 @@ module Rvim
       end
     end
 
-    def display_column(line, byte_pointer)
-      Reline::Unicode.calculate_width(line.byteslice(0, byte_pointer) || '')
-    end
+    # (consolidated into the snap-aware display_column above)
 
     def truncate(str, width)
       # Char-count truncation. Used by ANSI-splice helpers that compute their
