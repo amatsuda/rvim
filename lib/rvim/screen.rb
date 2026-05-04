@@ -756,7 +756,8 @@ module Rvim
     end
 
     def mark_trailing_whitespace(str, marker)
-      str.sub(/[ ]+\z/) { |trail| marker * trail.length }
+      safe = str.valid_encoding? ? str : str.scrub('?')
+      safe.sub(/[ ]+\z/) { |trail| marker * trail.length }
     end
 
     def apply_selection_highlight(line, line_index, sel, width)

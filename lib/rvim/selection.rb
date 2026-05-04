@@ -53,16 +53,28 @@ module Rvim
           yield li, 0, line.bytesize
         when :char
           first = li == @start_line ? @start_col : 0
-          last = li == @end_line ? @end_col + 1 : line.bytesize
+          last = li == @end_line ? Rvim::Selection.end_of_char_at(line, @end_col) : line.bytesize
           last = [last, line.bytesize].min
           first = [first, line.bytesize].min
           yield li, first, last
         when :block
           first = [@start_col, line.bytesize].min
-          last = [@end_col + 1, line.bytesize].min
+          last = [Rvim::Selection.end_of_char_at(line, @end_col), line.bytesize].min
           yield li, first, last
         end
       end
+    end
+
+    # Byte position one past the last byte of the character that starts at
+    # `byte_pointer`. For ASCII this is byte_pointer + 1; for multibyte it
+    # advances by the codepoint size, so subsequent byteslice calls always
+    # land on a character boundary.
+    def self.end_of_char_at(line, byte_pointer)
+      return byte_pointer if line.nil? || byte_pointer >= line.bytesize
+
+      size = Reline::Unicode.get_next_mbchar_size(line, byte_pointer)
+      size = 1 if size <= 0
+      byte_pointer + size
     end
 
     private

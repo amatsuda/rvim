@@ -69,12 +69,15 @@ module Rvim
 
       if sel.start_line == sel.end_line
         line = buffer[sel.start_line]
+        cut_end = Rvim::Selection.end_of_char_at(line, sel.end_col)
         head = line.byteslice(0, sel.start_col) || +''
-        tail = line.byteslice(sel.end_col + 1, line.bytesize - sel.end_col - 1) || +''
+        tail = line.byteslice(cut_end, line.bytesize - cut_end) || +''
         buffer[sel.start_line] = String.new(head + tail, encoding: line.encoding)
       else
+        last_line = buffer[sel.end_line]
+        cut_end = Rvim::Selection.end_of_char_at(last_line, sel.end_col)
         first_head = buffer[sel.start_line].byteslice(0, sel.start_col) || +''
-        last_tail = buffer[sel.end_line].byteslice(sel.end_col + 1, buffer[sel.end_line].bytesize - sel.end_col - 1) || +''
+        last_tail = last_line.byteslice(cut_end, last_line.bytesize - cut_end) || +''
         merged = String.new(first_head + last_tail, encoding: buffer[sel.start_line].encoding)
         buffer[sel.start_line..sel.end_line] = [merged]
       end
@@ -152,12 +155,16 @@ module Rvim
 
     def extract_char(buffer, sel)
       if sel.start_line == sel.end_line
-        buffer[sel.start_line].byteslice(sel.start_col, sel.end_col - sel.start_col + 1).to_s
+        line = buffer[sel.start_line]
+        cut_end = Rvim::Selection.end_of_char_at(line, sel.end_col)
+        line.byteslice(sel.start_col, cut_end - sel.start_col).to_s
       else
+        last_line = buffer[sel.end_line]
+        cut_end = Rvim::Selection.end_of_char_at(last_line, sel.end_col)
         parts = []
         parts << buffer[sel.start_line].byteslice(sel.start_col, buffer[sel.start_line].bytesize - sel.start_col).to_s
         ((sel.start_line + 1)...sel.end_line).each { |i| parts << buffer[i].to_s }
-        parts << buffer[sel.end_line].byteslice(0, sel.end_col + 1).to_s
+        parts << last_line.byteslice(0, cut_end).to_s
         parts.join("\n")
       end
     end
