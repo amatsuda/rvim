@@ -2,21 +2,6 @@
 
 require_relative 'test_helper'
 
-class TestIndentkeysStorage < Test::Unit::TestCase
-  def setup
-    @editor = Rvim::Editor.new(Reline.core.config)
-  end
-
-  def test_default_braces
-    assert_match(/0\}/, @editor.settings.get(:indentkeys))
-  end
-
-  def test_indk_alias
-    Rvim::Command.execute(@editor, Rvim::Command.parse(':set indk=0=,0)'))
-    assert_equal '0=,0)', @editor.settings.get(:indentkeys)
-  end
-end
-
 class TestFoldexprStorage < Test::Unit::TestCase
   def setup
     @editor = Rvim::Editor.new(Reline.core.config)

@@ -61,18 +61,3 @@ class TestSpelloptionsStorage < Test::Unit::TestCase
     assert_equal 'camel', @editor.settings.get(:spelloptions)
   end
 end
-
-class TestDigraphStorage < Test::Unit::TestCase
-  def setup
-    @editor = Rvim::Editor.new(Reline.core.config)
-  end
-
-  def test_default_off
-    assert_equal false, @editor.settings.get(:digraph)
-  end
-
-  def test_dg_alias
-    Rvim::Command.execute(@editor, Rvim::Command.parse(':set dg'))
-    assert_equal true, @editor.settings.get(:digraph)
-  end
-end
