@@ -100,6 +100,9 @@ module Rvim
              when 'wq' then :wq
              when 'x' then :wq
              when 'cq', 'cquit' then :cq
+             when 'a', 'append' then :append
+             when 'i', 'insert' then :insert_lines
+             when 'c', 'change' then :change_lines
              when 'e', 'edit' then :e
              when 'r', 'read' then :r
              when 'bn', 'bnext' then :bn
@@ -284,6 +287,12 @@ module Rvim
         execute_quit(editor, parsed)
       when :cq
         editor.quit!(exit_code: 1)
+      when :append
+        editor.start_ex_input(:append, range: parsed.range, line_number: parsed.line_number)
+      when :insert_lines
+        editor.start_ex_input(:insert, range: parsed.range, line_number: parsed.line_number)
+      when :change_lines
+        editor.start_ex_input(:change, range: parsed.range, line_number: parsed.line_number)
       when :e
         if parsed.arg.nil? || parsed.arg.empty?
           editor.status_message = 'E32: No file name'

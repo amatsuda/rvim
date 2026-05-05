@@ -2949,6 +2949,16 @@ module Rvim
         Rvim::Command.execute(self, parsed) if parsed
       when :search_forward, :search_backward
         commit_search
+      when :ex_input
+        # Each Enter in :ex_input mode appends a line to the collector.
+        # A single '.' on its own line ends input.
+        if @prompt_buffer == '.'
+          @prompt_buffer = +''
+          commit_ex_input
+        else
+          append_ex_input_line(@prompt_buffer)
+          @prompt_buffer = +''
+        end
       else
         reset_prompt
       end
@@ -3548,6 +3558,110 @@ module Rvim
                     end
       replace_line_range(lo, hi, reformatted)
     end
+
+    # Ex-mode line input: :a / :i / :c. Each one switches to a new prompt
+    # that captures lines until the user types a single '.' on a line by
+    # itself (vim convention). Then:
+    #   :append (a)  — insert collected lines AFTER the target line
+    #   :insert (i)  — insert collected lines BEFORE the target line
+    #   :change (c)  — replace the target range with the collected lines
+    def start_ex_input(kind, range: nil, line_number: nil)
+      target_start, target_end = resolve_ex_input_range(range, line_number)
+      @ex_input_state = {
+        kind: kind,
+        start_line: target_start,
+        end_line: target_end,
+        lines: [],
+      }
+      @prompt_mode = :ex_input
+      @prompt_buffer = +''
+      @status_message = "-- #{kind.to_s.upcase} -- (end with a single '.')"
+    end
+
+    private def resolve_ex_input_range(range, line_number)
+      if line_number
+        idx = line_number - 1
+        return [idx, idx]
+      end
+      if range
+        first, last = ex_range_to_indices(range)
+        return [first, last]
+      end
+      [@line_index, @line_index]
+    end
+
+    private def ex_range_to_indices(range)
+      buf_size = @buffer_of_lines.size
+      case range
+      when :whole then [0, buf_size - 1]
+      when :current then [@line_index, @line_index]
+      when :visual
+        if @last_visual
+          a = @last_visual[:anchor].first
+          b = @last_visual[:last_end].first
+          [[a, b].min, [a, b].max]
+        else
+          [@line_index, @line_index]
+        end
+      when Array then [range[0] - 1, range[1] - 1]
+      when Hash
+        first = ex_addr_to_index(range[:start]) || @line_index
+        last = ex_addr_to_index(range[:end]) || first
+        [first, last]
+      when Integer then [range - 1, range - 1]
+      else [@line_index, @line_index]
+      end
+    end
+
+    private def ex_addr_to_index(addr)
+      case addr
+      when nil then nil
+      when '$' then @buffer_of_lines.size - 1
+      when '.' then @line_index
+      when /\A\d+\z/ then addr.to_i - 1
+      when Integer then addr - 1
+      end
+    end
+
+    def commit_ex_input
+      state = @ex_input_state
+      return reset_prompt unless state
+
+      lines = state[:lines]
+      target_start = state[:start_line]
+      target_end = state[:end_line]
+
+      case state[:kind]
+      when :append
+        @buffer_of_lines.insert(target_start + 1, *lines)
+        @line_index = target_start + lines.size
+      when :insert
+        @buffer_of_lines.insert(target_start, *lines)
+        @line_index = target_start + lines.size - 1
+        @line_index = target_start if lines.empty?
+      when :change
+        @buffer_of_lines[target_start..target_end] = lines.empty? ? [String.new('', encoding: encoding)] : lines
+        @line_index = target_start + [lines.size - 1, 0].max
+      end
+      @line_index = [@line_index, @buffer_of_lines.size - 1].min
+      @line_index = 0 if @line_index.negative?
+      @byte_pointer = 0
+      @modified = true unless lines.empty? && state[:kind] == :append
+      @ex_input_state = nil
+      @prompt_mode = nil
+      @prompt_buffer = +''
+      @status_message = nil
+      sync_current_buffer_lines
+    end
+
+    def append_ex_input_line(text)
+      state = @ex_input_state
+      return unless state
+
+      state[:lines] << String.new(text.to_s, encoding: encoding)
+    end
+
+    attr_reader :ex_input_state
 
     def start_filter_prompt(start_line, end_line)
       lo = start_line + 1
