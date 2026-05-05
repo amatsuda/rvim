@@ -4111,7 +4111,13 @@ module Rvim
 
       lines = ensure_utf8(content.to_s).split("\n", -1)
       current = @buffer_of_lines[@line_index] || (+'')
-      insert_at = current.bytesize.zero? ? 0 : @byte_pointer + 1
+      # `p` pastes after the cursor — for multibyte cursors that means past
+      # the whole codepoint, not just the next byte.
+      insert_at = if current.bytesize.zero?
+                    0
+                  else
+                    @byte_pointer + mbchar_size_forward(current, @byte_pointer)
+                  end
       insert_at = [insert_at, current.bytesize].min
 
       head = current.byteslice(0, insert_at) || +''
