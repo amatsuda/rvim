@@ -4469,18 +4469,21 @@ module Rvim
       editor = new(Reline.core.config)
       filepaths = filepaths.flatten.compact
       editor.set_arg_list(filepaths)
+      # Source the user's config BEFORE opening files, matching vim/nvim:
+      # settings, autocmds, and feature flags (e.g. :lsp_enabled) need to
+      # be in effect by the time BufRead fires for the first buffer.
+      ensure_user_runtimepath(editor) unless norc
+      unless norc
+        [File.expand_path(RVIMRC_PATH), init_vim_path, init_lua_path].each do |rc|
+          editor.source(rc) if File.exist?(rc)
+        end
+      end
       if filepaths.empty?
         # vim's [No Name] buffer: create an empty unnamed buffer and swap to it
         # so the screen has a current window/buffer to render into.
         editor.open(nil)
       else
         filepaths.each { |path| editor.open(path) }
-      end
-      ensure_user_runtimepath(editor) unless norc
-      unless norc
-        [File.expand_path(RVIMRC_PATH), init_vim_path, init_lua_path].each do |rc|
-          editor.source(rc) if File.exist?(rc)
-        end
       end
       editor.autocommands.fire(:vimenter, '*', editor)
       # Land on the first file the user passed, mirroring vim's `vim a b c`
@@ -4500,6 +4503,10 @@ module Rvim
         Reline::IOGate.with_raw_input do
           loop do
             screen.render
+            # Drain any pending LSP messages (diagnostics, hover responses,
+            # etc.) so they're visible before the next render. Cheap when
+            # no clients are running.
+            editor.lsp.pump if editor.settings.get(:lsp_enabled)
             begin
               Reline.core.send(:read_io, Reline.core.config.keyseq_timeout) do |inputs|
                 inputs.each do |key|
