@@ -2685,8 +2685,11 @@ module Rvim
 
     def read_register(name = nil)
       n = name || '"'
-      if n == '+'
-        text = Rvim::SystemClipboard.read
+      if n == '+' || (name.nil? && clipboard_aliases_unnamed?)
+        # Vim's `clipboard=unnamedplus` aliases the unnamed register (`"`)
+        # to the system clipboard for both write AND read, so `p` pastes
+        # whatever was last copied externally.
+        text = Rvim::SystemClipboard.read.to_s
         kind = text.end_with?("\n") ? :line : :char
         return Rvim::RegisterEntry.new(text.chomp, kind)
       end
@@ -2694,6 +2697,11 @@ module Rvim
         return Rvim::RegisterEntry.new(@filepath.to_s, :char)
       end
       @registers.read(n)
+    end
+
+    private def clipboard_aliases_unnamed?
+      cb = @settings.get(:clipboard).to_s.split(',')
+      cb.include?('unnamedplus') || cb.include?('unnamed')
     end
 
     # Used by every operator (yank/delete/change) to record captured text.
