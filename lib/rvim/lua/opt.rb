@@ -39,17 +39,58 @@ module Rvim
         end
 
         state.eval(<<~LUA)
+          -- Comma-merge two option values for list-style options (clipboard,
+          -- runtimepath, fillchars, etc.). For booleans / numbers we just
+          -- replace.
+          local function merge_csv(current, addition, mode)
+            current = current or ""
+            if type(current) ~= "string" or type(addition) ~= "string" then
+              return addition
+            end
+            local parts = {}
+            local seen = {}
+            local function push(s)
+              if s == nil or s == "" then return end
+              if not seen[s] then table.insert(parts, s); seen[s] = true end
+            end
+            if mode == "append" then
+              for v in string.gmatch(current, "([^,]+)") do push(v) end
+              for v in string.gmatch(addition, "([^,]+)") do push(v) end
+            elseif mode == "prepend" then
+              for v in string.gmatch(addition, "([^,]+)") do push(v) end
+              for v in string.gmatch(current, "([^,]+)") do push(v) end
+            elseif mode == "remove" then
+              local drop = {}
+              for v in string.gmatch(addition, "([^,]+)") do drop[v] = true end
+              for v in string.gmatch(current, "([^,]+)") do
+                if not drop[v] then push(v) end
+              end
+            end
+            return table.concat(parts, ",")
+          end
+
           local function make_opt(setter, getter)
             return setmetatable({}, {
               __index = function(_, name)
-                local value = getter(name)
-                return setmetatable({ _name = name, _value = value }, {
-                  __index = function(self, key)
-                    if key == 'get' then
-                      return function() return getter(self._name) end
+                local function refresh() return getter(name) end
+                local self = { _name = name }
+                return setmetatable(self, {
+                  __index = function(_, key)
+                    if key == "get" then
+                      return function() return refresh() end
+                    elseif key == "append" then
+                      return function(_, v) setter(name, merge_csv(refresh(), v, "append")) end
+                    elseif key == "prepend" then
+                      return function(_, v) setter(name, merge_csv(refresh(), v, "prepend")) end
+                    elseif key == "remove" then
+                      return function(_, v) setter(name, merge_csv(refresh(), v, "remove")) end
                     end
-                    return rawget(self, key)
+                    return nil
                   end,
+                  -- Allow `vim.opt.clipboard = vim.opt.clipboard + "x"` etc.
+                  __add = function(a, b) return merge_csv(refresh(), b, "append") end,
+                  __sub = function(a, b) return merge_csv(refresh(), b, "remove") end,
+                  __concat = function(a, b) return merge_csv(refresh(), b, "append") end,
                 })
               end,
               __newindex = function(_, name, value)
