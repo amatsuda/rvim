@@ -117,4 +117,26 @@ class TestOperatorPendingUnified < Test::Unit::TestCase
     refute_includes @editor.buffer_of_lines, 'c'
     assert_includes @editor.buffer_of_lines, 'b'
   end
+
+  def test_undo_after_unified_operator
+    setup_buffer('hello', '', 'world')
+    buf = Rvim::Buffer.new(1)
+    buf.lines = @editor.buffer_of_lines
+    @editor.instance_variable_set(:@current_buffer, buf)
+    send_keys('d', '}')
+    assert_equal ['world'], @editor.buffer_of_lines
+    send_keys('u')
+    assert_equal ['hello', '', 'world'], @editor.buffer_of_lines
+  end
+
+  def test_undo_after_dd
+    setup_buffer('a', 'b', 'c', line_index: 1)
+    buf = Rvim::Buffer.new(1)
+    buf.lines = @editor.buffer_of_lines
+    @editor.instance_variable_set(:@current_buffer, buf)
+    send_keys('d', 'd')
+    assert_equal ['a', 'c'], @editor.buffer_of_lines
+    send_keys('u')
+    assert_equal ['a', 'b', 'c'], @editor.buffer_of_lines
+  end
 end

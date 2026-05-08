@@ -1887,6 +1887,7 @@ module Rvim
           return
         when :dispatch_motion
           pre = [@line_index, @byte_pointer]
+          pre_buffer = @buffer_of_lines.map(&:dup)
           op = @rvim_pending_op
           @rvim_pending_op = nil
           inclusive = inclusive_motion_key?(key)
@@ -1895,7 +1896,13 @@ module Rvim
           post = [@line_index, @byte_pointer]
           kind = (hint_linewise || lines_only_motion?(pre, post, hint_linewise)) ? :line : :char
           apply_op_to_range(op, pre, post, kind: kind, inclusive: inclusive)
-          freeze_change_if_settled(@buffer_of_lines.map(&:dup)) unless @replaying
+          # We bypass Reline's input_key, so push undo manually when the
+          # operator mutated the buffer. Yank doesn't change the buffer
+          # but the snapshot still gets compared, so this is uniform.
+          if pre_buffer != @buffer_of_lines
+            push_undo_redo(true)
+          end
+          sync_current_buffer_lines
           return
         end
       end
@@ -3859,7 +3866,10 @@ module Rvim
         op = @rvim_pending_op
         count = @rvim_pending_op_count
         @rvim_pending_op = nil
+        pre_buffer = @buffer_of_lines.map(&:dup)
         apply_op_linewise(op, @line_index, @line_index + count - 1)
+        push_undo_redo(true) if pre_buffer != @buffer_of_lines
+        sync_current_buffer_lines
         return :handled
       end
 
