@@ -139,6 +139,14 @@ module Rvim
       @lua ||= Rvim::Lua::Runtime.new(self)
     end
 
+    def lsp
+      @lsp ||= Rvim::Lsp::Manager.new(self)
+    end
+
+    def cwd
+      Dir.pwd
+    end
+
     def pump_lua_loop
       sched = @lua_scheduler
       sched&.pump || 0
@@ -228,6 +236,7 @@ module Rvim
         @autocommands&.fire(:bufread, path.to_s, self)
         ft = Rvim::Syntax.detect_language(path)
         @autocommands&.fire(:filetype, ft.to_s, self) if ft
+        lsp.did_open(buf) if path && @settings.get(:lsp_enabled)
       end
     end
 

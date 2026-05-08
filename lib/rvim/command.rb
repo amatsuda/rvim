@@ -136,6 +136,10 @@ module Rvim
              when 'command', 'com' then :user_command_def
              when 'delcommand', 'delc' then :user_command_del
              when 'help', 'h' then :help
+             when 'LspStatus', 'lspstatus' then :lsp_status
+             when 'LspStop', 'lspstop' then :lsp_stop
+             when 'LspDiagnostics', 'lspdiagnostics' then :lsp_diagnostics
+             when 'LspHover', 'lsphover' then :lsp_hover
              when 'helpclose', 'helpc' then :helpclose
              when 'earlier', 'ear' then :earlier
              when 'later', 'lat' then :later
@@ -391,6 +395,15 @@ module Rvim
         execute_help(editor, parsed)
       when :helpclose
         editor.close_help_buffer
+      when :lsp_status
+        execute_lsp_status(editor)
+      when :lsp_stop
+        editor.lsp.shutdown
+        editor.status_message = 'LSP: shut down'
+      when :lsp_diagnostics
+        execute_lsp_diagnostics(editor)
+      when :lsp_hover
+        execute_lsp_hover(editor)
       when :earlier
         execute_earlier(editor, parsed)
       when :later
@@ -1701,6 +1714,53 @@ module Rvim
       unless editor.user_commands.delete(arg)
         editor.status_message = "E184: No such user-defined command: #{arg}"
       end
+    end
+
+    def self.execute_lsp_status(editor)
+      rows = ['LSP clients:']
+      editor.lsp.each_client do |c|
+        rows << "  #{c.name}: #{c.status}"
+      end
+      rows << '  (none)' if rows.size == 1
+      editor.show_list(rows)
+    end
+
+    def self.execute_lsp_diagnostics(editor)
+      buf = editor.current_buffer
+      return unless buf
+
+      diags = editor.lsp.diagnostics_for(buf)
+      if diags.empty?
+        editor.status_message = 'LSP: no diagnostics for this buffer'
+        return
+      end
+
+      rows = ['Diagnostics:']
+      diags.each do |d|
+        line = d.dig(:range, :start, :line).to_i + 1
+        col = d.dig(:range, :start, :character).to_i + 1
+        sev = severity_label(d[:severity])
+        rows << "  #{line}:#{col} [#{sev}] #{d[:message]}"
+      end
+      editor.show_list(rows)
+    end
+
+    SEVERITY = { 1 => 'ERROR', 2 => 'WARN', 3 => 'INFO', 4 => 'HINT' }.freeze
+    def self.severity_label(n)
+      SEVERITY[n] || 'NOTE'
+    end
+
+    def self.execute_lsp_hover(editor)
+      buf = editor.current_buffer
+      return unless buf
+
+      ft = Rvim::Syntax.detect_language(buf.filepath)
+      client = editor.lsp.send(:ensure_client, ft) if ft
+      return editor.status_message = 'LSP: not running for this buffer' unless client && client.status == :running
+
+      uri = "file://#{File.expand_path(buf.filepath)}"
+      client.hover(uri, editor.line_index, editor.byte_pointer)
+      editor.status_message = 'LSP: hover requested (results print to :messages)'
     end
 
     def self.execute_help(editor, parsed)

@@ -3,6 +3,10 @@
 module Rvim
   class Settings
     DEFAULTS = {
+      # rvim-only — enables LSP integration for filetypes that have a
+      # registered server (default: ruby -> ruby-lsp). Off by default
+      # because spawning a child process at every :e is intrusive.
+      lsp_enabled: false,
       hlsearch: true,
       ignorecase: false,
       shiftwidth: 2,
