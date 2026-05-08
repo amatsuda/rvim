@@ -60,6 +60,18 @@ module Rvim
         client.diagnostics[buffer_uri(buffer)] || []
       end
 
+      # Pull-mode diagnostics request (LSP 3.17). ruby-lsp 0.26+ uses
+      # this rather than pushing publishDiagnostics. The response is
+      # cached under the same uri so diagnostics_for sees it.
+      def pull_diagnostics(buffer)
+        ft = filetype_for(buffer)
+        client = @clients[ft]
+        return false unless client && client.status == :running
+
+        client.request_diagnostics(buffer_uri(buffer))
+        true
+      end
+
       def pump
         @clients.each_value(&:pump)
       end

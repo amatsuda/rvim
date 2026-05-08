@@ -108,9 +108,16 @@ module Rvim
                 position: { line: line, character: character })
       end
 
+      # LSP 3.17 pull diagnostics. ruby-lsp 0.26+ uses this rather than
+      # pushing publishDiagnostics. Result lands in client.diagnostics
+      # under the same uri key, so callers query the same place.
+      def request_diagnostics(uri)
+        request('textDocument/diagnostic', textDocument: { uri: uri })
+      end
+
       def request(method, **params)
         id = (@next_id += 1)
-        @pending[id] = method
+        @pending[id] = [method, params[:textDocument]&.[](:uri)]
         body = { jsonrpc: '2.0', id: id, method: method, params: params }
         # `initialize` itself must go out before `initialized`; everything
         # else is queued until the server is ready.
@@ -147,6 +154,7 @@ module Rvim
           textDocument: {
             synchronization: { didSave: false, willSave: false, willSaveWaitUntil: false },
             publishDiagnostics: { relatedInformation: true },
+            diagnostic: { dynamicRegistration: false, relatedDocumentSupport: false },
             hover: { contentFormat: %w[markdown plaintext] },
             completion: { completionItem: { snippetSupport: false } },
           },
@@ -214,13 +222,23 @@ module Rvim
       end
 
       def handle_response(msg)
-        method = @pending.delete(msg[:id])
+        entry = @pending.delete(msg[:id])
+        method, uri = entry.is_a?(Array) ? entry : [entry, nil]
         case method
         when 'initialize'
           @capabilities = msg.dig(:result, :capabilities)
           notify('initialized', {})
           @status = :running
           flush_send_queue
+        when 'textDocument/diagnostic'
+          # LSP 3.17 pull diagnostics. Result is a DocumentDiagnosticReport
+          # with kind:"full" containing items: [...]. Cache under the same
+          # uri the request was for, so the editor can query as before.
+          items = msg.dig(:result, :items) || []
+          if uri
+            @diagnostics[uri] = items
+            @on_diagnostic&.call(uri, items)
+          end
         end
       end
 

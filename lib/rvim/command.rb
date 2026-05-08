@@ -1732,6 +1732,20 @@ module Rvim
       buf = editor.current_buffer
       return unless buf
 
+      # Pull-mode request: ruby-lsp 0.26+ doesn't push diagnostics; the
+      # client has to ask. Wait briefly for the response (typically
+      # <100ms once the server has analyzed the file).
+      if editor.lsp.pull_diagnostics(buf)
+        deadline = Time.now + 2.0
+        loop do
+          editor.lsp.pump
+          break if !editor.lsp.diagnostics_for(buf).empty?
+          break if Time.now > deadline
+
+          sleep 0.02
+        end
+      end
+
       diags = editor.lsp.diagnostics_for(buf)
       if diags.empty?
         editor.status_message = 'LSP: no diagnostics for this buffer'
