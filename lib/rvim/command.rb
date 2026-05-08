@@ -140,6 +140,7 @@ module Rvim
              when 'LspStop', 'lspstop' then :lsp_stop
              when 'LspDiagnostics', 'lspdiagnostics' then :lsp_diagnostics
              when 'LspHover', 'lsphover' then :lsp_hover
+             when 'LspLog', 'lsplog' then :lsp_log
              when 'helpclose', 'helpc' then :helpclose
              when 'earlier', 'ear' then :earlier
              when 'later', 'lat' then :later
@@ -404,6 +405,8 @@ module Rvim
         execute_lsp_diagnostics(editor)
       when :lsp_hover
         execute_lsp_hover(editor)
+      when :lsp_log
+        execute_lsp_log(editor)
       when :earlier
         execute_earlier(editor, parsed)
       when :later
@@ -1748,6 +1751,18 @@ module Rvim
     SEVERITY = { 1 => 'ERROR', 2 => 'WARN', 3 => 'INFO', 4 => 'HINT' }.freeze
     def self.severity_label(n)
       SEVERITY[n] || 'NOTE'
+    end
+
+    def self.execute_lsp_log(editor)
+      rows = ['LSP server stderr:']
+      editor.lsp.each_client do |c|
+        rows << "  -- #{c.name} --"
+        lines = c.log_lines
+        lines = ['    (no output)'] if lines.empty?
+        lines.each { |l| rows << "    #{l}" }
+      end
+      rows << '  (no clients)' if rows.size == 1
+      editor.show_list(rows)
     end
 
     def self.execute_lsp_hover(editor)

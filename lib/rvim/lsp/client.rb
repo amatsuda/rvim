@@ -16,23 +16,30 @@ module Rvim
     class Client
       attr_reader :name, :status, :capabilities, :diagnostics
 
-      def initialize(name:, command:, root_uri:, on_diagnostic: nil, cwd: nil)
+      def initialize(name:, command:, root_uri:, on_diagnostic: nil, cwd: nil, on_log: nil)
         @name = name
         @command = command
         @root_uri = root_uri
         @on_diagnostic = on_diagnostic
+        @on_log = on_log
         @cwd = cwd
         @status = :stopped
         @next_id = 0
         @pending = {}
         @inbox = Queue.new
         @diagnostics = {} # uri -> array of LSP Diagnostic
+        @log_buffer = []  # last N stderr lines (drained by editor pump)
         @stdin = nil
         @stdout = nil
         @stderr = nil
         @wait_thread = nil
         @reader_thread = nil
+        @stderr_thread = nil
         @capabilities = nil
+        # Messages sent before the server reaches :running state are
+        # queued and flushed after `initialized` goes out, so didOpen
+        # can be called as soon as the buffer is loaded.
+        @send_queue = []
       end
 
       def start
@@ -45,7 +52,12 @@ module Rvim
         @stdout.binmode
         @status = :starting
         @reader_thread = Thread.new { read_loop }
+        @stderr_thread = Thread.new { stderr_loop }
         send_initialize
+      end
+
+      def log_lines
+        @log_buffer.dup
       end
 
       def stop
@@ -55,6 +67,7 @@ module Rvim
         notify('exit', nil)
         @stdin&.close
         @reader_thread&.kill
+        @stderr_thread&.kill
         @wait_thread&.kill
         @status = :stopped
       end
@@ -98,14 +111,25 @@ module Rvim
       def request(method, **params)
         id = (@next_id += 1)
         @pending[id] = method
-        send_message(jsonrpc: '2.0', id: id, method: method, params: params)
+        body = { jsonrpc: '2.0', id: id, method: method, params: params }
+        # `initialize` itself must go out before `initialized`; everything
+        # else is queued until the server is ready.
+        if @status == :running || method == 'initialize'
+          send_message(body)
+        else
+          @send_queue << body
+        end
         id
       end
 
       def notify(method, params = nil)
         body = { jsonrpc: '2.0', method: method }
         body[:params] = params if params
-        send_message(body)
+        if @status == :running || method == 'initialized' || method == 'exit'
+          send_message(body)
+        else
+          @send_queue << body
+        end
       end
 
       private
@@ -196,7 +220,29 @@ module Rvim
           @capabilities = msg.dig(:result, :capabilities)
           notify('initialized', {})
           @status = :running
+          flush_send_queue
         end
+      end
+
+      def flush_send_queue
+        queued = @send_queue
+        @send_queue = []
+        queued.each { |body| send_message(body) }
+      end
+
+      def stderr_loop
+        return unless @stderr
+
+        while (line = @stderr.gets)
+          line = line.chomp
+          next if line.empty?
+
+          @log_buffer << line
+          @log_buffer.shift while @log_buffer.size > 100
+          @on_log&.call(line)
+        end
+      rescue IOError, Errno::EBADF
+        # server gone
       end
 
       def handle_notification_or_request(msg)
