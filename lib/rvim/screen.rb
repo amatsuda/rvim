@@ -154,6 +154,12 @@ module Rvim
       split_line_segments(line, max_width)
     end
 
+    # Editor#list_rows reads this when computing how many rows the listing
+    # overlay reserves at the bottom of the screen, so it must be public.
+    def list_overlay_rows
+      [(@rows / 2).to_i, 4].max
+    end
+
     private
 
     def layout_windows(total_rows, total_cols)
@@ -566,10 +572,6 @@ module Rvim
       end
       tabline = parts.join('|')
       move_to(1, 1) + ERASE_LINE + truncate(tabline, @cols + 200)
-    end
-
-    def list_overlay_rows
-      [(@rows / 2).to_i, 4].max
     end
 
     def render_listing_overlay
