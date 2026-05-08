@@ -105,6 +105,8 @@ module Rvim
       @rvim_pending_format_op = false
       @rvim_pending_filter_op = false
       @rvim_pending_equal_op = false
+      @rvim_pending_op = nil # :delete / :change / :yank
+      @rvim_pending_op_count = 1
       @confirm_question = nil
       @confirm_options = nil
       @confirm_callback = nil
@@ -221,6 +223,9 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_command, [?}.ord], :rvim_paragraph_forward)
       @config.add_default_key_binding_by_keymap(:vi_command, [?R.ord], :rvim_enter_replace_mode)
       @config.add_default_key_binding_by_keymap(:vi_command, [?r.ord], :rvim_replace_one)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?d.ord], :rvim_delete_op)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?c.ord], :rvim_change_op)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?y.ord], :rvim_yank_op)
       @config.add_default_key_binding_by_keymap(:vi_command, [0x1E], :rvim_alternate_file) # Ctrl-^
       @config.add_default_key_binding_by_keymap(:vi_command, [?s.ord], :rvim_substitute_char)
       @config.add_default_key_binding_by_keymap(:vi_command, [?S.ord], :rvim_substitute_line)
@@ -971,6 +976,23 @@ module Rvim
 
         replace_chars_at_cursor(ch, count)
       end
+    end
+
+    private def rvim_delete_op(key, arg: 1)
+      enter_pending_op(:delete, arg)
+    end
+
+    private def rvim_change_op(key, arg: 1)
+      enter_pending_op(:change, arg)
+    end
+
+    private def rvim_yank_op(key, arg: 1)
+      enter_pending_op(:yank, arg)
+    end
+
+    private def enter_pending_op(op, count)
+      @rvim_pending_op = op
+      @rvim_pending_op_count = (count.is_a?(Integer) && count > 0) ? count : 1
     end
 
     def replace_chars_at_cursor(ch, count)
@@ -1851,6 +1873,31 @@ module Rvim
 
       if @completion_active && !completion_key?(key)
         cancel_completion
+      end
+
+      if @rvim_pending_op
+        action = preprocess_pending_op_key(key)
+        case action
+        when :handled then return
+        when :handed_off then return
+        when :digit_count
+          # Accumulate count for the motion (e.g. d3w). Forward the digit to
+          # Reline's argument accumulator without consuming the pending op.
+          super
+          return
+        when :dispatch_motion
+          pre = [@line_index, @byte_pointer]
+          op = @rvim_pending_op
+          @rvim_pending_op = nil
+          inclusive = inclusive_motion_key?(key)
+          hint_linewise = linewise_motion?(key)
+          dispatch_motion_for_op(key)
+          post = [@line_index, @byte_pointer]
+          kind = (hint_linewise || lines_only_motion?(pre, post, hint_linewise)) ? :line : :char
+          apply_op_to_range(op, pre, post, kind: kind, inclusive: inclusive)
+          freeze_change_if_settled(@buffer_of_lines.map(&:dup)) unless @replaying
+          return
+        end
       end
 
       if @rvim_pending_case_op
@@ -3774,10 +3821,151 @@ module Rvim
       apply_case_to_range(kind, sel)
     end
 
-    INCLUSIVE_MOTION_CHARS = %w[$ e E f F t T].freeze
+    INCLUSIVE_MOTION_CHARS = %w[$ e E f F t T %].freeze
 
     private def inclusive_motion_key?(key)
       INCLUSIVE_MOTION_CHARS.include?(key.char)
+    end
+
+    LINEWISE_MOTION_CHARS = %w[j k G H M L { } ( )].freeze
+    LINEWISE_CTRL_BYTES = [0x04, 0x15].freeze # Ctrl-D, Ctrl-U
+
+    private def linewise_motion?(key)
+      ch = key.char
+      return false if ch.nil?
+
+      str = ch.is_a?(Integer) ? ch.chr : ch.to_s
+      return true if LINEWISE_MOTION_CHARS.include?(str)
+      return true if str.bytesize == 1 && LINEWISE_CTRL_BYTES.include?(str.bytes.first)
+
+      # gg, gj, gk, ]] / [[ all dispatch through prefixes; we infer
+      # linewise post-dispatch by comparing line indices.
+      false
+    end
+
+    # Returns one of :handled (op applied or canceled, do nothing more),
+    # :handed_off (text-object path will finish), :dispatch_motion (caller
+    # in update should call super, then apply_op_to_range).
+    private def preprocess_pending_op_key(key)
+      ch = key.char
+      ch_str = ch.is_a?(Integer) ? ch.chr : ch.to_s
+
+      if ch_str == "\e"
+        @rvim_pending_op = nil
+        return :handled
+      end
+
+      if pending_op_doubled_key?(ch_str)
+        op = @rvim_pending_op
+        count = @rvim_pending_op_count
+        @rvim_pending_op = nil
+        apply_op_linewise(op, @line_index, @line_index + count - 1)
+        return :handled
+      end
+
+      if ch_str == 'a' || ch_str == 'i'
+        @vi_waiting_operator = case @rvim_pending_op
+                               when :delete then :vi_delete_meta_confirm
+                               when :change then :vi_change_meta_confirm
+                               when :yank then :vi_yank_confirm
+                               end
+        @rvim_text_object_pending = ch_str == 'a' ? :around : :inner
+        @rvim_pending_op = nil
+        return :handed_off
+      end
+
+      # Count accumulator (d3w, c2j). Don't consume the pending op; let
+      # Reline's argument-digit machinery accumulate via super.
+      if ch_str =~ /\A[1-9]\z/ || (ch_str == '0' && @vi_arg && @vi_arg > 0)
+        return :digit_count
+      end
+
+      :dispatch_motion
+    end
+
+    # Dispatch a motion key directly via its bound method symbol so we
+    # can capture byte_pointer without Reline's vi-command tail clamp
+    # rolling it back when the motion lands at EOL. Counts come from
+    # @vi_arg or our pending-op count.
+    private def dispatch_motion_for_op(key)
+      sym = key.method_symbol || synthesize_key(key.char.is_a?(Integer) ? key.char.chr : key.char.to_s).method_symbol
+      return unless sym
+
+      count = @vi_arg && @vi_arg > 0 ? @vi_arg : @rvim_pending_op_count
+      @vi_arg = nil
+      args_method = method(sym)
+      if args_method.arity == 1 || args_method.parameters.none? { |p| p[0] == :key }
+        send(sym, key)
+      else
+        send(sym, key, arg: count)
+      end
+    rescue ArgumentError
+      send(sym, key) # fallback for methods that take only key
+    end
+
+    private def pending_op_doubled_key?(ch_str)
+      case @rvim_pending_op
+      when :delete then ch_str == 'd'
+      when :change then ch_str == 'c'
+      when :yank then ch_str == 'y'
+      else false
+      end
+    end
+
+    # If the motion only changed line index (or the motion was hinted as
+    # linewise), treat the op linewise. Charwise otherwise.
+    private def lines_only_motion?(pre, post, hint_linewise)
+      return true if hint_linewise
+      pre[0] != post[0] && pre[1].zero? && post[1].zero?
+    end
+
+    private def apply_op_to_range(op, pre, post, kind:, inclusive: false)
+      if pre == post && kind == :char
+        # No motion happened (e.g. `dl` at end of line) — nothing to do.
+        return
+      end
+
+      forward = (pre <=> post) <= 0
+      start_pos, end_pos = forward ? [pre, post] : [post, pre]
+
+      if kind == :line
+        apply_op_linewise(op, start_pos[0], end_pos[0])
+        return
+      end
+
+      # Charwise: forward motions are exclusive of the endpoint unless the
+      # motion key was inclusive (e/E/$/f/t).
+      if forward && !inclusive
+        end_pos = predecessor_position(end_pos)
+      end
+      return if end_pos.nil? || (start_pos <=> end_pos) > 0
+
+      sel = Rvim::Selection.from(:char, start_pos, end_pos, @buffer_of_lines)
+      return unless sel
+
+      run_operator_on_selection(op, sel)
+    end
+
+    private def apply_op_linewise(op, start_line, end_line)
+      start_line = [start_line, 0].max
+      end_line = [end_line, @buffer_of_lines.size - 1].min
+      return if start_line > end_line
+
+      sel = Rvim::Selection.from(:line, [start_line, 0], [end_line, 0], @buffer_of_lines)
+      run_operator_on_selection(op, sel)
+    end
+
+    private def run_operator_on_selection(op, sel)
+      case op
+      when :delete
+        Rvim::Operations.delete(self, sel)
+        @modified = true
+      when :change
+        Rvim::Operations.change(self, sel)
+        @modified = true
+      when :yank
+        Rvim::Operations.yank(self, sel)
+      end
     end
 
     private def apply_case_motion(kind, pre, post, inclusive: false)
