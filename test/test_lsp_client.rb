@@ -9,7 +9,7 @@ class TestLspClient < Test::Unit::TestCase
   # in-process without spawning a subprocess. The client stays in :stopped
   # until #start is called; we manually plumb the IO streams via instance
   # variables to skip the popen3 step.
-  def make_fake_client(on_diagnostic: nil)
+  def make_fake_client(on_diagnostic: nil, status: :starting)
     client = Rvim::Lsp::Client.new(
       name: 'fake', command: ['true'], root_uri: 'file:///tmp',
       on_diagnostic: on_diagnostic,
@@ -19,7 +19,7 @@ class TestLspClient < Test::Unit::TestCase
     [server_in_r, server_in_w, server_out_r, server_out_w].each(&:binmode)
     client.instance_variable_set(:@stdin, server_in_w)
     client.instance_variable_set(:@stdout, server_out_r)
-    client.instance_variable_set(:@status, :starting)
+    client.instance_variable_set(:@status, status)
     reader = Thread.new { client.send(:read_loop) }
     client.instance_variable_set(:@reader_thread, reader)
     [client, server_in_r, server_out_w]
@@ -67,7 +67,9 @@ class TestLspClient < Test::Unit::TestCase
   end
 
   def test_did_open_notification_format
-    client, server_in_r, = make_fake_client
+    # status: :running so the notification is sent directly instead of being
+    # queued behind the initialize handshake.
+    client, server_in_r, = make_fake_client(status: :running)
     client.did_open('file:///x.rb', 'ruby', 1, "puts 1\n")
     msg = read_message(server_in_r)
     assert_equal 'textDocument/didOpen', msg[:method]

@@ -4506,7 +4506,13 @@ module Rvim
             # Drain any pending LSP messages (diagnostics, hover responses,
             # etc.) so they're visible before the next render. Cheap when
             # no clients are running.
-            editor.lsp.pump if editor.settings.get(:lsp_enabled)
+            if editor.settings.get(:lsp_enabled)
+              editor.lsp.pump
+              # Pull-mode diagnostics: ruby-lsp 0.26+ doesn't push, so we
+              # refresh on a 500ms cadence so signs/underlines appear without
+              # the user invoking :LspDiagnostics manually.
+              editor.lsp.maybe_pull_diagnostics(editor.current_buffer)
+            end
             begin
               Reline.core.send(:read_io, Reline.core.config.keyseq_timeout) do |inputs|
                 inputs.each do |key|

@@ -231,11 +231,14 @@ module Rvim
           @status = :running
           flush_send_queue
         when 'textDocument/diagnostic'
-          # LSP 3.17 pull diagnostics. Result is a DocumentDiagnosticReport
-          # with kind:"full" containing items: [...]. Cache under the same
-          # uri the request was for, so the editor can query as before.
-          items = msg.dig(:result, :items) || []
-          if uri
+          # LSP 3.17 pull diagnostics. Result is a DocumentDiagnosticReport:
+          #   { kind: "full", items: [...] }                — replace cache
+          #   { kind: "unchanged", resultId: "..." }         — keep cache
+          # Treat anything without an explicit items array as "unchanged" so
+          # repeated pulls don't wipe a previously-populated cache.
+          kind = msg.dig(:result, :kind)
+          items = msg.dig(:result, :items)
+          if uri && kind != 'unchanged' && items
             @diagnostics[uri] = items
             @on_diagnostic&.call(uri, items)
           end

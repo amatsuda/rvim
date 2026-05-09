@@ -240,11 +240,14 @@ module Rvim
       adjust_window_scroll(win, content_rows)
       is_current = (win.equal?(@editor.current_window))
       gw = gutter_width(buffer)
+      sign_w = sign_column_width_for(buffer)
+      lsp_signs = lsp_signs_for(buffer)
+      lsp_ranges = lsp_ranges_for(buffer)
       content_width = win.width - gw
       cursor_idx = is_current ? @editor.line_index : buffer.line_index
       wrap_on = @editor.settings.get(:wrap)
 
-      display_rows = build_display_rows(buffer, win.scroll_top, content_rows, content_width, wrap_on)
+      display_rows = build_display_rows(buffer, win.scroll_top, content_rows, content_width, wrap_on, lsp_ranges)
 
       cursorline_on = @editor.settings.get(:cursorline)
       sbr = @editor.settings.get(:showbreak).to_s
@@ -255,16 +258,25 @@ module Rvim
           gutter = ' ' * gw
           rendered = '~'
         elsif is_fold
-          gutter = gutter_text(line_idx, cursor_idx, buffer.lines.size, gw, true)
+          gutter = gutter_text(line_idx, cursor_idx, buffer.lines.size, gw, true, sign_w: sign_w)
           rendered = truncate_to_width(segment, content_width)
         else
-          gutter = byte_off.zero? ? gutter_text(line_idx, cursor_idx, buffer.lines.size, gw, true) : (' ' * gw)
+          line_sign = lsp_signs[line_idx]
+          gutter = byte_off.zero? ? gutter_text(line_idx, cursor_idx, buffer.lines.size, gw, true, sign: line_sign, sign_w: sign_w) : (' ' * gw)
+          line_diags = lsp_ranges[line_idx]
           full_line = render_line(buffer.lines[line_idx])
           rendered = if is_current
                        apply_current_highlights_segment(full_line, line_idx, byte_off, segment, content_width)
                      else
                        truncate_to_width(segment, content_width)
                      end
+          # Diagnostic underline goes LAST. Earlier passes (syntax,
+          # search, selection) tokenize the line text and would splice
+          # color SGR mid-sequence if our underline SGR were already
+          # embedded — applying it here wraps the post-highlight output.
+          if line_diags && !line_diags.empty? && byte_off.zero?
+            rendered = apply_diagnostic_overlay(rendered, line_diags)
+          end
           if !sbr.empty? && byte_off.is_a?(Integer) && byte_off > 0
             rendered = truncate_to_width(sbr + rendered, content_width)
           end
@@ -431,7 +443,7 @@ module Rvim
     end
 
     # Returns Array<[line_idx_or_nil, byte_offset_within_line, segment_text, is_fold]>
-    def build_display_rows(buffer, scroll_top, content_rows, content_width, wrap_on)
+    def build_display_rows(buffer, scroll_top, content_rows, content_width, wrap_on, _lsp_ranges = {})
       rows = []
       line_idx = scroll_top
       folds_active = @editor.settings.get(:foldenable)
@@ -615,21 +627,62 @@ module Rvim
         width = [digits + 1, configured].max
         width = width.clamp(2, 12)
       end
-      width += sign_column_width
+      width += sign_column_width_for(buffer)
       width
     end
 
-    def sign_column_width
+    def sign_column_width_for(buffer)
       case @editor.settings.get(:signcolumn).to_s
       when 'yes' then 2
       when 'number'
         # signs displayed in the number column — no extra space
         0
-      else 0 # 'auto' / 'no' — no signs, no column (we have no sign system)
+      when 'auto'
+        lsp_signs_for(buffer).any? ? 2 : 0
+      else 0 # 'no' — never show
       end
     end
 
-    def gutter_text(idx, cursor_idx, total, gw, has_line)
+    # Shim for older callers (and tests) that don't have a buffer in hand.
+    # Returns 0 for 'auto' since we can't check diagnostics without a buffer;
+    # render-path code uses sign_column_width_for(buffer) instead.
+    def sign_column_width
+      case @editor.settings.get(:signcolumn).to_s
+      when 'yes' then 2
+      else 0
+      end
+    end
+
+    # 0-based line => severity (1..4) for the buffer, or {} when LSP is off.
+    def lsp_signs_for(buffer)
+      return {} unless buffer
+      return {} unless @editor.respond_to?(:settings) && @editor.settings.get(:lsp_enabled)
+      return {} unless @editor.respond_to?(:lsp) && @editor.lsp.respond_to?(:diagnostic_signs)
+
+      @editor.lsp.diagnostic_signs(buffer)
+    end
+
+    # 0-based line => [{first_col, last_col, severity}, ...] for the buffer.
+    def lsp_ranges_for(buffer)
+      return {} unless buffer
+      return {} unless @editor.respond_to?(:settings) && @editor.settings.get(:lsp_enabled)
+      return {} unless @editor.respond_to?(:lsp) && @editor.lsp.respond_to?(:diagnostic_ranges)
+
+      @editor.lsp.diagnostic_ranges(buffer)
+    end
+
+    SEVERITY_GLYPHS = { 1 => 'E', 2 => 'W', 3 => 'I', 4 => 'H' }.freeze
+    SEVERITY_COLORS = { 1 => 196, 2 => 214, 3 => 75, 4 => 245 }.freeze
+
+    def severity_glyph(severity)
+      SEVERITY_GLYPHS[severity] || '*'
+    end
+
+    def severity_color(severity)
+      SEVERITY_COLORS[severity] || 245
+    end
+
+    def gutter_text(idx, cursor_idx, total, gw, has_line, sign: nil, sign_w: 0)
       return '' if gw.zero?
 
       number = if !has_line
@@ -639,7 +692,21 @@ module Rvim
                else
                  (idx + 1).to_s
                end
-      DIM_ON + number.rjust(gw - 1) + ' ' + DIM_OFF
+
+      number_w = gw - sign_w
+      sign_cell = if sign_w.zero?
+                    ''
+                  elsif sign
+                    color = severity_color(sign)
+                    "\e[38;5;#{color}m#{severity_glyph(sign)} \e[39m"
+                  else
+                    ' ' * sign_w
+                  end
+      if number_w <= 0
+        sign_cell
+      else
+        DIM_ON + number.rjust(number_w - 1) + ' ' + DIM_OFF + sign_cell
+      end
     end
 
     def adjust_window_scroll(win, visible)
@@ -734,6 +801,60 @@ module Rvim
       line.gsub(/[A-Za-z]+/) do |word|
         Rvim::Spell.misspelled?(word) ? "#{SPELL_ERR_ON}#{word}#{SPELL_ERR_OFF}" : word
       end
+    end
+
+    # Wrap each byte range in `ranges` with diagnostic underline SGR,
+    # walking the post-highlighted `rendered` string and skipping past
+    # any existing SGR escape sequences when counting buffer-line bytes.
+    # `ranges` first_col/last_col refer to the ORIGINAL buffer line's
+    # bytes (not the rendered string with embedded escapes), so we sync
+    # the two cursors as we walk. Multi-byte chars are emitted whole, so
+    # the SGR boundaries always land on a UTF-8 char start.
+    DIAG_SGR_RE = /\A\e\[[\d;]*[a-zA-Z]/.freeze
+
+    def apply_diagnostic_overlay(rendered, ranges)
+      return rendered if ranges.nil? || ranges.empty?
+
+      sorted = ranges.sort_by { |r| r[:first_col].to_i }
+      out = +''
+      pos = 0
+      orig = 0
+      idx = 0
+      active = nil
+      total = rendered.bytesize
+
+      while pos < total
+        if rendered.getbyte(pos) == 0x1b && (m = rendered.byteslice(pos..-1)&.match(DIAG_SGR_RE))
+          out << m[0]
+          pos += m[0].bytesize
+          next
+        end
+
+        if active && orig >= active[:last_col].to_i
+          out << "\e[24;39m"
+          active = nil
+          idx += 1
+        end
+
+        if active.nil? && idx < sorted.size && orig >= sorted[idx][:first_col].to_i
+          active = sorted[idx]
+          out << "\e[4;38;5;#{severity_color(active[:severity])}m"
+        end
+
+        cb = rendered.getbyte(pos)
+        char_bytes = if cb.nil? || cb < 0x80 then 1
+                     elsif cb < 0xc0 then 1
+                     elsif cb < 0xe0 then 2
+                     elsif cb < 0xf0 then 3
+                     else 4
+                     end
+        out << rendered.byteslice(pos, char_bytes)
+        pos += char_bytes
+        orig += char_bytes
+      end
+
+      out << "\e[24;39m" if active
+      out
     end
 
     DEFAULT_LISTCHARS = { 'tab' => '> ', 'trail' => '·' }.freeze

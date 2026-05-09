@@ -16,7 +16,11 @@ module Rvim
         @clients = {} # ft -> Client
         @servers = DEFAULT_SERVERS.dup
         @buffer_versions = Hash.new(0) # buffer_id -> version
+        @last_pulled_at = {} # buffer_id -> monotonic time of last pull request
       end
+
+      # Refresh interval (seconds) for the auto-pull below.
+      DIAG_PULL_INTERVAL = 0.5
 
       def register_server(ft, command)
         @servers[ft] = Array(command)
@@ -60,6 +64,53 @@ module Rvim
         client.diagnostics[buffer_uri(buffer)] || []
       end
 
+      # { 0-based line => max severity (1=error highest, 4=hint lowest) }.
+      # The renderer uses this to decide whether to draw a sign and which glyph.
+      def diagnostic_signs(buffer)
+        out = {}
+        diagnostics_for(buffer).each do |d|
+          sl = d.dig(:range, :start, :line)
+          sev = d[:severity] || 3
+          next unless sl
+
+          cur = out[sl]
+          # Lower severity number == more severe; keep the smallest seen.
+          out[sl] = sev if cur.nil? || sev < cur
+        end
+        out
+      end
+
+      # { 0-based line => [{first_col, last_col, severity}, ...] } where the
+      # cols are byte offsets into the line and last_col is exclusive. Multi-line
+      # diagnostics are clipped to one row each (start row spans start.character
+      # to end-of-line; end row spans 0 to end.character; intermediate rows span 0..-1).
+      def diagnostic_ranges(buffer)
+        out = Hash.new { |h, k| h[k] = [] }
+        lines = buffer.lines
+        diagnostics_for(buffer).each do |d|
+          sl = d.dig(:range, :start, :line)
+          sc = d.dig(:range, :start, :character).to_i
+          el = d.dig(:range, :end, :line)
+          ec = d.dig(:range, :end, :character).to_i
+          sev = d[:severity] || 3
+          next unless sl && el
+
+          if sl == el
+            out[sl] << { first_col: sc, last_col: ec, severity: sev }
+          else
+            sl_text = lines[sl] || ''
+            out[sl] << { first_col: sc, last_col: sl_text.bytesize, severity: sev }
+            ((sl + 1)...el).each do |li|
+              row_text = lines[li] || ''
+              out[li] << { first_col: 0, last_col: row_text.bytesize, severity: sev }
+            end
+            out[el] << { first_col: 0, last_col: ec, severity: sev }
+          end
+        end
+        out.each_value { |arr| arr.sort_by! { |r| r[:first_col] } }
+        out
+      end
+
       # Pull-mode diagnostics request (LSP 3.17). ruby-lsp 0.26+ uses
       # this rather than pushing publishDiagnostics. The response is
       # cached under the same uri so diagnostics_for sees it.
@@ -69,7 +120,22 @@ module Rvim
         return false unless client && client.status == :running
 
         client.request_diagnostics(buffer_uri(buffer))
+        @last_pulled_at[buffer.id] = monotonic_now
         true
+      end
+
+      # Periodic auto-pull for the renderer's signcolumn/underline display.
+      # ruby-lsp's analysis is asynchronous, so the first pull after didOpen
+      # may return empty results — we re-pull at DIAG_PULL_INTERVAL until the
+      # server has something to report. Cheap on the wire and in the server
+      # (results are cached server-side once analysis completes).
+      def maybe_pull_diagnostics(buffer)
+        return false unless buffer
+
+        last = @last_pulled_at[buffer.id]
+        return false if last && monotonic_now - last < DIAG_PULL_INTERVAL
+
+        pull_diagnostics(buffer)
       end
 
       def pump
@@ -124,6 +190,10 @@ module Rvim
 
       def file_uri(path)
         "file://#{path}"
+      end
+
+      def monotonic_now
+        Process.clock_gettime(Process::CLOCK_MONOTONIC)
       end
     end
   end
