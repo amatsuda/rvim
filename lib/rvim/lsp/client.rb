@@ -15,6 +15,7 @@ module Rvim
     # resolves when the matching `id` reply arrives).
     class Client
       attr_reader :name, :status, :capabilities, :diagnostics
+      attr_accessor :last_definition_result
 
       def initialize(name:, command:, root_uri:, on_diagnostic: nil, cwd: nil, on_log: nil)
         @name = name
@@ -112,6 +113,17 @@ module Rvim
 
       def hover(uri, line, character)
         request('textDocument/hover',
+                textDocument: { uri: uri },
+                position: { line: line, character: character })
+      end
+
+      # textDocument/definition. Result is cached on the client and the
+      # caller polls via `last_definition_result`. The response can be a
+      # single Location, an array of Locations, an array of LocationLinks,
+      # or null.
+      def definition(uri, line, character)
+        @last_definition_result = nil
+        request('textDocument/definition',
                 textDocument: { uri: uri },
                 position: { line: line, character: character })
       end
@@ -250,6 +262,10 @@ module Rvim
             @diagnostics[uri] = items
             @on_diagnostic&.call(uri, items)
           end
+        when 'textDocument/definition'
+          # Result is Location | Location[] | LocationLink[] | null.
+          # Stash verbatim; the editor-side caller normalizes.
+          @last_definition_result = msg[:result]
         end
       end
 

@@ -1259,6 +1259,11 @@ module Rvim
     end
 
     private def goto_definition
+      # Prefer LSP textDocument/definition when an LSP client is available
+      # for this filetype. Falls through to vim's classic in-buffer search
+      # when LSP is off / no server / no result.
+      return if lsp_jump_to_definition
+
       word = word_at_cursor
       return unless word
 
@@ -1273,6 +1278,57 @@ module Rvim
       push_jump
       @line_index = target_line
       @byte_pointer = target_byte
+    end
+
+    # Send textDocument/definition for the cursor's symbol, poll for the
+    # response, and jump to the target. Returns true when the LSP path
+    # took over (whether it found a target or surfaced "no definition"
+    # status), false to let the caller try a fallback.
+    LSP_DEFINITION_TIMEOUT = 2.0
+
+    def lsp_jump_to_definition
+      return false unless @settings.get(:lsp_enabled)
+
+      buf = current_buffer
+      return false unless buf
+      return false unless lsp.request_definition(buf)
+
+      deadline = Time.now + LSP_DEFINITION_TIMEOUT
+      result = nil
+      until (result = lsp.last_definition_result)
+        break if Time.now > deadline
+
+        lsp.pump
+        sleep 0.02
+      end
+
+      location = first_lsp_location(result)
+      if location.nil?
+        @status_message = 'LSP: no definition found'
+        return true
+      end
+
+      target_uri = location[:uri] || location[:targetUri]
+      target_range = location[:range] || location[:targetRange] || location[:targetSelectionRange]
+      return true if target_uri.nil? || target_range.nil?
+
+      target_path = target_uri.sub(/\Afile:\/\//, '')
+      target_line = target_range.dig(:start, :line).to_i
+      target_char = target_range.dig(:start, :character).to_i
+
+      push_jump
+      open(target_path) if target_path != @filepath
+      @line_index = target_line
+      @byte_pointer = target_char
+      true
+    end
+
+    private def first_lsp_location(result)
+      case result
+      when nil then nil
+      when Array then result.first
+      when Hash then result
+      end
     end
 
     private def rvim_increment(key, arg: 1)
