@@ -4508,6 +4508,10 @@ module Rvim
             # no clients are running.
             if editor.settings.get(:lsp_enabled)
               editor.lsp.pump
+              # Detect buffer edits and send textDocument/didChange so the
+              # server analyzes the current text, not whatever it saw at
+              # didOpen. Debounced internally.
+              editor.lsp.note_change(editor.current_buffer)
               # Pull-mode diagnostics: ruby-lsp 0.26+ doesn't push, so we
               # refresh on a 500ms cadence so signs/underlines appear without
               # the user invoking :LspDiagnostics manually.

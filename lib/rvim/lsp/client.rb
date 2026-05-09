@@ -92,10 +92,18 @@ module Rvim
         })
       end
 
-      def did_change(uri, version, text)
+      # Send a textDocument/didChange. When `range` is provided, the change
+      # is encoded as an incremental edit replacing the bytes between
+      # range.start and range.end with `text` — required for servers that
+      # advertise TextDocumentSyncKind.Incremental (e.g. ruby-lsp 0.26+).
+      # When `range` is nil, send the bare `{text}` full-document form,
+      # valid for servers using TextDocumentSyncKind.Full.
+      def did_change(uri, version, text, range: nil)
+        change = { text: text }
+        change[:range] = range if range
         notify('textDocument/didChange',
                textDocument: { uri: uri, version: version },
-               contentChanges: [{ text: text }])
+               contentChanges: [change])
       end
 
       def did_close(uri)
