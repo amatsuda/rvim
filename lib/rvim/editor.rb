@@ -1443,6 +1443,84 @@ module Rvim
       @hover_popup = nil
     end
 
+    LSP_REFERENCES_TIMEOUT = 2.0
+
+    # Send textDocument/references for the cursor's symbol, poll for the
+    # response, populate the quickfix list with one entry per Location,
+    # and jump to the first. Returns true when the LSP path took action,
+    # false to allow caller fallback.
+    def lsp_find_references
+      return false unless @settings.get(:lsp_enabled)
+
+      buf = current_buffer
+      return false unless buf
+      return false unless lsp.request_references(buf)
+
+      deadline = Time.now + LSP_REFERENCES_TIMEOUT
+      result = nil
+      until (result = lsp.last_references_result)
+        break if Time.now > deadline
+
+        lsp.pump
+        sleep 0.02
+      end
+
+      locations = result || []
+      if locations.empty?
+        @status_message = 'LSP: no references'
+        return true
+      end
+
+      entries = build_references_entries(locations)
+      if entries.empty?
+        @status_message = 'LSP: no references'
+        return true
+      end
+
+      @quickfix.set(entries)
+      jump_to_quickfix_entry(entries.first)
+      first = entries.first
+      @status_message = "(1 of #{entries.size}) #{first.file}:#{first.line}:#{first.col}"
+      true
+    end
+
+    private def build_references_entries(locations)
+      file_lines_cache = {}
+      locations.filter_map do |loc|
+        uri = loc[:uri] || loc[:targetUri]
+        range = loc[:range] || loc[:targetRange] || loc[:targetSelectionRange]
+        next nil if uri.nil? || range.nil?
+
+        path = uri.sub(/\Afile:\/\//, '')
+        line_idx = range.dig(:start, :line).to_i
+        col_idx = range.dig(:start, :character).to_i
+        file_lines_cache[path] ||= safe_read_lines(path)
+        text = (file_lines_cache[path][line_idx] || '').strip
+        Rvim::Quickfix::Entry.new(file: path, line: line_idx + 1, col: col_idx + 1, text: text)
+      end
+    end
+
+    private def safe_read_lines(path)
+      File.readlines(path, chomp: true)
+    rescue StandardError
+      []
+    end
+
+    # Jump to a Quickfix::Entry: open the target file (if different),
+    # push the current position onto the jump list, then place the
+    # cursor at the entry's 1-based line/col. Public so callers other
+    # than the :cnext / :cprev / :grep family can reuse it (e.g.
+    # lsp_find_references).
+    def jump_to_quickfix_entry(entry)
+      return unless entry
+
+      open(entry.file) if entry.file && entry.file != @filepath
+      push_jump
+      @line_index = [entry.line - 1, 0].max
+      target_line = @buffer_of_lines[@line_index] || ''
+      @byte_pointer = (entry.col - 1).clamp(0, target_line.bytesize)
+    end
+
     private def rvim_increment(key, arg: 1)
       modify_number_at_cursor(+arg)
     end
@@ -3600,6 +3678,8 @@ module Rvim
           start_case_op(:toggle, saved_arg)
         when 'd', 'd'.ord
           goto_definition
+        when 'r', 'r'.ord
+          lsp_find_references
         when 'j', 'j'.ord
           display_line_motion(:down)
         when 'k', 'k'.ord

@@ -15,7 +15,7 @@ module Rvim
     # resolves when the matching `id` reply arrives).
     class Client
       attr_reader :name, :status, :capabilities, :diagnostics
-      attr_accessor :last_definition_result, :last_hover_result
+      attr_accessor :last_definition_result, :last_hover_result, :last_references_result
 
       def initialize(name:, command:, root_uri:, on_diagnostic: nil, cwd: nil, on_log: nil)
         @name = name
@@ -127,6 +127,17 @@ module Rvim
         request('textDocument/definition',
                 textDocument: { uri: uri },
                 position: { line: line, character: character })
+      end
+
+      # textDocument/references. Result is Location[] | null. The
+      # `includeDeclaration` context flag tells the server whether to
+      # include the symbol's defining occurrence in the result.
+      def references(uri, line, character, include_declaration: true)
+        @last_references_result = nil
+        request('textDocument/references',
+                textDocument: { uri: uri },
+                position: { line: line, character: character },
+                context: { includeDeclaration: include_declaration })
       end
 
       # LSP 3.17 pull diagnostics. ruby-lsp 0.26+ uses this rather than
@@ -271,6 +282,9 @@ module Rvim
           # Result is { contents: MarkedString | MarkedString[] | MarkupContent,
           # range?: Range } | null. Stash verbatim; editor parses contents.
           @last_hover_result = msg[:result]
+        when 'textDocument/references'
+          # Result is Location[] | null. Stash verbatim.
+          @last_references_result = msg[:result]
         end
       end
 
