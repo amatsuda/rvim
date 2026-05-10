@@ -227,6 +227,32 @@ module Rvim
         @clients.each_value { |c| c.last_references_result = nil }
       end
 
+      # Send textDocument/formatting for the buffer using the editor's
+      # current tabstop / expandtab settings. Result lands on the client.
+      def request_formatting(buffer)
+        ft = filetype_for(buffer)
+        client = @clients[ft]
+        return false unless client && client.status == :running
+
+        ts = (@editor.settings.get(:tabstop).to_i if @editor.respond_to?(:settings)) || 2
+        ts = 2 if ts <= 0
+        insert_spaces = !!(@editor.respond_to?(:settings) && @editor.settings.get(:expandtab))
+        client.formatting(buffer_uri(buffer), tab_size: ts, insert_spaces: insert_spaces)
+        true
+      end
+
+      def last_formatting_result
+        @clients.each_value do |c|
+          r = c.last_formatting_result
+          return r if r
+        end
+        nil
+      end
+
+      def clear_formatting_result
+        @clients.each_value { |c| c.last_formatting_result = nil }
+      end
+
       # Pull-mode diagnostics request (LSP 3.17). ruby-lsp 0.26+ uses
       # this rather than pushing publishDiagnostics. The response is
       # cached under the same uri so diagnostics_for sees it.

@@ -15,7 +15,8 @@ module Rvim
     # resolves when the matching `id` reply arrives).
     class Client
       attr_reader :name, :status, :capabilities, :diagnostics
-      attr_accessor :last_definition_result, :last_hover_result, :last_references_result
+      attr_accessor :last_definition_result, :last_hover_result, :last_references_result,
+                    :last_formatting_result
 
       def initialize(name:, command:, root_uri:, on_diagnostic: nil, cwd: nil, on_log: nil)
         @name = name
@@ -138,6 +139,17 @@ module Rvim
                 textDocument: { uri: uri },
                 position: { line: line, character: character },
                 context: { includeDeclaration: include_declaration })
+      end
+
+      # textDocument/formatting. Result is TextEdit[] | null where each
+      # TextEdit is { range: Range, newText: string }. ruby-lsp typically
+      # returns a single edit replacing the whole document with the
+      # formatted version (RuboCop / SyntaxTree).
+      def formatting(uri, tab_size: 2, insert_spaces: true)
+        @last_formatting_result = nil
+        request('textDocument/formatting',
+                textDocument: { uri: uri },
+                options: { tabSize: tab_size, insertSpaces: insert_spaces })
       end
 
       # LSP 3.17 pull diagnostics. ruby-lsp 0.26+ uses this rather than
@@ -285,6 +297,9 @@ module Rvim
         when 'textDocument/references'
           # Result is Location[] | null. Stash verbatim.
           @last_references_result = msg[:result]
+        when 'textDocument/formatting'
+          # Result is TextEdit[] | null. Stash verbatim; editor applies.
+          @last_formatting_result = msg[:result]
         end
       end
 

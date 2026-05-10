@@ -142,6 +142,7 @@ module Rvim
              when 'LspHover', 'lsphover' then :lsp_hover
              when 'LspDefinition', 'lspdefinition' then :lsp_definition
              when 'LspReferences', 'lspreferences' then :lsp_references
+             when 'LspFormat', 'lspformat' then :lsp_format
              when 'LspLog', 'lsplog' then :lsp_log
              when 'helpclose', 'helpc' then :helpclose
              when 'earlier', 'ear' then :earlier
@@ -411,6 +412,8 @@ module Rvim
         execute_lsp_definition(editor)
       when :lsp_references
         execute_lsp_references(editor)
+      when :lsp_format
+        execute_lsp_format(editor)
       when :lsp_log
         execute_lsp_log(editor)
       when :earlier
@@ -1801,6 +1804,12 @@ module Rvim
       return if editor.lsp_find_references
 
       editor.status_message = 'LSP: references unavailable for this buffer'
+    end
+
+    def self.execute_lsp_format(editor)
+      return if editor.lsp_format_buffer
+
+      editor.status_message = 'LSP: format unavailable for this buffer'
     end
 
     def self.execute_help(editor, parsed)

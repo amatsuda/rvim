@@ -1506,6 +1506,89 @@ module Rvim
       []
     end
 
+    LSP_FORMAT_TIMEOUT = 5.0
+
+    # Send textDocument/formatting and apply the returned TextEdit[] to
+    # the current buffer. Returns true when the LSP path took action,
+    # false to allow caller fallback.
+    def lsp_format_buffer
+      return false unless @settings.get(:lsp_enabled)
+
+      buf = current_buffer
+      return false unless buf
+      return false unless lsp.request_formatting(buf)
+
+      deadline = Time.now + LSP_FORMAT_TIMEOUT
+      result = nil
+      until (result = lsp.last_formatting_result)
+        break if Time.now > deadline
+
+        lsp.pump
+        sleep 0.02
+      end
+
+      edits = result || []
+      if edits.empty?
+        @status_message = 'LSP: no formatting changes'
+        return true
+      end
+
+      pre_buffer = @buffer_of_lines.map(&:dup)
+      apply_text_edits(edits)
+      if pre_buffer == @buffer_of_lines
+        @status_message = 'LSP: no formatting changes'
+      else
+        push_undo_redo(true)
+        @modified = true
+        @status_message = "LSP: formatted (#{edits.size} edit#{edits.size == 1 ? '' : 's'})"
+      end
+      sync_current_buffer_lines
+      true
+    end
+
+    # Apply LSP TextEdit[] to @buffer_of_lines. Per spec, edits must be
+    # applied in reverse-sorted order so earlier edits don't shift the
+    # offsets of later ones.
+    def apply_text_edits(edits)
+      sorted = edits.sort_by do |e|
+        pos = e.dig(:range, :start) || {}
+        [-(pos[:line] || 0), -(pos[:character] || 0)]
+      end
+      sorted.each { |e| apply_text_edit(e) }
+    end
+
+    private def apply_text_edit(edit)
+      range = edit[:range]
+      return unless range
+
+      start_l = range.dig(:start, :line).to_i
+      start_c = range.dig(:start, :character).to_i
+      end_l = range.dig(:end, :line).to_i
+      end_c = range.dig(:end, :character).to_i
+      new_text = (edit[:newText] || '').to_s
+
+      lines = @buffer_of_lines
+      # Allow ranges that point one-past-end (`end_l == lines.size`,
+      # `end_c == 0`) — ruby-lsp uses this to mean "end of document".
+      start_l = start_l.clamp(0, [lines.size, 0].max)
+      end_l = end_l.clamp(0, [lines.size, 0].max)
+
+      start_line = lines[start_l] || ''
+      end_line = lines[end_l] || ''
+      start_c = start_c.clamp(0, start_line.bytesize)
+      end_c = end_c.clamp(0, end_line.bytesize)
+
+      prefix = start_line.byteslice(0, start_c) || ''
+      suffix = end_line.byteslice(end_c, end_line.bytesize - end_c) || ''
+      replacement = (prefix + new_text + suffix).split("\n", -1)
+      lines[start_l..end_l] = replacement
+
+      # Clamp cursor so it stays within the new buffer
+      @line_index = @line_index.clamp(0, [lines.size - 1, 0].max)
+      cur_line = lines[@line_index] || ''
+      @byte_pointer = (@byte_pointer || 0).clamp(0, cur_line.bytesize)
+    end
+
     # Jump to a Quickfix::Entry: open the target file (if different),
     # push the current position onto the jump list, then place the
     # cursor at the entry's 1-based line/col. Public so callers other
