@@ -15,7 +15,7 @@ module Rvim
     # resolves when the matching `id` reply arrives).
     class Client
       attr_reader :name, :status, :capabilities, :diagnostics
-      attr_accessor :last_definition_result
+      attr_accessor :last_definition_result, :last_hover_result
 
       def initialize(name:, command:, root_uri:, on_diagnostic: nil, cwd: nil, on_log: nil)
         @name = name
@@ -112,6 +112,7 @@ module Rvim
       end
 
       def hover(uri, line, character)
+        @last_hover_result = nil
         request('textDocument/hover',
                 textDocument: { uri: uri },
                 position: { line: line, character: character })
@@ -266,6 +267,10 @@ module Rvim
           # Result is Location | Location[] | LocationLink[] | null.
           # Stash verbatim; the editor-side caller normalizes.
           @last_definition_result = msg[:result]
+        when 'textDocument/hover'
+          # Result is { contents: MarkedString | MarkedString[] | MarkupContent,
+          # range?: Range } | null. Stash verbatim; editor parses contents.
+          @last_hover_result = msg[:result]
         end
       end
 

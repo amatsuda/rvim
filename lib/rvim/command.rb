@@ -1783,16 +1783,9 @@ module Rvim
     end
 
     def self.execute_lsp_hover(editor)
-      buf = editor.current_buffer
-      return unless buf
+      return if editor.lsp_show_hover
 
-      ft = Rvim::Syntax.detect_language(buf.filepath)
-      client = editor.lsp.send(:ensure_client, ft) if ft
-      return editor.status_message = 'LSP: not running for this buffer' unless client && client.status == :running
-
-      uri = "file://#{File.expand_path(buf.filepath)}"
-      client.hover(uri, editor.line_index, editor.byte_pointer)
-      editor.status_message = 'LSP: hover requested (results print to :messages)'
+      editor.status_message = 'LSP: hover unavailable for this buffer'
     end
 
     def self.execute_lsp_definition(editor)

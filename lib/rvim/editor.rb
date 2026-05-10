@@ -90,6 +90,7 @@ module Rvim
       @completion_base_byte = 0
       @completion_line_index = 0
       @completion_popup = nil
+      @hover_popup = nil
       @cmdline_popup = nil
       @cmdline_completion_context = nil
       @digraph_pending = false
@@ -1128,6 +1129,7 @@ module Rvim
     end
 
     attr_reader :completion_popup, :completion_base_byte, :completion_line_index
+    attr_reader :hover_popup
 
     private def completion_key?(key)
       sym = key.method_symbol
@@ -1329,6 +1331,78 @@ module Rvim
       when Array then result.first
       when Hash then result
       end
+    end
+
+    LSP_HOVER_TIMEOUT = 2.0
+    HOVER_POPUP_MAX_WIDTH = 80
+    HOVER_POPUP_MAX_HEIGHT = 16
+
+    # Send textDocument/hover for the cursor's symbol, poll for the
+    # response, and build @hover_popup. Returns true when the LSP path
+    # took action (popup shown OR "no info" status), false to let the
+    # caller fall back to keywordprg.
+    def lsp_show_hover
+      return false unless @settings.get(:lsp_enabled)
+
+      buf = current_buffer
+      return false unless buf
+      return false unless lsp.request_hover(buf)
+
+      deadline = Time.now + LSP_HOVER_TIMEOUT
+      result = nil
+      until (result = lsp.last_hover_result)
+        break if Time.now > deadline
+
+        lsp.pump
+        sleep 0.02
+      end
+
+      lines = parse_hover_contents(result)
+      if lines.empty?
+        @status_message = 'LSP: no hover info'
+        return true
+      end
+
+      @hover_popup = Rvim::CompletionPopup.new(
+        contents: lines,
+        max_width: HOVER_POPUP_MAX_WIDTH,
+        max_height: HOVER_POPUP_MAX_HEIGHT,
+      )
+      true
+    end
+
+    # Normalize LSP hover responses to an Array<String>. Handles:
+    # - { contents: { kind:, value: } }     (MarkupContent)
+    # - { contents: { language:, value: } } (legacy MarkedString object)
+    # - { contents: "..." }                 (legacy MarkedString string)
+    # - { contents: [...] }                 (MarkedString[])
+    # - nil / empty                          → []
+    private def parse_hover_contents(result)
+      return [] unless result
+
+      contents = result.is_a?(Hash) ? result[:contents] : nil
+      return [] unless contents
+
+      case contents
+      when String
+        contents.split("\n", -1)
+      when Hash
+        (contents[:value] || '').split("\n", -1)
+      when Array
+        contents.flat_map do |c|
+          case c
+          when String then c.split("\n", -1)
+          when Hash then (c[:value] || '').split("\n", -1)
+          else []
+          end
+        end
+      else
+        []
+      end
+    end
+
+    def dismiss_hover_popup
+      @hover_popup = nil
     end
 
     private def rvim_increment(key, arg: 1)
@@ -1895,6 +1969,11 @@ module Rvim
     end
 
     def update(key)
+      # Any keypress dismisses an open hover popup. Cleared first so the
+      # *next* render-loop tick won't show it; the key dispatched below
+      # is processed normally.
+      @hover_popup = nil if @hover_popup
+
       if @prompt_mode == :listing
         process_listing_key(key)
         return
@@ -3644,6 +3723,11 @@ module Rvim
     end
 
     private def rvim_keyword_lookup(key, arg: 1)
+      # Prefer LSP textDocument/hover when an LSP client is available;
+      # falls through to the external keywordprg (default `man <word>`)
+      # otherwise.
+      return if lsp_show_hover
+
       word = word_at_cursor
       unless word
         @status_message = 'E348: No string under cursor'
