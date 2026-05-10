@@ -1145,6 +1145,7 @@ module Rvim
         case ch
         when 'c' then diff_jump(:prev)
         when 's' then jump_to_misspelling(:prev)
+        when 'd' then jump_to_diagnostic(:prev)
         end
       end
     end
@@ -1156,8 +1157,45 @@ module Rvim
         case ch
         when 'c' then diff_jump(:next)
         when 's' then jump_to_misspelling(:next)
+        when 'd' then jump_to_diagnostic(:next)
         end
       end
+    end
+
+    # Jump to the next or previous LSP diagnostic relative to the cursor.
+    # Diagnostics are walked in (line, character) order. No-wrap: when
+    # there's nothing further in `direction`, surface a status message
+    # and leave the cursor where it is. Push the current position onto
+    # the jump list so Ctrl-O comes back.
+    def jump_to_diagnostic(direction)
+      buf = current_buffer
+      return unless buf
+
+      diags = lsp.diagnostics_for(buf)
+      if diags.empty?
+        @status_message = 'LSP: no diagnostics'
+        return
+      end
+
+      positions = diags.map do |d|
+        [d.dig(:range, :start, :line).to_i, d.dig(:range, :start, :character).to_i]
+      end.sort
+
+      cur = [@line_index, @byte_pointer]
+      target = if direction == :next
+                 positions.find { |p| (p <=> cur) > 0 }
+               else
+                 positions.reverse_each.find { |p| (p <=> cur) < 0 }
+               end
+
+      if target.nil?
+        @status_message = direction == :next ? 'LSP: no next diagnostic' : 'LSP: no previous diagnostic'
+        return
+      end
+
+      push_jump
+      @line_index = target[0]
+      @byte_pointer = target[1]
     end
 
     def jump_to_misspelling(direction)
