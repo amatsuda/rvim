@@ -16,7 +16,7 @@ module Rvim
     class Client
       attr_reader :name, :status, :capabilities, :diagnostics
       attr_accessor :last_definition_result, :last_hover_result, :last_references_result,
-                    :last_formatting_result
+                    :last_formatting_result, :last_document_symbols_result
 
       def initialize(name:, command:, root_uri:, on_diagnostic: nil, cwd: nil, on_log: nil)
         @name = name
@@ -150,6 +150,15 @@ module Rvim
         request('textDocument/formatting',
                 textDocument: { uri: uri },
                 options: { tabSize: tab_size, insertSpaces: insert_spaces })
+      end
+
+      # textDocument/documentSymbol. Result is DocumentSymbol[] |
+      # SymbolInformation[] | null. The two shapes are returned by
+      # different servers; the editor-side flattener handles both.
+      def document_symbol(uri)
+        @last_document_symbols_result = nil
+        request('textDocument/documentSymbol',
+                textDocument: { uri: uri })
       end
 
       # LSP 3.17 pull diagnostics. ruby-lsp 0.26+ uses this rather than
@@ -300,6 +309,9 @@ module Rvim
         when 'textDocument/formatting'
           # Result is TextEdit[] | null. Stash verbatim; editor applies.
           @last_formatting_result = msg[:result]
+        when 'textDocument/documentSymbol'
+          # Result is DocumentSymbol[] | SymbolInformation[] | null.
+          @last_document_symbols_result = msg[:result]
         end
       end
 

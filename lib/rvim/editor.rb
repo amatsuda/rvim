@@ -1507,6 +1507,90 @@ module Rvim
     end
 
     LSP_FORMAT_TIMEOUT = 5.0
+    LSP_SYMBOLS_TIMEOUT = 2.0
+
+    # LSP SymbolKind enum (1-indexed). Maps to short labels we display in
+    # the outline. Unknown kinds fall through to "symbol".
+    SYMBOL_KIND_NAMES = {
+      1 => 'file', 2 => 'module', 3 => 'namespace', 4 => 'package',
+      5 => 'class', 6 => 'method', 7 => 'property', 8 => 'field',
+      9 => 'constructor', 10 => 'enum', 11 => 'interface', 12 => 'function',
+      13 => 'variable', 14 => 'constant', 15 => 'string', 16 => 'number',
+      17 => 'boolean', 18 => 'array', 19 => 'object', 20 => 'key',
+      21 => 'null', 22 => 'enum_member', 23 => 'struct', 24 => 'event',
+      25 => 'operator', 26 => 'type_parameter'
+    }.freeze
+
+    # Send textDocument/documentSymbol, populate @quickfix with one entry
+    # per symbol (indented by hierarchy), and show the outline via
+    # show_list. Cursor is NOT moved — users navigate via :cnext/:cc/:cprev
+    # or read the popover.
+    def lsp_show_document_symbols
+      return false unless @settings.get(:lsp_enabled)
+
+      buf = current_buffer
+      return false unless buf
+      return false unless lsp.request_document_symbols(buf)
+
+      deadline = Time.now + LSP_SYMBOLS_TIMEOUT
+      result = nil
+      until (result = lsp.last_document_symbols_result)
+        break if Time.now > deadline
+
+        lsp.pump
+        sleep 0.02
+      end
+
+      symbols = result || []
+      if symbols.empty?
+        @status_message = 'LSP: no symbols'
+        return true
+      end
+
+      entries = flatten_symbols(symbols, @filepath || '')
+      if entries.empty?
+        @status_message = 'LSP: no symbols'
+        return true
+      end
+
+      @quickfix.set(entries)
+      show_list(Rvim::Command.format_quickfix(self))
+      true
+    end
+
+    # Recursively walk the response, handling both DocumentSymbol (with
+    # `range` / `selectionRange` / `children`) and SymbolInformation
+    # (with `location.range` / `containerName`). Returns Quickfix::Entry[].
+    private def flatten_symbols(items, file_path, depth: 0)
+      items.flat_map do |item|
+        if item[:location]
+          # SymbolInformation — flat list, no children
+          pos = item.dig(:location, :range, :start) || {}
+          uri = item.dig(:location, :uri) || ''
+          path = uri.sub(/\Afile:\/\//, '')
+          path = file_path if path.empty?
+          [build_symbol_entry(item, path, pos, depth)]
+        else
+          # DocumentSymbol — hierarchical
+          pos = item.dig(:selectionRange, :start) || item.dig(:range, :start) || {}
+          entry = build_symbol_entry(item, file_path, pos, depth)
+          children = item[:children] || []
+          [entry] + flatten_symbols(children, file_path, depth: depth + 1)
+        end
+      end
+    end
+
+    private def build_symbol_entry(item, file_path, pos, depth)
+      kind = SYMBOL_KIND_NAMES[item[:kind]] || 'symbol'
+      label = "#{'  ' * depth}#{kind} #{item[:name]}"
+      Rvim::Quickfix::Entry.new(
+        file: file_path,
+        line: pos[:line].to_i + 1,
+        col: pos[:character].to_i + 1,
+        text: label,
+      )
+    end
+
 
     # Send textDocument/formatting and apply the returned TextEdit[] to
     # the current buffer. Returns true when the LSP path took action,

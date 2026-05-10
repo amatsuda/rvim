@@ -253,6 +253,29 @@ module Rvim
         @clients.each_value { |c| c.last_formatting_result = nil }
       end
 
+      # Send textDocument/documentSymbol for the buffer. Result lands on
+      # the client; callers poll via #last_document_symbols_result.
+      def request_document_symbols(buffer)
+        ft = filetype_for(buffer)
+        client = @clients[ft]
+        return false unless client && client.status == :running
+
+        client.document_symbol(buffer_uri(buffer))
+        true
+      end
+
+      def last_document_symbols_result
+        @clients.each_value do |c|
+          r = c.last_document_symbols_result
+          return r if r
+        end
+        nil
+      end
+
+      def clear_document_symbols_result
+        @clients.each_value { |c| c.last_document_symbols_result = nil }
+      end
+
       # Pull-mode diagnostics request (LSP 3.17). ruby-lsp 0.26+ uses
       # this rather than pushing publishDiagnostics. The response is
       # cached under the same uri so diagnostics_for sees it.
