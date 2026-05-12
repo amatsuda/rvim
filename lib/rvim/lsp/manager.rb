@@ -289,6 +289,27 @@ module Rvim
         true
       end
 
+      # Force-flush any unsynced buffer state via didChange, bypassing the
+      # CHANGE_DEBOUNCE_INTERVAL gate. Called before LSP requests that
+      # depend on the server having an up-to-date document (rename,
+      # definition, hover, etc.) so a rapid burst of edits followed by a
+      # command can't leave the server one or two characters behind.
+      def flush_changes(buffer)
+        return false unless buffer
+
+        ft = filetype_for(buffer)
+        client = @clients[ft]
+        return false unless client && client.status == :running
+
+        fp = buffer.lines.hash
+        return false if @synced_fingerprints[buffer.id] == fp
+
+        did_change(buffer)
+        @synced_fingerprints[buffer.id] = fp
+        @synced_at[buffer.id] = monotonic_now
+        true
+      end
+
       # Periodic auto-pull for the renderer's signcolumn/underline display.
       # ruby-lsp's analysis is asynchronous, so the first pull after didOpen
       # may return empty results — we re-pull at DIAG_PULL_INTERVAL until the

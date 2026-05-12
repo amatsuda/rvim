@@ -1331,6 +1331,7 @@ module Rvim
 
       buf = current_buffer
       return false unless buf
+      lsp.flush_changes(buf)
       return false unless lsp.request_definition(buf)
 
       deadline = Time.now + LSP_DEFINITION_TIMEOUT
@@ -1387,6 +1388,7 @@ module Rvim
 
       buf = current_buffer
       return false unless buf
+      lsp.flush_changes(buf)
       return false unless lsp.request_hover(buf)
 
       deadline = Time.now + LSP_HOVER_TIMEOUT
@@ -1460,6 +1462,7 @@ module Rvim
 
       buf = current_buffer
       return false unless buf
+      lsp.flush_changes(buf)
       return false unless lsp.request_references(buf)
 
       deadline = Time.now + LSP_REFERENCES_TIMEOUT
