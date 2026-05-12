@@ -41,24 +41,51 @@ module Rvim
       Context.new(kind: :none, partial: '', prefix: str)
     end
 
-    EX_COMMANDS = %w[
-      w write q quit qa qall wq x cq edit e read r
-      bn bnext bp bprev bdelete bd b buffer ls buffers
-      sp split vsp vsplit set setlocal source so
-      autocmd au augroup aug history his marks jumps registers reg
-      tabnew tabe tabedit tabnext tabn tabprev tabp tabclose tabc tabonly tabo tabmove tabm
-      resize res vertical
-      let fold fo nohlsearch noh retab cd chdir pwd
-      vimgrep vim cnext cn cprev cp cc clist cl copen cope cclose cclo
-      delete d yank y put p move m copy co t join j sort
-      map nmap vmap imap omap cmap noremap nnoremap vnoremap inoremap onoremap cnoremap
-      unmap nunmap vunmap iunmap ounmap cunmap mapclear nmapclear vmapclear imapclear omapclear cmapclear
+    # Fallback list used only when command.rb can't be scraped at load
+    # time (e.g. unusual install layout). Real list comes from
+    # `ex_commands` below.
+    EX_COMMANDS_FALLBACK = %w[
+      w write q quit wq x e edit r read b buffer ls
+      bn bp bd sp vsp set source autocmd help
+      tabnew tabe tabclose
     ].sort.uniq.freeze
+
+    # Scrape the verbs from command.rb's main `case verb_str` block so
+    # newly-added ex-commands (e.g. :LspRename, :LspCodeAction) appear
+    # in tab completion automatically without anyone having to update
+    # this file.
+    def self.ex_commands
+      @ex_commands ||= scrape_ex_commands.freeze
+    end
+
+    def self.scrape_ex_commands
+      path = File.expand_path('command.rb', __dir__)
+      return EX_COMMANDS_FALLBACK unless File.exist?(path)
+
+      verbs = []
+      in_case = false
+      File.foreach(path) do |line|
+        unless in_case
+          in_case = true if line =~ /^\s*verb\s*=\s*case\s+verb_str\b/
+          next
+        end
+        # The case block ends with `else nil` followed by `end`.
+        break if line =~ /^\s*else\b/
+
+        line.scan(/'([A-Za-z][A-Za-z_!]*)'/) { |m| verbs << m[0] }
+      end
+      # Case-insensitive sort so capitalized verbs (LspXxx) interleave
+      # with lowercase common ones (a, abbreviate, …) instead of all
+      # landing at the head of the alphabet via ASCII order.
+      verbs.uniq.sort_by { |v| [v.downcase, v] }
+    rescue StandardError
+      EX_COMMANDS_FALLBACK
+    end
 
     def self.candidates(context, editor)
       raw = case context.kind
             when :command
-              EX_COMMANDS.select { |c| c.start_with?(context.partial) }
+              ex_commands.select { |c| c.start_with?(context.partial) }
             when :filename
               glob = context.partial.empty? ? '*' : "#{context.partial}*"
               paths = Dir.glob(glob).map { |path| File.directory?(path) ? "#{path}/" : path }

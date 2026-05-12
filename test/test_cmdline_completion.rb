@@ -57,6 +57,28 @@ class TestCmdlineCompletionCandidates < Test::Unit::TestCase
     refute candidates.include?('quit')
   end
 
+  def test_command_candidates_include_lsp_family
+    # ex_commands is scraped from command.rb's parser at load time, so
+    # every :LspX command should show up under :Lsp<Tab>.
+    ctx = Rvim::CmdlineCompletion::Context.new(kind: :command, partial: 'Lsp', prefix: '')
+    candidates = Rvim::CmdlineCompletion.candidates(ctx, @editor)
+    %w[LspStatus LspDiagnostics LspHover LspDefinition LspReferences
+       LspFormat LspSymbols LspRename LspCodeAction LspLog LspStop].each do |c|
+      assert candidates.include?(c), "missing #{c}"
+    end
+  end
+
+  def test_command_candidates_include_lately_added_commands
+    # Sampling of commands that exist in command.rb's parser but used to
+    # be missing from the hand-rolled EX_COMMANDS list.
+    ctx = Rvim::CmdlineCompletion::Context.new(kind: :command, partial: '', prefix: '')
+    candidates = Rvim::CmdlineCompletion.candidates(ctx, @editor)
+    %w[earlier later mksession messages execute silent verbose redir
+       colorscheme runtime packadd terminal].each do |c|
+      assert candidates.include?(c), "missing #{c}"
+    end
+  end
+
   def test_setting_candidates
     ctx = Rvim::CmdlineCompletion::Context.new(kind: :setting, partial: 'num', prefix: 'set ')
     candidates = Rvim::CmdlineCompletion.candidates(ctx, @editor)
