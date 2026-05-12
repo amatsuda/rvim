@@ -4027,8 +4027,11 @@ module Rvim
         @waiting_proc = nil
         case key_for_proc
         when 'g', 'g'.ord
+          # [count]gg jumps to line [count] (1-based; default first line).
+          target = saved_arg.is_a?(Integer) && saved_arg > 0 ? saved_arg - 1 : 0
+          target = target.clamp(0, [@buffer_of_lines.size - 1, 0].max)
           push_jump
-          @line_index = 0
+          @line_index = target
           @byte_pointer = sol_byte_for(@line_index)
         when 'v', 'v'.ord
           reselect_last_visual

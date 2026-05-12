@@ -66,6 +66,23 @@ class TestEditor < Test::Unit::TestCase
     assert_equal 0, @editor.line_index
   end
 
+  def test_count_gg_jumps_to_that_line
+    @editor.instance_variable_set(:@buffer_of_lines, ('a'..'z').to_a)
+    @editor.instance_variable_set(:@line_index, 0)
+    # [count]gg = jump to line [count] (1-based). 3gg → line 3 → index 2.
+    @editor.send(:rvim_g_prefix, Reline::Key.new('g', :rvim_g_prefix, false), arg: 3)
+    feed('g', nil)
+    assert_equal 2, @editor.line_index
+  end
+
+  def test_count_gg_clamps_past_end
+    @editor.instance_variable_set(:@buffer_of_lines, %w[a b c d])
+    @editor.instance_variable_set(:@line_index, 0)
+    @editor.send(:rvim_g_prefix, Reline::Key.new('g', :rvim_g_prefix, false), arg: 999)
+    feed('g', nil)
+    assert_equal 3, @editor.line_index # clamped to last line index
+  end
+
   def test_capital_G_jumps_to_last_line
     @editor.instance_variable_set(:@buffer_of_lines, %w[a b c d])
     feed('G', :vi_to_history_line)
