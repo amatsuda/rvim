@@ -43,6 +43,7 @@ class TestLspHoverManager < Test::Unit::TestCase
     end
 
     def diagnostics; {}; end
+    def pending_for?(_); false; end
     def pump; end
   end
 

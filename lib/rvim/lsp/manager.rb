@@ -307,6 +307,13 @@ module Rvim
         @clients.each_value(&:pump)
       end
 
+      # Is any client still waiting on a reply to a `method_name` request?
+      # The editor's sync-poll helpers use this to detect that the server
+      # has answered (even with `null`) and stop waiting early.
+      def pending_for?(method_name)
+        @clients.each_value.any? { |c| c.respond_to?(:pending_for?) && c.pending_for?(method_name) }
+      end
+
       def shutdown
         @clients.each_value(&:stop)
         @clients.clear

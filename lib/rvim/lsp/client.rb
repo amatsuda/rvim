@@ -182,6 +182,13 @@ module Rvim
         id
       end
 
+      # Is any request with this method name still waiting for a reply?
+      # Used by editor-side polling loops so they can stop waiting once
+      # the server has answered (even when the answer is `null`).
+      def pending_for?(method_name)
+        @pending.any? { |_, entry| (entry.is_a?(Array) ? entry[0] : entry) == method_name }
+      end
+
       def notify(method, params = nil)
         body = { jsonrpc: '2.0', method: method }
         body[:params] = params if params

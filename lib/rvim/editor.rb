@@ -1335,10 +1335,13 @@ module Rvim
 
       deadline = Time.now + LSP_DEFINITION_TIMEOUT
       result = nil
-      until (result = lsp.last_definition_result)
+      loop do
+        lsp.pump
+        result = lsp.last_definition_result
+        break if result
+        break unless lsp.pending_for?('textDocument/definition')
         break if Time.now > deadline
 
-        lsp.pump
         sleep 0.02
       end
 
@@ -1388,10 +1391,13 @@ module Rvim
 
       deadline = Time.now + LSP_HOVER_TIMEOUT
       result = nil
-      until (result = lsp.last_hover_result)
+      loop do
+        lsp.pump
+        result = lsp.last_hover_result
+        break if result
+        break unless lsp.pending_for?('textDocument/hover')
         break if Time.now > deadline
 
-        lsp.pump
         sleep 0.02
       end
 
@@ -1458,10 +1464,13 @@ module Rvim
 
       deadline = Time.now + LSP_REFERENCES_TIMEOUT
       result = nil
-      until (result = lsp.last_references_result)
+      loop do
+        lsp.pump
+        result = lsp.last_references_result
+        break if result
+        break unless lsp.pending_for?('textDocument/references')
         break if Time.now > deadline
 
-        lsp.pump
         sleep 0.02
       end
 
@@ -1534,10 +1543,13 @@ module Rvim
 
       deadline = Time.now + LSP_SYMBOLS_TIMEOUT
       result = nil
-      until (result = lsp.last_document_symbols_result)
+      loop do
+        lsp.pump
+        result = lsp.last_document_symbols_result
+        break if result
+        break unless lsp.pending_for?('textDocument/documentSymbol')
         break if Time.now > deadline
 
-        lsp.pump
         sleep 0.02
       end
 
@@ -1604,10 +1616,13 @@ module Rvim
 
       deadline = Time.now + LSP_FORMAT_TIMEOUT
       result = nil
-      until (result = lsp.last_formatting_result)
+      loop do
+        lsp.pump
+        result = lsp.last_formatting_result
+        break if result
+        break unless lsp.pending_for?('textDocument/formatting')
         break if Time.now > deadline
 
-        lsp.pump
         sleep 0.02
       end
 
