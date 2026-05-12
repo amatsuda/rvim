@@ -27,7 +27,11 @@ module Rvim
                    else (opts.respond_to?(:to_h) ? opts.to_h : {})
                    end
           silent = opts_h['silent'] == true
-          recursive = opts_h['noremap'] != true
+          # Match NeoVim's vim.keymap.set default: non-recursive unless
+          # the caller explicitly opts into recursion with `remap = true`
+          # (or `noremap = false`). Without this, `map.set('v', '>', '>gv')`
+          # recurses on the inner '>' and blows the stack.
+          recursive = opts_h['noremap'] == false || opts_h['remap'] == true
           expanded_lhs = Rvim::Keymap.expand(lhs.to_s, leader: editor.mapleader)
 
           if rhs.is_a?(Rufus::Lua::Function)

@@ -32,6 +32,25 @@ class TestLuaKeymap < Test::Unit::TestCase
     assert_equal false, found.recursive
   end
 
+  def test_keymap_set_defaults_to_non_recursive
+    # NeoVim's vim.keymap.set is non-recursive by default (noremap=true
+    # is the default behavior). Without this, `map.set('v', '>', '>gv')`
+    # would recurse infinitely on the inner '>'.
+    @editor.lua.eval('vim.keymap.set("v", ">", ">gv")')
+    found = nil
+    @editor.keymap.each(:visual) { |lhs, m| found = m if lhs == '>' }
+    refute_nil found
+    assert_equal false, found.recursive
+  end
+
+  def test_keymap_set_remap_true_opts_into_recursive
+    @editor.lua.eval('vim.keymap.set("n", "Q", "q", { remap = true })')
+    found = nil
+    @editor.keymap.each(:normal) { |lhs, m| found = m if lhs == 'Q' }
+    refute_nil found
+    assert_equal true, found.recursive
+  end
+
   def test_keymap_set_multiple_modes
     @editor.lua.eval('vim.keymap.set({"n", "v"}, "X", "x")')
     n = nil
