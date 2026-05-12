@@ -16,7 +16,8 @@ module Rvim
     class Client
       attr_reader :name, :status, :capabilities, :diagnostics
       attr_accessor :last_definition_result, :last_hover_result, :last_references_result,
-                    :last_formatting_result, :last_document_symbols_result
+                    :last_formatting_result, :last_document_symbols_result,
+                    :last_rename_result, :last_prepare_rename_result
 
       def initialize(name:, command:, root_uri:, on_diagnostic: nil, cwd: nil, on_log: nil)
         @name = name
@@ -159,6 +160,27 @@ module Rvim
         @last_document_symbols_result = nil
         request('textDocument/documentSymbol',
                 textDocument: { uri: uri })
+      end
+
+      # textDocument/prepareRename. When the server advertises
+      # `renameProvider.prepareProvider: true`, the client should call
+      # this first to validate the symbol at the position. Result is
+      # Range | { range, placeholder } | { defaultBehavior: true } | null.
+      def prepare_rename(uri, line, character)
+        @last_prepare_rename_result = nil
+        request('textDocument/prepareRename',
+                textDocument: { uri: uri },
+                position: { line: line, character: character })
+      end
+
+      # textDocument/rename. Result is WorkspaceEdit | null, which the
+      # editor applies across (potentially many) files.
+      def rename(uri, line, character, new_name)
+        @last_rename_result = nil
+        request('textDocument/rename',
+                textDocument: { uri: uri },
+                position: { line: line, character: character },
+                newName: new_name)
       end
 
       # LSP 3.17 pull diagnostics. ruby-lsp 0.26+ uses this rather than
@@ -319,6 +341,12 @@ module Rvim
         when 'textDocument/documentSymbol'
           # Result is DocumentSymbol[] | SymbolInformation[] | null.
           @last_document_symbols_result = msg[:result]
+        when 'textDocument/rename'
+          # Result is WorkspaceEdit | null. Stash verbatim; editor applies.
+          @last_rename_result = msg[:result]
+        when 'textDocument/prepareRename'
+          # Result is Range | { range, placeholder } | { defaultBehavior } | null.
+          @last_prepare_rename_result = msg[:result]
         end
       end
 

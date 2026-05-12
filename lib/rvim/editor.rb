@@ -1520,6 +1520,93 @@ module Rvim
 
     LSP_FORMAT_TIMEOUT = 5.0
     LSP_SYMBOLS_TIMEOUT = 2.0
+    LSP_RENAME_TIMEOUT = 5.0
+
+    # Send textDocument/rename for the cursor's symbol, poll for the
+    # response, then apply the returned WorkspaceEdit across files.
+    # Returns true when the LSP path took action, false to allow caller
+    # fallback (e.g. the ex-command's status message).
+    #
+    # When the server advertises `renameProvider.prepareProvider: true`
+    # (ruby-lsp does), `textDocument/prepareRename` is called first to
+    # validate the position — if the server can't rename the symbol at
+    # this point we surface a clearer message instead of "no edits".
+    def lsp_rename_symbol(new_name)
+      new_name = new_name.to_s
+      return false if new_name.strip.empty?
+      return false unless @settings.get(:lsp_enabled)
+
+      buf = current_buffer
+      return false unless buf
+
+      # Flush any unsynced edits so the server's view matches our cursor
+      # position. Without this, a fast burst of edits followed by :LspRename
+      # can leave the server's document a few chars behind, and prepareRename
+      # at our cursor lands on the wrong node.
+      lsp.flush_changes(buf)
+
+      if lsp.rename_prepare_required?(buf)
+        return false unless lsp.request_prepare_rename(buf)
+
+        deadline = Time.now + LSP_RENAME_TIMEOUT
+        prep = nil
+        timed_out = false
+        loop do
+          lsp.pump
+          prep = lsp.last_prepare_rename_result
+          break if prep
+          break unless lsp.pending_for?('textDocument/prepareRename')
+          if Time.now > deadline
+            timed_out = true
+            break
+          end
+
+          sleep 0.02
+        end
+
+        if prep.nil?
+          pos = "#{@line_index + 1}:#{@byte_pointer + 1}"
+          @status_message = if timed_out
+                              "LSP: prepareRename timed out at #{pos}"
+                            else
+                              "LSP: cannot rename at #{pos} (ruby-lsp 0.26 supports class/module names and constant references — not the `FOO = ...` definition site, methods, or local vars)"
+                            end
+          return true
+        end
+      end
+
+      return false unless lsp.request_rename(buf, new_name)
+
+      deadline = Time.now + LSP_RENAME_TIMEOUT
+      result = nil
+      loop do
+        lsp.pump
+        result = lsp.last_rename_result
+        break if result
+        break unless lsp.pending_for?('textDocument/rename')
+        break if Time.now > deadline
+
+        sleep 0.02
+      end
+
+      if result.nil?
+        @status_message = 'LSP: rename returned no edits'
+        return true
+      end
+
+      pre_buffer = @buffer_of_lines.map(&:dup)
+      files_touched = apply_workspace_edit(result)
+
+      if files_touched.zero?
+        @status_message = 'LSP: rename produced no edits'
+      else
+        # If the current buffer changed, push an undo so `u` reverts it.
+        push_undo_redo(true) if pre_buffer != @buffer_of_lines
+        @status_message = "LSP: renamed to '#{new_name}' across #{files_touched} file#{files_touched == 1 ? '' : 's'}"
+      end
+      sync_current_buffer_lines
+      true
+    end
 
     # LSP SymbolKind enum (1-indexed). Maps to short labels we display in
     # the outline. Unknown kinds fall through to "symbol".
@@ -1652,14 +1739,22 @@ module Rvim
     # applied in reverse-sorted order so earlier edits don't shift the
     # offsets of later ones.
     def apply_text_edits(edits)
-      sorted = edits.sort_by do |e|
-        pos = e.dig(:range, :start) || {}
-        [-(pos[:line] || 0), -(pos[:character] || 0)]
-      end
-      sorted.each { |e| apply_text_edit(e) }
+      sort_text_edits_descending(edits).each { |e| apply_text_edit(e) }
     end
 
     private def apply_text_edit(edit)
+      apply_text_edit_to_lines(@buffer_of_lines, edit)
+      # Clamp cursor so it stays within the new buffer
+      @line_index = @line_index.clamp(0, [@buffer_of_lines.size - 1, 0].max)
+      cur_line = @buffer_of_lines[@line_index] || ''
+      @byte_pointer = (@byte_pointer || 0).clamp(0, cur_line.bytesize)
+    end
+
+    # Splice a single LSP TextEdit into `lines` in place. Works on any
+    # Array<String>, so callers can target the current @buffer_of_lines,
+    # another buffer's lines array, or a transient array loaded from
+    # disk for a not-currently-open file.
+    private def apply_text_edit_to_lines(lines, edit)
       range = edit[:range]
       return unless range
 
@@ -1669,7 +1764,6 @@ module Rvim
       end_c = range.dig(:end, :character).to_i
       new_text = (edit[:newText] || '').to_s
 
-      lines = @buffer_of_lines
       # Allow ranges that point one-past-end (`end_l == lines.size`,
       # `end_c == 0`) — ruby-lsp uses this to mean "end of document".
       start_l = start_l.clamp(0, [lines.size, 0].max)
@@ -1684,11 +1778,102 @@ module Rvim
       suffix = end_line.byteslice(end_c, end_line.bytesize - end_c) || ''
       replacement = (prefix + new_text + suffix).split("\n", -1)
       lines[start_l..end_l] = replacement
+    end
 
-      # Clamp cursor so it stays within the new buffer
-      @line_index = @line_index.clamp(0, [lines.size - 1, 0].max)
-      cur_line = lines[@line_index] || ''
-      @byte_pointer = (@byte_pointer || 0).clamp(0, cur_line.bytesize)
+    # Apply an LSP WorkspaceEdit across (potentially many) files.
+    # Per spec, prefer `documentChanges` if present (versioned form);
+    # otherwise fall back to the legacy `changes` map. Returns the
+    # number of files touched.
+    #
+    # For each target URI:
+    #   - the CURRENT buffer is edited in-memory (via apply_text_edits)
+    #     so undo (`u`) reverts the rename.
+    #   - other already-open buffers are mutated in-place and marked
+    #     modified; user commits with :w.
+    #   - files not currently open are read from disk, edited, and
+    #     written back (immediate). Saves the user from having to open
+    #     every touched file.
+    def apply_workspace_edit(workspace_edit)
+      return 0 unless workspace_edit
+
+      per_uri = {}
+      if workspace_edit[:documentChanges].is_a?(Array)
+        workspace_edit[:documentChanges].each do |dc|
+          # Skip file create/rename/delete ops for v1 (kind != "text").
+          next unless dc.is_a?(Hash) && dc[:textDocument] && dc[:edits].is_a?(Array)
+
+          uri = dc.dig(:textDocument, :uri).to_s
+          per_uri[uri] = (per_uri[uri] || []) + dc[:edits]
+        end
+      elsif workspace_edit[:changes].is_a?(Hash)
+        workspace_edit[:changes].each do |uri, edits|
+          uri_s = uri.to_s
+          per_uri[uri_s] = (per_uri[uri_s] || []) + Array(edits)
+        end
+      end
+
+      # Collapse multiple URIs pointing at the same physical file (macOS
+      # ruby-lsp returns BOTH `file:///tmp/x.rb` and `file:///private/tmp/x.rb`
+      # because /tmp is a symlink). Keep one representative URI per
+      # canonical path; merge edit lists. Without this, we'd apply the
+      # rename twice.
+      by_canonical = {}
+      per_uri.each do |uri, edits|
+        cpath = canonical_path(uri.sub(/\Afile:\/\//, ''))
+        entry = (by_canonical[cpath] ||= { uri: uri, edits: [] })
+        entry[:edits].concat(edits)
+      end
+
+      by_canonical.count do |cpath, entry|
+        apply_workspace_edit_for_uri(entry[:uri], cpath, entry[:edits])
+      end
+    end
+
+    private def apply_workspace_edit_for_uri(uri, canonical, edits)
+      return false if edits.nil? || edits.empty?
+
+      buf = @buffers.values.find do |b|
+        b.filepath && canonical_path(b.filepath) == canonical
+      end
+
+      if buf && buf == @current_buffer
+        apply_text_edits(edits)
+        @modified = true
+        return true
+      end
+
+      if buf
+        target_lines = buf.lines
+        sort_text_edits_descending(edits).each { |e| apply_text_edit_to_lines(target_lines, e) }
+        buf.modified = true
+        return true
+      end
+
+      return false unless canonical && File.exist?(canonical)
+
+      lines = File.readlines(canonical, chomp: true)
+      sort_text_edits_descending(edits).each { |e| apply_text_edit_to_lines(lines, e) }
+      trailing_newline = File.read(canonical).end_with?("\n")
+      File.write(canonical, lines.join("\n") + (trailing_newline ? "\n" : ''))
+      true
+    end
+
+    # Resolve symlinks (e.g. macOS /tmp → /private/tmp) and make the
+    # path absolute, so two paths pointing at the same physical file
+    # compare equal. Falls back to `expand_path` if the file is missing.
+    private def canonical_path(path)
+      return nil if path.nil? || path.empty?
+
+      File.realpath(path)
+    rescue StandardError
+      File.expand_path(path)
+    end
+
+    private def sort_text_edits_descending(edits)
+      edits.sort_by do |e|
+        pos = e.dig(:range, :start) || {}
+        [-(pos[:line] || 0), -(pos[:character] || 0)]
+      end
     end
 
     # Jump to a Quickfix::Entry: open the target file (if different),

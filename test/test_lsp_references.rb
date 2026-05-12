@@ -114,6 +114,7 @@ class TestEditorLspFindReferences < Test::Unit::TestCase
     def note_change(_buf); false; end
     def maybe_pull_diagnostics(_buf); false; end
     def flush_changes(_buf); false; end
+    def pending_for?(_); false; end
     def pump; end
     def diagnostic_signs(_); {}; end
     def diagnostic_ranges(_); {}; end

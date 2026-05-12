@@ -276,6 +276,70 @@ module Rvim
         @clients.each_value { |c| c.last_document_symbols_result = nil }
       end
 
+      # Send textDocument/rename for the cursor's current position with
+      # `new_name`. Result lands on the client as a WorkspaceEdit.
+      def request_rename(buffer, new_name)
+        ft = filetype_for(buffer)
+        client = @clients[ft]
+        return false unless client && client.status == :running
+
+        client.rename(buffer_uri(buffer),
+                      @editor.line_index, @editor.byte_pointer,
+                      new_name)
+        true
+      end
+
+      # Send textDocument/prepareRename to validate that the symbol at
+      # the cursor can be renamed by this server. Returns true on
+      # successful dispatch, false when no client / not running. The
+      # response lands as Range | { range, placeholder } |
+      # { defaultBehavior: true } | null on the client.
+      def request_prepare_rename(buffer)
+        ft = filetype_for(buffer)
+        client = @clients[ft]
+        return false unless client && client.status == :running
+
+        client.prepare_rename(buffer_uri(buffer),
+                              @editor.line_index, @editor.byte_pointer)
+        true
+      end
+
+      def last_prepare_rename_result
+        @clients.each_value do |c|
+          r = c.last_prepare_rename_result
+          return r if r
+        end
+        nil
+      end
+
+      def clear_prepare_rename_result
+        @clients.each_value { |c| c.last_prepare_rename_result = nil }
+      end
+
+      # Does the active client for this buffer's filetype advertise
+      # renameProvider.prepareProvider: true? If so, the rename flow
+      # must call prepareRename first.
+      def rename_prepare_required?(buffer)
+        ft = filetype_for(buffer)
+        client = @clients[ft]
+        return false unless client
+
+        provider = client.capabilities&.dig(:renameProvider)
+        provider.is_a?(Hash) && provider[:prepareProvider] == true
+      end
+
+      def last_rename_result
+        @clients.each_value do |c|
+          r = c.last_rename_result
+          return r if r
+        end
+        nil
+      end
+
+      def clear_rename_result
+        @clients.each_value { |c| c.last_rename_result = nil }
+      end
+
       # Pull-mode diagnostics request (LSP 3.17). ruby-lsp 0.26+ uses
       # this rather than pushing publishDiagnostics. The response is
       # cached under the same uri so diagnostics_for sees it.

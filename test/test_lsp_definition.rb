@@ -129,6 +129,7 @@ class TestEditorLspJumpToDefinition < Test::Unit::TestCase
     end
 
     def flush_changes(_buf); false; end
+    def pending_for?(_); false; end
     def pump; end
     def diagnostic_signs(_); {}; end
     def diagnostic_ranges(_); {}; end
