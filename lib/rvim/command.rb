@@ -145,6 +145,7 @@ module Rvim
              when 'LspFormat', 'lspformat' then :lsp_format
              when 'LspSymbols', 'lspsymbols' then :lsp_symbols
              when 'LspRename', 'lsprename' then :lsp_rename
+             when 'LspCodeAction', 'lspcodeaction' then :lsp_code_action
              when 'LspLog', 'lsplog' then :lsp_log
              when 'helpclose', 'helpc' then :helpclose
              when 'earlier', 'ear' then :earlier
@@ -420,6 +421,8 @@ module Rvim
         execute_lsp_symbols(editor)
       when :lsp_rename
         execute_lsp_rename(editor, parsed)
+      when :lsp_code_action
+        execute_lsp_code_action(editor, parsed)
       when :lsp_log
         execute_lsp_log(editor)
       when :earlier
@@ -1833,6 +1836,26 @@ module Rvim
       return if editor.lsp_rename_symbol(new_name)
 
       editor.status_message = 'LSP: rename unavailable for this buffer'
+    end
+
+    # `:LspCodeAction`        — list available actions, cache them
+    # `:LspCodeAction <N>`    — apply the Nth (1-based) cached action
+    def self.execute_lsp_code_action(editor, parsed)
+      arg = parsed.arg.to_s.strip
+      if arg.empty?
+        return if editor.lsp_show_code_actions
+
+        editor.status_message = 'LSP: code actions unavailable for this buffer'
+        return
+      end
+      n = arg.to_i
+      if n <= 0
+        editor.status_message = 'LSP: usage :LspCodeAction [N]'
+        return
+      end
+      return if editor.lsp_apply_code_action(n)
+
+      editor.status_message = "LSP: no cached code action ##{n} (run :LspCodeAction first)"
     end
 
     def self.execute_help(editor, parsed)

@@ -91,6 +91,7 @@ module Rvim
       @completion_line_index = 0
       @completion_popup = nil
       @hover_popup = nil
+      @last_code_actions = nil
       @cmdline_popup = nil
       @cmdline_completion_context = nil
       @digraph_pending = false
@@ -1521,6 +1522,110 @@ module Rvim
     LSP_FORMAT_TIMEOUT = 5.0
     LSP_SYMBOLS_TIMEOUT = 2.0
     LSP_RENAME_TIMEOUT = 5.0
+    LSP_CODE_ACTION_TIMEOUT = 3.0
+
+    # Request available code actions at the cursor, cache them on the
+    # editor, and show the list in the listing overlay numbered so the
+    # user can apply one via `:LspCodeAction N`. Returns true when the
+    # LSP path took action (list shown or "none available" surfaced).
+    def lsp_show_code_actions
+      return false unless @settings.get(:lsp_enabled)
+
+      buf = current_buffer
+      return false unless buf
+      lsp.flush_changes(buf)
+      return false unless lsp.request_code_actions(buf)
+
+      deadline = Time.now + LSP_CODE_ACTION_TIMEOUT
+      result = nil
+      loop do
+        lsp.pump
+        result = lsp.last_code_actions_result
+        break if result
+        break unless lsp.pending_for?('textDocument/codeAction')
+        break if Time.now > deadline
+
+        sleep 0.02
+      end
+
+      actions = Array(result)
+      if actions.empty?
+        @last_code_actions = nil
+        @status_message = 'LSP: no code actions available'
+        return true
+      end
+
+      @last_code_actions = actions
+      rows = ['Code actions:']
+      actions.each_with_index do |a, i|
+        title = a[:title].to_s
+        kind = a[:kind].to_s
+        suffix = kind.empty? ? '' : " [#{kind}]"
+        rows << format('  %d. %s%s', i + 1, title, suffix)
+      end
+      rows << '(:LspCodeAction <N> to apply)'
+      show_list(rows)
+      true
+    end
+
+    # Apply the Nth (1-based) cached code action. CodeAction may carry an
+    # `edit` (WorkspaceEdit) and/or a `command` (executed server-side via
+    # workspace/executeCommand). When the server returned the action
+    # unresolved (only `data`, no `edit`/`command`), this calls
+    # codeAction/resolve first to fill it in. Both edit and command are
+    # honored when present, in spec order: edits first, then command.
+    def lsp_apply_code_action(index_1_based)
+      return false unless @last_code_actions
+      idx = index_1_based.to_i - 1
+      return false unless idx.between?(0, @last_code_actions.size - 1)
+
+      action = @last_code_actions[idx]
+      buf = current_buffer
+
+      # If the server can resolve (deferred edit/command) and this action
+      # is incomplete, fetch the resolved form before applying.
+      if buf && action[:edit].nil? && action[:command].nil? &&
+         lsp.respond_to?(:code_action_resolve_required?) &&
+         lsp.code_action_resolve_required?(buf)
+        if lsp.request_code_action_resolve(buf, action)
+          deadline = Time.now + LSP_CODE_ACTION_TIMEOUT
+          loop do
+            lsp.pump
+            resolved = lsp.last_code_action_resolve_result
+            break action = resolved if resolved
+            break unless lsp.pending_for?('codeAction/resolve')
+            break if Time.now > deadline
+
+            sleep 0.02
+          end
+        end
+      end
+
+      applied = false
+
+      if action[:edit]
+        pre_buffer = @buffer_of_lines.map(&:dup)
+        apply_workspace_edit(action[:edit])
+        push_undo_redo(true) if pre_buffer != @buffer_of_lines
+        @modified = true if pre_buffer != @buffer_of_lines
+        sync_current_buffer_lines
+        applied = true
+      end
+
+      if action[:command]
+        cmd = action[:command]
+        # CodeAction's command field can be a Command object or a string
+        # (rare; older spec). Normalize.
+        cmd_obj = cmd.is_a?(Hash) ? cmd : { command: cmd.to_s }
+        if buf && cmd_obj[:command]
+          lsp.request_execute_command(buf, cmd_obj[:command].to_s, cmd_obj[:arguments])
+          applied = true
+        end
+      end
+
+      @status_message = applied ? "LSP: applied '#{action[:title]}'" : 'LSP: action had nothing to apply'
+      true
+    end
 
     # Send textDocument/rename for the cursor's symbol, poll for the
     # response, then apply the returned WorkspaceEdit across files.

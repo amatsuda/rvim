@@ -17,7 +17,9 @@ module Rvim
       attr_reader :name, :status, :capabilities, :diagnostics
       attr_accessor :last_definition_result, :last_hover_result, :last_references_result,
                     :last_formatting_result, :last_document_symbols_result,
-                    :last_rename_result, :last_prepare_rename_result
+                    :last_rename_result, :last_prepare_rename_result,
+                    :last_code_actions_result, :last_execute_command_result,
+                    :last_code_action_resolve_result
 
       def initialize(name:, command:, root_uri:, on_diagnostic: nil, cwd: nil, on_log: nil)
         @name = name
@@ -181,6 +183,47 @@ module Rvim
                 textDocument: { uri: uri },
                 position: { line: line, character: character },
                 newName: new_name)
+      end
+
+      # textDocument/codeAction. Result is (Command | CodeAction)[] | null.
+      # `diagnostics` is the list of LSP Diagnostic objects relevant to the
+      # range; pass [] when invoking without a specific target diagnostic.
+      def code_action(uri, range, diagnostics: [])
+        @last_code_actions_result = nil
+        request('textDocument/codeAction',
+                textDocument: { uri: uri },
+                range: range,
+                context: { diagnostics: diagnostics, triggerKind: 1 })
+      end
+
+      # codeAction/resolve. Server-deferred actions are returned from
+      # textDocument/codeAction with only `data` set (no `edit` /
+      # `command`). This request asks the server to fill them in so the
+      # client can apply.
+      def code_action_resolve(action)
+        @last_code_action_resolve_result = nil
+        # `request` expects keyword args; LSP spec passes the CodeAction
+        # object directly as params, so we send via a low-level path that
+        # accepts the whole object.
+        id = (@next_id += 1)
+        @pending[id] = ['codeAction/resolve', nil]
+        body = { jsonrpc: '2.0', id: id, method: 'codeAction/resolve', params: action }
+        if @status == :running
+          send_message(body)
+        else
+          @send_queue << body
+        end
+        id
+      end
+
+      # workspace/executeCommand. Result is `any` per spec — servers may
+      # return null, edits, or arbitrary data. Fire-and-forget for our v1:
+      # the editor doesn't read the result back yet.
+      def execute_command(command, arguments = nil)
+        @last_execute_command_result = nil
+        params = { command: command }
+        params[:arguments] = arguments if arguments
+        request('workspace/executeCommand', **params)
       end
 
       # LSP 3.17 pull diagnostics. ruby-lsp 0.26+ uses this rather than
@@ -347,6 +390,15 @@ module Rvim
         when 'textDocument/prepareRename'
           # Result is Range | { range, placeholder } | { defaultBehavior } | null.
           @last_prepare_rename_result = msg[:result]
+        when 'textDocument/codeAction'
+          # Result is (Command | CodeAction)[] | null.
+          @last_code_actions_result = msg[:result]
+        when 'workspace/executeCommand'
+          # Result is `any`; stash verbatim.
+          @last_execute_command_result = msg[:result]
+        when 'codeAction/resolve'
+          # Result is a fully-resolved CodeAction (with edit/command).
+          @last_code_action_resolve_result = msg[:result]
         end
       end
 

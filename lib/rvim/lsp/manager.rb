@@ -316,6 +316,86 @@ module Rvim
         @clients.each_value { |c| c.last_prepare_rename_result = nil }
       end
 
+      # Send textDocument/codeAction for the current cursor position.
+      # The range collapses to a single point at the cursor; diagnostics
+      # on the cursor's line are passed as context so the server's
+      # quickfix-style actions surface. Result lands on the client.
+      def request_code_actions(buffer)
+        ft = filetype_for(buffer)
+        client = @clients[ft]
+        return false unless client && client.status == :running
+
+        line = @editor.line_index
+        char = @editor.byte_pointer
+        range = { start: { line: line, character: char },
+                  end:   { line: line, character: char } }
+        # Include diagnostics on the cursor's line as context.
+        diags = diagnostics_for(buffer).select do |d|
+          sl = d.dig(:range, :start, :line)
+          el = d.dig(:range, :end, :line)
+          sl && el && line.between?(sl.to_i, el.to_i)
+        end
+        client.code_action(buffer_uri(buffer), range, diagnostics: diags)
+        true
+      end
+
+      def last_code_actions_result
+        @clients.each_value do |c|
+          r = c.last_code_actions_result
+          return r if r
+        end
+        nil
+      end
+
+      def clear_code_actions_result
+        @clients.each_value { |c| c.last_code_actions_result = nil }
+      end
+
+      # Send workspace/executeCommand. Returns true on dispatch.
+      def request_execute_command(buffer, command, arguments = nil)
+        ft = filetype_for(buffer)
+        client = @clients[ft]
+        return false unless client && client.status == :running
+
+        client.execute_command(command, arguments)
+        true
+      end
+
+      # Send codeAction/resolve for an unresolved CodeAction. Returns
+      # true when the request was dispatched.
+      def request_code_action_resolve(buffer, action)
+        ft = filetype_for(buffer)
+        client = @clients[ft]
+        return false unless client && client.status == :running
+
+        client.code_action_resolve(action)
+        true
+      end
+
+      def last_code_action_resolve_result
+        @clients.each_value do |c|
+          r = c.last_code_action_resolve_result
+          return r if r
+        end
+        nil
+      end
+
+      def clear_code_action_resolve_result
+        @clients.each_value { |c| c.last_code_action_resolve_result = nil }
+      end
+
+      # Does the active client advertise codeActionProvider.resolveProvider?
+      # When true, code actions returned without `edit`/`command` need to
+      # be resolved via codeAction/resolve before they can be applied.
+      def code_action_resolve_required?(buffer)
+        ft = filetype_for(buffer)
+        client = @clients[ft]
+        return false unless client
+
+        provider = client.capabilities&.dig(:codeActionProvider)
+        provider.is_a?(Hash) && provider[:resolveProvider] == true
+      end
+
       # Does the active client for this buffer's filetype advertise
       # renameProvider.prepareProvider: true? If so, the rename flow
       # must call prepareRename first.
