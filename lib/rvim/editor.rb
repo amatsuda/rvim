@@ -3579,6 +3579,39 @@ module Rvim
         return
       end
 
+      # If we entered a CSI-consume state during a paste burst, keep
+      # eating bytes until the sequence terminator — even after the
+      # paste has technically ended. The terminator byte of the closing
+      # bracketed-paste marker (\e[201~) arrives AFTER in_pasting?
+      # flips to false, so this check has to live outside the paste
+      # branch below.
+      if @cmdline_paste_consuming_csi && ch.is_a?(String)
+        clear_cmdline_completion
+        @cmdline_paste_consuming_csi = false if ch =~ /\A[A-Za-z~]\z/
+        clear_history_cursor
+        return
+      end
+
+      # Mid-paste keys arrive as part of a contiguous burst that Reline's
+      # IOGate flags as `in_pasting?`. Treat newlines / esc / tab as
+      # literal so a multi-line clipboard paste lands in the cmdline as
+      # a single line without prematurely executing or cancelling, and
+      # drop control chars / escape sequences entirely so they don't
+      # leave invisible bytes in the prompt buffer (which would push
+      # the cursor past the visible text).
+      if pasting_prompt_key? && ch.is_a?(String)
+        clear_cmdline_completion
+        if ch == "\e"
+          # Start of a multi-byte escape sequence whose remaining bytes
+          # will arrive as separate keys — enter consume mode.
+          @cmdline_paste_consuming_csi = true
+        elsif printable_paste_char?(ch)
+          @prompt_buffer << ch
+        end
+        clear_history_cursor
+        return
+      end
+
       if ch.is_a?(String) && ch.bytesize > 1 && ch.start_with?("\e")
         handle_prompt_escape_sequence(key)
         return
@@ -3618,6 +3651,34 @@ module Rvim
         maybe_expand_cmdline_abbreviation(ch.to_s) if @prompt_mode == :ex
       end
       refresh_incremental_search
+    end
+
+    # True when the editor's main loop has flagged a paste burst on the
+    # current key. @in_pasting is set by Reline::LineEditor#set_pasting_state,
+    # which the run loop calls each iteration with Reline::IOGate.in_pasting?.
+    # We read the ivar directly rather than re-querying IOGate so unit
+    # tests (which don't go through the run loop) see the default false.
+    private def pasting_prompt_key?
+      @in_pasting ? true : false
+    end
+
+    # Filter for chars that may be appended to the prompt buffer during
+    # a paste burst. Drops CR/LF (would prematurely execute), all C0
+    # control chars (most notably ESC), and any multi-byte escape
+    # sequence (bracketed-paste markers, arrow keys embedded in pasted
+    # terminal output, etc.). Single-byte printable chars and printable
+    # multi-byte UTF-8 chars pass through.
+    private def printable_paste_char?(ch)
+      return false if ch.empty?
+      return false if ch.start_with?("\e")
+      if ch.bytesize == 1
+        b = ch.getbyte(0)
+        # Allow tab so pasted indentation survives; drop everything
+        # else below space (0x20) and DEL (0x7f).
+        return false if b < 0x20 && b != 0x09
+        return false if b == 0x7f
+      end
+      true
     end
 
     private def maybe_expand_cmdline_abbreviation(ch)
