@@ -19,7 +19,7 @@ module Rvim
                     :last_formatting_result, :last_document_symbols_result,
                     :last_rename_result, :last_prepare_rename_result,
                     :last_code_actions_result, :last_execute_command_result,
-                    :last_code_action_resolve_result
+                    :last_code_action_resolve_result, :last_completion_result
 
       def initialize(name:, command:, root_uri:, on_diagnostic: nil, cwd: nil, on_log: nil)
         @name = name
@@ -194,6 +194,17 @@ module Rvim
                 textDocument: { uri: uri },
                 range: range,
                 context: { diagnostics: diagnostics, triggerKind: 1 })
+      end
+
+      # textDocument/completion. Result is CompletionItem[] |
+      # CompletionList | null. CompletionList wraps items with a flag
+      # for whether the result is complete; we only care about items.
+      def completion(uri, line, character)
+        @last_completion_result = nil
+        request('textDocument/completion',
+                textDocument: { uri: uri },
+                position: { line: line, character: character },
+                context: { triggerKind: 1 })
       end
 
       # codeAction/resolve. Server-deferred actions are returned from
@@ -399,6 +410,9 @@ module Rvim
         when 'codeAction/resolve'
           # Result is a fully-resolved CodeAction (with edit/command).
           @last_code_action_resolve_result = msg[:result]
+        when 'textDocument/completion'
+          # Result is CompletionItem[] | CompletionList | null.
+          @last_completion_result = msg[:result]
         end
       end
 

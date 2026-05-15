@@ -384,6 +384,30 @@ module Rvim
         @clients.each_value { |c| c.last_code_action_resolve_result = nil }
       end
 
+      # Send textDocument/completion at the cursor position. Result
+      # (CompletionItem[] | CompletionList | null) lands on the client.
+      def request_completion(buffer)
+        ft = filetype_for(buffer)
+        client = @clients[ft]
+        return false unless client && client.status == :running
+
+        client.completion(buffer_uri(buffer),
+                          @editor.line_index, @editor.byte_pointer)
+        true
+      end
+
+      def last_completion_result
+        @clients.each_value do |c|
+          r = c.last_completion_result
+          return r if r
+        end
+        nil
+      end
+
+      def clear_completion_result
+        @clients.each_value { |c| c.last_completion_result = nil }
+      end
+
       # Does the active client advertise codeActionProvider.resolveProvider?
       # When true, code actions returned without `edit`/`command` need to
       # be resolved via codeAction/resolve before they can be applied.

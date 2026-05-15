@@ -1079,7 +1079,15 @@ module Rvim
     private def start_completion(delta)
       line = @buffer_of_lines[@line_index] || ''
       base = Rvim::Completion.base_at(line, @byte_pointer)
-      candidates = Rvim::Completion.candidates(@buffer_of_lines, base, infercase: @settings.get(:infercase))
+
+      keyword = Rvim::Completion.candidates(@buffer_of_lines, base, infercase: @settings.get(:infercase))
+      lsp_cands = collect_lsp_completion_candidates(base)
+
+      # Order: LSP candidates first (when present), then keyword
+      # candidates with anything already in the LSP list filtered out.
+      # Always offer keyword candidates so the popup has something even
+      # when ruby-lsp returns [] for bare-identifier contexts.
+      candidates = lsp_cands + (keyword - lsp_cands)
       if candidates.empty?
         @status_message = 'Pattern not found'
         return
@@ -1094,6 +1102,57 @@ module Rvim
       @completion_popup = Rvim::CompletionPopup.new(contents: candidates, pointer: @completion_index, max_height: configured_pum_height)
       replace_completion_with(@completion_candidates[@completion_index]) unless completeopt_flags.include?('noinsert')
       update_completion_status
+    end
+
+    LSP_COMPLETION_TIMEOUT = 1.5
+
+    # Send textDocument/completion at the cursor, wait briefly, return
+    # the candidate text strings (insertText preferred, else label),
+    # filtered to those starting with `base`. Empty array when LSP is
+    # off / no client / no items / timed out.
+    private def collect_lsp_completion_candidates(base)
+      return [] unless @settings.get(:lsp_enabled)
+
+      buf = current_buffer
+      return [] unless buf
+      lsp.flush_changes(buf)
+      return [] unless lsp.request_completion(buf)
+
+      deadline = Time.now + LSP_COMPLETION_TIMEOUT
+      result = nil
+      loop do
+        lsp.pump
+        result = lsp.last_completion_result
+        break if result
+        break unless lsp.pending_for?('textDocument/completion')
+        break if Time.now > deadline
+
+        sleep 0.02
+      end
+
+      items = extract_completion_items(result)
+      texts = items.map { |it| completion_item_text(it) }.compact.uniq
+      texts = texts.select { |t| t.start_with?(base) } unless base.empty?
+      texts
+    end
+
+    # Normalize the raw textDocument/completion result into a flat
+    # Array of CompletionItem hashes. Handles CompletionItem[],
+    # CompletionList ({ isIncomplete, items }), and null.
+    private def extract_completion_items(result)
+      case result
+      when nil then []
+      when Array then result
+      when Hash then Array(result[:items])
+      else []
+      end
+    end
+
+    # Text used to display + insert for a CompletionItem. Prefer
+    # `insertText` when present, otherwise `label`.
+    private def completion_item_text(item)
+      txt = item[:insertText] || item[:label]
+      txt&.to_s
     end
 
     private def completeopt_flags
