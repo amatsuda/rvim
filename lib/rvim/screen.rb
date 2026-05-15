@@ -243,6 +243,7 @@ module Rvim
       sign_w = sign_column_width_for(buffer)
       lsp_signs = lsp_signs_for(buffer)
       lsp_ranges = lsp_ranges_for(buffer)
+      lsp_hints = lsp_inlay_hints_for(buffer)
       content_width = win.width - gw
       cursor_idx = is_current ? @editor.line_index : buffer.line_index
       wrap_on = @editor.settings.get(:wrap)
@@ -276,6 +277,13 @@ module Rvim
           # embedded — applying it here wraps the post-highlight output.
           if line_diags && !line_diags.empty? && byte_off.zero?
             rendered = apply_diagnostic_overlay(rendered, line_diags)
+          end
+          # Inlay hints: splice ghost-text labels at their reported
+          # character positions, skipping the cursor line so the
+          # cursor's display column stays in sync with buffer bytes.
+          line_hints = lsp_hints[line_idx]
+          if line_hints && !line_hints.empty? && byte_off.zero? && line_idx != cursor_idx
+            rendered = apply_inlay_hints_overlay(rendered, line_hints)
           end
           if !sbr.empty? && byte_off.is_a?(Integer) && byte_off > 0
             rendered = truncate_to_width(sbr + rendered, content_width)
@@ -708,6 +716,15 @@ module Rvim
       @editor.lsp.diagnostic_ranges(buffer)
     end
 
+    # 0-based line => InlayHint[] for the buffer, or {} when LSP is off.
+    def lsp_inlay_hints_for(buffer)
+      return {} unless buffer
+      return {} unless @editor.respond_to?(:settings) && @editor.settings.get(:lsp_enabled)
+      return {} unless @editor.respond_to?(:lsp) && @editor.lsp.respond_to?(:inlay_hints_by_line)
+
+      @editor.lsp.inlay_hints_by_line(buffer)
+    end
+
     SEVERITY_GLYPHS = { 1 => 'E', 2 => 'W', 3 => 'I', 4 => 'H' }.freeze
     SEVERITY_COLORS = { 1 => 196, 2 => 214, 3 => 75, 4 => 245 }.freeze
 
@@ -892,6 +909,90 @@ module Rvim
 
       out << "\e[24;39m" if active
       out
+    end
+
+    # Splice ghost-text inlay-hint labels into an already-rendered
+    # line. Same SGR-aware walk as apply_diagnostic_overlay: step
+    # through bytes while counting original buffer chars, and when
+    # the next hint's `position.character` matches the cursor, emit
+    # its label wrapped in the ghost-text SGR (italic + muted gray)
+    # plus optional paddingLeft/paddingRight spaces. The cursor line
+    # is skipped by the caller so this never widens the column the
+    # cursor is on.
+    def apply_inlay_hints_overlay(rendered, hints)
+      return rendered if hints.nil? || hints.empty?
+
+      sorted = hints.sort_by { |h| h.dig(:position, :character).to_i }
+      out = +''
+      pos = 0
+      orig = 0
+      hint_idx = 0
+      total = rendered.bytesize
+
+      while pos < total
+        if rendered.getbyte(pos) == 0x1b && (m = rendered.byteslice(pos..-1)&.match(DIAG_SGR_RE))
+          out << m[0]
+          pos += m[0].bytesize
+          next
+        end
+
+        while hint_idx < sorted.size && sorted[hint_idx].dig(:position, :character).to_i == orig
+          out << format_inlay_hint(sorted[hint_idx])
+          hint_idx += 1
+        end
+
+        cb = rendered.getbyte(pos)
+        char_bytes = if cb.nil? || cb < 0x80 then 1
+                     elsif cb < 0xc0 then 1
+                     elsif cb < 0xe0 then 2
+                     elsif cb < 0xf0 then 3
+                     else 4
+                     end
+        out << rendered.byteslice(pos, char_bytes)
+        pos += char_bytes
+        orig += 1
+      end
+
+      # Hints anchored past the rendered end of line trail at the
+      # end (e.g. a type hint on an empty line).
+      while hint_idx < sorted.size
+        out << format_inlay_hint(sorted[hint_idx])
+        hint_idx += 1
+      end
+      out
+    end
+
+    # InlayHint.label is `string | InlayHintLabelPart[]`. Servers
+    # that want per-part tooltips/commands use the array form; we
+    # only render the text.
+    def inlay_hint_label_text(hint)
+      label = hint[:label]
+      case label
+      when String then label
+      when Array
+        label.map { |part| part.is_a?(Hash) ? part[:value].to_s : part.to_s }.join
+      else ''
+      end
+    end
+
+    # SGR for inlay-hint ghost text: italic + a muted gray foreground.
+    # Italic alone isn't enough — terminals without italic support
+    # would collapse the hint into the surrounding text — so we also
+    # pin the color so it reads as "not real code" regardless.
+    INLAY_HINT_SGR_OPEN  = "\e[3;38;5;240m"
+    INLAY_HINT_SGR_CLOSE = "\e[23;39m"
+
+    # Wrap one hint in the ghost-text SGR plus optional padding spaces.
+    def format_inlay_hint(hint)
+      text = inlay_hint_label_text(hint)
+      return '' if text.empty?
+
+      buf = +INLAY_HINT_SGR_OPEN
+      buf << ' ' if hint[:paddingLeft]
+      buf << text
+      buf << ' ' if hint[:paddingRight]
+      buf << INLAY_HINT_SGR_CLOSE
+      buf
     end
 
     DEFAULT_LISTCHARS = { 'tab' => '> ', 'trail' => '·' }.freeze

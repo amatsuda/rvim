@@ -20,10 +20,14 @@ module Rvim
         @synced_fingerprints = {} # buffer_id -> Array#hash of last synced lines
         @synced_at = {} # buffer_id -> monotonic time of last didChange
         @synced_end_pos = {} # buffer_id -> { line:, character: } end of last synced doc
+        @last_hints_pulled_at = {} # buffer_id -> monotonic time of last inlayHint pull
+        @inlay_hints_cache = {} # buffer_id -> InlayHint[]
       end
 
-      # Refresh interval (seconds) for the auto-pull below.
+      # Refresh interval (seconds) for the diagnostic auto-pull below.
       DIAG_PULL_INTERVAL = 0.5
+      # Refresh interval (seconds) for the inlay-hint auto-pull.
+      HINTS_PULL_INTERVAL = 1.0
       # Debounce window (seconds) for didChange. NeoVim uses ~0.15s.
       CHANGE_DEBOUNCE_INTERVAL = 0.15
 
@@ -382,6 +386,74 @@ module Rvim
 
       def clear_code_action_resolve_result
         @clients.each_value { |c| c.last_code_action_resolve_result = nil }
+      end
+
+      # Send textDocument/inlayHint for the whole buffer. Result
+      # (InlayHint[] | null) is cached server-side; once it lands we
+      # bucket the hints by line via #inlay_hints_by_line so the
+      # renderer can look them up O(1) per row.
+      def request_inlay_hints(buffer)
+        ft = filetype_for(buffer)
+        client = @clients[ft]
+        return false unless client && client.status == :running
+
+        line_count = buffer.lines.size
+        range = {
+          start: { line: 0, character: 0 },
+          end:   { line: [line_count, 0].max, character: 0 },
+        }
+        client.inlay_hint(buffer_uri(buffer), range)
+        @last_hints_pulled_at[buffer.id] = monotonic_now
+        true
+      end
+
+      # Throttled auto-pull called from the render loop. Cheap when
+      # the interval hasn't elapsed; sends a fresh inlayHint request
+      # otherwise. The response lands asynchronously and is bucketed
+      # into @inlay_hints_cache once the editor pumps responses.
+      def maybe_pull_inlay_hints(buffer)
+        return false unless buffer
+
+        last = @last_hints_pulled_at[buffer.id]
+        return false if last && monotonic_now - last < HINTS_PULL_INTERVAL
+
+        request_inlay_hints(buffer)
+      end
+
+      def last_inlay_hints_result
+        @clients.each_value do |c|
+          r = c.last_inlay_hints_result
+          return r if r
+        end
+        nil
+      end
+
+      def clear_inlay_hints_result
+        @clients.each_value { |c| c.last_inlay_hints_result = nil }
+      end
+
+      # Bucket the cached hints by 0-based line number. Each line's
+      # entry is an array of hint hashes sorted by character position.
+      # The renderer calls this once per render_window pass.
+      def inlay_hints_by_line(buffer)
+        return {} unless buffer
+
+        # Drain a freshly-arrived result into the per-buffer cache.
+        result = last_inlay_hints_result
+        if result.is_a?(Array)
+          @inlay_hints_cache[buffer.id] = result
+          clear_inlay_hints_result
+        end
+
+        out = Hash.new { |h, k| h[k] = [] }
+        (@inlay_hints_cache[buffer.id] || []).each do |hint|
+          line = hint.dig(:position, :line)
+          next unless line
+
+          out[line.to_i] << hint
+        end
+        out.each_value { |arr| arr.sort_by! { |h| h.dig(:position, :character).to_i } }
+        out
       end
 
       # Send textDocument/completion at the cursor position. Result

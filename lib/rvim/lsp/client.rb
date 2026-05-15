@@ -19,7 +19,8 @@ module Rvim
                     :last_formatting_result, :last_document_symbols_result,
                     :last_rename_result, :last_prepare_rename_result,
                     :last_code_actions_result, :last_execute_command_result,
-                    :last_code_action_resolve_result, :last_completion_result
+                    :last_code_action_resolve_result, :last_completion_result,
+                    :last_inlay_hints_result
 
       def initialize(name:, command:, root_uri:, on_diagnostic: nil, cwd: nil, on_log: nil)
         @name = name
@@ -196,6 +197,17 @@ module Rvim
                 context: { diagnostics: diagnostics, triggerKind: 1 })
       end
 
+      # textDocument/inlayHint. Result is InlayHint[] | null. Each
+      # hint has { position: { line, character }, label, kind?,
+      # paddingLeft?, paddingRight?, tooltip?, ... }. Label can be a
+      # String or an array of InlayHintLabelPart objects.
+      def inlay_hint(uri, range)
+        @last_inlay_hints_result = nil
+        request('textDocument/inlayHint',
+                textDocument: { uri: uri },
+                range: range)
+      end
+
       # textDocument/completion. Result is CompletionItem[] |
       # CompletionList | null. CompletionList wraps items with a flag
       # for whether the result is complete; we only care about items.
@@ -282,6 +294,7 @@ module Rvim
                 processId: Process.pid,
                 rootUri: @root_uri,
                 capabilities: client_capabilities,
+                initializationOptions: initialization_options,
                 clientInfo: { name: 'rvim', version: Rvim::VERSION })
       end
 
@@ -293,8 +306,21 @@ module Rvim
             diagnostic: { dynamicRegistration: false, relatedDocumentSupport: false },
             hover: { contentFormat: %w[markdown plaintext] },
             completion: { completionItem: { snippetSupport: false } },
+            inlayHint: { dynamicRegistration: false },
           },
           workspace: { workspaceFolders: false },
+        }
+      end
+
+      # ruby-lsp gates each inlay-hint category behind a feature flag
+      # in initializationOptions.featuresConfiguration.inlayHint. With
+      # the defaults (both off) textDocument/inlayHint returns []. We
+      # opt into both supported categories so users actually see hints.
+      def initialization_options
+        {
+          featuresConfiguration: {
+            inlayHint: { implicitRescue: true, implicitHashValue: true },
+          },
         }
       end
 
@@ -413,6 +439,9 @@ module Rvim
         when 'textDocument/completion'
           # Result is CompletionItem[] | CompletionList | null.
           @last_completion_result = msg[:result]
+        when 'textDocument/inlayHint'
+          # Result is InlayHint[] | null.
+          @last_inlay_hints_result = msg[:result]
         end
       end
 

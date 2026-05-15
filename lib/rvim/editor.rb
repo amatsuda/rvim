@@ -5372,6 +5372,9 @@ module Rvim
               # refresh on a 500ms cadence so signs/underlines appear without
               # the user invoking :LspDiagnostics manually.
               editor.lsp.maybe_pull_diagnostics(editor.current_buffer)
+              # Inlay hints are also pull-mode in LSP 3.17. Refresh on
+              # a 1s cadence so labels stay current as the buffer changes.
+              editor.lsp.maybe_pull_inlay_hints(editor.current_buffer)
             end
             begin
               Reline.core.send(:read_io, Reline.core.config.keyseq_timeout) do |inputs|
