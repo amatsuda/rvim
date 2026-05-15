@@ -1580,6 +1580,7 @@ module Rvim
 
     LSP_FORMAT_TIMEOUT = 5.0
     LSP_SYMBOLS_TIMEOUT = 2.0
+    LSP_WORKSPACE_SYMBOLS_TIMEOUT = 5.0
     LSP_RENAME_TIMEOUT = 5.0
     LSP_CODE_ACTION_TIMEOUT = 3.0
 
@@ -1816,6 +1817,46 @@ module Rvim
       entries = flatten_symbols(symbols, @filepath || '')
       if entries.empty?
         @status_message = 'LSP: no symbols'
+        return true
+      end
+
+      @quickfix.set(entries)
+      show_list(Rvim::Command.format_quickfix(self))
+      true
+    end
+
+    # Send workspace/symbol with `query`, populate @quickfix with one
+    # entry per matching symbol from anywhere in the project. The
+    # response is SymbolInformation[] | WorkspaceSymbol[] — both
+    # carry a full `location` so flatten_symbols handles them.
+    def lsp_show_workspace_symbols(query)
+      return false unless @settings.get(:lsp_enabled)
+
+      buf = current_buffer
+      return false unless buf
+      return false unless lsp.request_workspace_symbols(buf, query)
+
+      deadline = Time.now + LSP_WORKSPACE_SYMBOLS_TIMEOUT
+      result = nil
+      loop do
+        lsp.pump
+        result = lsp.last_workspace_symbols_result
+        break if result
+        break unless lsp.pending_for?('workspace/symbol')
+        break if Time.now > deadline
+
+        sleep 0.02
+      end
+
+      symbols = result || []
+      if symbols.empty?
+        @status_message = "LSP: no symbols match #{query.inspect}"
+        return true
+      end
+
+      entries = flatten_symbols(symbols, @filepath || '')
+      if entries.empty?
+        @status_message = "LSP: no symbols match #{query.inspect}"
         return true
       end
 

@@ -20,7 +20,7 @@ module Rvim
                     :last_rename_result, :last_prepare_rename_result,
                     :last_code_actions_result, :last_execute_command_result,
                     :last_code_action_resolve_result, :last_completion_result,
-                    :last_inlay_hints_result
+                    :last_inlay_hints_result, :last_workspace_symbols_result
 
       def initialize(name:, command:, root_uri:, on_diagnostic: nil, cwd: nil, on_log: nil)
         @name = name
@@ -163,6 +163,14 @@ module Rvim
         @last_document_symbols_result = nil
         request('textDocument/documentSymbol',
                 textDocument: { uri: uri })
+      end
+
+      # workspace/symbol. Result is SymbolInformation[] |
+      # WorkspaceSymbol[] | null — both shapes carry `location` so the
+      # editor-side flattener can reuse the documentSymbol path.
+      def workspace_symbol(query)
+        @last_workspace_symbols_result = nil
+        request('workspace/symbol', query: query.to_s)
       end
 
       # textDocument/prepareRename. When the server advertises
@@ -308,7 +316,10 @@ module Rvim
             completion: { completionItem: { snippetSupport: false } },
             inlayHint: { dynamicRegistration: false },
           },
-          workspace: { workspaceFolders: false },
+          workspace: {
+            workspaceFolders: false,
+            symbol: { dynamicRegistration: false },
+          },
         }
       end
 
@@ -421,6 +432,9 @@ module Rvim
         when 'textDocument/documentSymbol'
           # Result is DocumentSymbol[] | SymbolInformation[] | null.
           @last_document_symbols_result = msg[:result]
+        when 'workspace/symbol'
+          # Result is SymbolInformation[] | WorkspaceSymbol[] | null.
+          @last_workspace_symbols_result = msg[:result]
         when 'textDocument/rename'
           # Result is WorkspaceEdit | null. Stash verbatim; editor applies.
           @last_rename_result = msg[:result]

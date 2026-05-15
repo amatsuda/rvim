@@ -144,6 +144,7 @@ module Rvim
              when 'LspReferences', 'lspreferences' then :lsp_references
              when 'LspFormat', 'lspformat' then :lsp_format
              when 'LspSymbols', 'lspsymbols' then :lsp_symbols
+             when 'LspWorkspaceSymbols', 'lspworkspacesymbols' then :lsp_workspace_symbols
              when 'LspRename', 'lsprename' then :lsp_rename
              when 'LspCodeAction', 'lspcodeaction' then :lsp_code_action
              when 'LspLog', 'lsplog' then :lsp_log
@@ -419,6 +420,8 @@ module Rvim
         execute_lsp_format(editor)
       when :lsp_symbols
         execute_lsp_symbols(editor)
+      when :lsp_workspace_symbols
+        execute_lsp_workspace_symbols(editor, parsed)
       when :lsp_rename
         execute_lsp_rename(editor, parsed)
       when :lsp_code_action
@@ -1825,6 +1828,20 @@ module Rvim
       return if editor.lsp_show_document_symbols
 
       editor.status_message = 'LSP: symbols unavailable for this buffer'
+    end
+
+    # `:LspWorkspaceSymbols <query>` — ruby-lsp (and most servers)
+    # returns [] for an empty query rather than dumping the whole
+    # index, so require an arg with a usage hint.
+    def self.execute_lsp_workspace_symbols(editor, parsed)
+      query = parsed.arg.to_s.strip
+      if query.empty?
+        editor.status_message = 'LSP: usage :LspWorkspaceSymbols <query>'
+        return
+      end
+      return if editor.lsp_show_workspace_symbols(query)
+
+      editor.status_message = 'LSP: workspace symbols unavailable for this buffer'
     end
 
     def self.execute_lsp_rename(editor, parsed)
