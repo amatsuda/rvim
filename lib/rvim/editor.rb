@@ -91,6 +91,7 @@ module Rvim
       @completion_line_index = 0
       @completion_popup = nil
       @hover_popup = nil
+      @signature_popup = nil
       @last_code_actions = nil
       @cmdline_popup = nil
       @cmdline_completion_context = nil
@@ -1189,7 +1190,7 @@ module Rvim
     end
 
     attr_reader :completion_popup, :completion_base_byte, :completion_line_index
-    attr_reader :hover_popup
+    attr_reader :hover_popup, :signature_popup
 
     private def completion_key?(key)
       sym = key.method_symbol
@@ -1509,6 +1510,114 @@ module Rvim
 
     def dismiss_hover_popup
       @hover_popup = nil
+    end
+
+    LSP_SIGNATURE_HELP_TIMEOUT = 1.5
+    SIGNATURE_POPUP_MAX_WIDTH  = 80
+    SIGNATURE_POPUP_MAX_HEIGHT = 8
+
+    # Send textDocument/signatureHelp, poll, parse the SignatureHelp
+    # response, build @signature_popup. Returns true when the LSP path
+    # took action (popup shown OR "no info" status), false when LSP is
+    # off / unavailable. `position_offset` lets the auto-trigger path
+    # pull the request position one column back so it lands ON the
+    # `(` / `,` rather than past it (ruby-lsp's CallNode end_offset is
+    # exclusive).
+    def lsp_show_signature_help(position_offset: 0)
+      return false unless @settings.get(:lsp_enabled)
+
+      buf = current_buffer
+      return false unless buf
+
+      # ruby-lsp 0.26.x has a race: its reader thread pre-parses on
+      # requests, but its worker thread applies didChange edits. A
+      # signatureHelp sent right after a didChange can run against the
+      # OLD parse_result (or worse, parse against stale @source). When
+      # we just sent a didChange via flush_changes, settle briefly so
+      # the worker has time to apply the edit before our request lands.
+      flushed = lsp.flush_changes(buf)
+      sleep SIGNATURE_HELP_DIDCHANGE_SETTLE if flushed
+
+      char = [@byte_pointer + position_offset, 0].max
+      return false unless lsp.request_signature_help(buf, line: @line_index, character: char)
+
+      deadline = Time.now + LSP_SIGNATURE_HELP_TIMEOUT
+      result = nil
+      loop do
+        lsp.pump
+        result = lsp.last_signature_help_result
+        break if result
+        break unless lsp.pending_for?('textDocument/signatureHelp')
+        break if Time.now > deadline
+
+        sleep 0.02
+      end
+
+      lines = parse_signature_help(result)
+      if lines.empty?
+        @signature_popup = nil
+        @status_message = 'LSP: no signature info'
+        return true
+      end
+
+      @signature_popup = Rvim::CompletionPopup.new(
+        contents: lines,
+        max_width: SIGNATURE_POPUP_MAX_WIDTH,
+        max_height: SIGNATURE_POPUP_MAX_HEIGHT,
+      )
+      true
+    end
+
+    SIGNATURE_HELP_DIDCHANGE_SETTLE = 0.05
+
+    # Normalize a SignatureHelp response into Array<String> for the popup.
+    # The active signature gets a `> ` prefix; the active parameter is
+    # wrapped in « » markers. Documentation strings are intentionally
+    # omitted — ruby-lsp returns huge rdoc markdown that would flood
+    # the popup; users can press K for the full hover anyway.
+    private def parse_signature_help(result)
+      return [] unless result.is_a?(Hash)
+
+      sigs = result[:signatures]
+      return [] unless sigs.is_a?(Array) && !sigs.empty?
+
+      active_sig_idx = (result[:activeSignature] || 0).to_i.clamp(0, sigs.size - 1)
+      sigs.each_with_index.map do |sig, idx|
+        prefix = idx == active_sig_idx ? '> ' : '  '
+        active_param_idx = (sig[:activeParameter] || result[:activeParameter] || 0).to_i
+        "#{prefix}#{format_signature_label(sig, active_param_idx)}"
+      end
+    end
+
+    # Highlight the active parameter inside the signature label using
+    # « » markers. ParameterInformation.label can be a String or a
+    # [start, end] byte offset pair into the signature label.
+    private def format_signature_label(sig, active_param_idx)
+      label = sig[:label].to_s
+      params = sig[:parameters]
+      return label unless params.is_a?(Array)
+      return label unless active_param_idx >= 0 && active_param_idx < params.size
+
+      param_label = params[active_param_idx][:label]
+      case param_label
+      when Array
+        s, e = param_label.map(&:to_i)
+        return label if s.nil? || e.nil? || s > e || e > label.length
+
+        "#{label[0...s]}«#{label[s...e]}»#{label[e..]}"
+      when String
+        idx = label.index(param_label)
+        return label unless idx
+
+        head = label[0...idx]
+        tail = label[(idx + param_label.length)..]
+        "#{head}«#{param_label}»#{tail}"
+      else label
+      end
+    end
+
+    def dismiss_signature_popup
+      @signature_popup = nil
     end
 
     LSP_REFERENCES_TIMEOUT = 2.0
@@ -2841,6 +2950,34 @@ module Rvim
       sync_current_buffer_lines
       capture_special_marks(pre_buffer, pre_mode)
       freeze_change_if_settled(pre_buffer) unless @replaying
+      update_signature_popup(key, pre_mode)
+    end
+
+    # Auto-trigger signatureHelp on `(` and `,`; dismiss on `)` or any
+    # mode change away from vi_insert. Runs AFTER super so the char
+    # has already been inserted (cursor sits past the char), giving the
+    # server the right position to compute the active parameter.
+    private def update_signature_popup(key, _pre_mode)
+      ch = key.char
+      ch_str = ch.is_a?(Integer) ? ch.chr : ch.to_s
+
+      if @signature_popup && editing_mode_label != :vi_insert
+        @signature_popup = nil
+        return
+      end
+
+      if @signature_popup && ch_str == ')'
+        @signature_popup = nil
+        return
+      end
+
+      if editing_mode_label == :vi_insert && (ch_str == '(' || ch_str == ',')
+        lsp_show_signature_help(position_offset: -1)
+      end
+    rescue StandardError
+      # Insert-mode auto-trigger must never crash the editor — swallow
+      # any unexpected LSP / parse failure and keep typing usable.
+      @signature_popup = nil
     end
 
     # Reline's move_undo_redo replaces @buffer_of_lines with a new array

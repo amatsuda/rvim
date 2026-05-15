@@ -323,6 +323,10 @@ module Rvim
         out << render_hover_popup(win, gw, content_width, wrap_on)
       end
 
+      if is_current && @editor.signature_popup && !@editor.signature_popup.empty?
+        out << render_signature_popup(win, gw, content_width, wrap_on)
+      end
+
       cc_cols = parse_colorcolumns(@editor.settings.get(:colorcolumn))
       unless cc_cols.empty?
         out << render_colorcolumn_overlay(win, gw, content_width, cc_cols, display_rows.size)
@@ -462,6 +466,35 @@ module Rvim
       if base_row + visible > win.row + win.height - 1
         base_row = (win.row + cursor_row - visible).clamp(win.row, win.row + win.height - 1)
       end
+      start_col = win.col + gw + cursor_col + 1
+      max_col = win.col + win.width
+      start_col = [start_col, max_col - total_width + 1].min
+      start_col = [start_col, win.col + 1].max
+
+      out = +''
+      popup.visible_range.each_with_index do |idx, i|
+        line = pad_to_width(truncate_to_width(popup.contents[idx].to_s, width), width)
+        line_with_bar = line + (need_bar ? scrollbar_glyph_for(popup, idx) : '')
+        out << move_to(base_row + i + 1, start_col)
+        out << REVERSE_ON << line_with_bar << REVERSE_OFF
+      end
+      out
+    end
+
+    # Identical placement strategy to render_hover_popup but anchors
+    # ABOVE the cursor by default (signature popup is most useful when
+    # it doesn't cover the args you're typing).
+    def render_signature_popup(win, gw, content_width, wrap_on)
+      popup = @editor.signature_popup
+      cursor_row, cursor_col = cursor_display_position(win, content_width, wrap_on)
+
+      width = popup.width
+      visible = popup.visible_height
+      need_bar = popup.needs_scrollbar?
+      total_width = width + (need_bar ? 1 : 0)
+
+      base_row = win.row + cursor_row - visible
+      base_row = win.row + cursor_row + 1 if base_row < win.row
       start_col = win.col + gw + cursor_col + 1
       max_col = win.col + win.width
       start_col = [start_col, max_col - total_width + 1].min

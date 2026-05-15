@@ -20,7 +20,8 @@ module Rvim
                     :last_rename_result, :last_prepare_rename_result,
                     :last_code_actions_result, :last_execute_command_result,
                     :last_code_action_resolve_result, :last_completion_result,
-                    :last_inlay_hints_result, :last_workspace_symbols_result
+                    :last_inlay_hints_result, :last_workspace_symbols_result,
+                    :last_signature_help_result
 
       def initialize(name:, command:, root_uri:, on_diagnostic: nil, cwd: nil, on_log: nil)
         @name = name
@@ -205,6 +206,15 @@ module Rvim
                 context: { diagnostics: diagnostics, triggerKind: 1 })
       end
 
+      # textDocument/signatureHelp. Result is SignatureHelp | null.
+      # SignatureHelp = { signatures, activeSignature?, activeParameter? }.
+      def signature_help(uri, line, character)
+        @last_signature_help_result = nil
+        request('textDocument/signatureHelp',
+                textDocument: { uri: uri },
+                position: { line: line, character: character })
+      end
+
       # textDocument/inlayHint. Result is InlayHint[] | null. Each
       # hint has { position: { line, character }, label, kind?,
       # paddingLeft?, paddingRight?, tooltip?, ... }. Label can be a
@@ -313,6 +323,12 @@ module Rvim
             publishDiagnostics: { relatedInformation: true },
             diagnostic: { dynamicRegistration: false, relatedDocumentSupport: false },
             hover: { contentFormat: %w[markdown plaintext] },
+            signatureHelp: {
+              signatureInformation: {
+                documentationFormat: %w[markdown plaintext],
+                parameterInformation: { labelOffsetSupport: true },
+              },
+            },
             completion: { completionItem: { snippetSupport: false } },
             inlayHint: { dynamicRegistration: false },
           },
@@ -456,6 +472,9 @@ module Rvim
         when 'textDocument/inlayHint'
           # Result is InlayHint[] | null.
           @last_inlay_hints_result = msg[:result]
+        when 'textDocument/signatureHelp'
+          # Result is SignatureHelp | null.
+          @last_signature_help_result = msg[:result]
         end
       end
 

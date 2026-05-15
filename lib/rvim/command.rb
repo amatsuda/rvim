@@ -140,6 +140,7 @@ module Rvim
              when 'LspStop', 'lspstop' then :lsp_stop
              when 'LspDiagnostics', 'lspdiagnostics' then :lsp_diagnostics
              when 'LspHover', 'lsphover' then :lsp_hover
+             when 'LspSignatureHelp', 'lspsignaturehelp' then :lsp_signature_help
              when 'LspDefinition', 'lspdefinition' then :lsp_definition
              when 'LspReferences', 'lspreferences' then :lsp_references
              when 'LspFormat', 'lspformat' then :lsp_format
@@ -412,6 +413,8 @@ module Rvim
         execute_lsp_diagnostics(editor)
       when :lsp_hover
         execute_lsp_hover(editor)
+      when :lsp_signature_help
+        execute_lsp_signature_help(editor)
       when :lsp_definition
         execute_lsp_definition(editor)
       when :lsp_references
@@ -1804,6 +1807,12 @@ module Rvim
       return if editor.lsp_show_hover
 
       editor.status_message = 'LSP: hover unavailable for this buffer'
+    end
+
+    def self.execute_lsp_signature_help(editor)
+      return if editor.lsp_show_signature_help
+
+      editor.status_message = 'LSP: signature help unavailable for this buffer'
     end
 
     def self.execute_lsp_definition(editor)

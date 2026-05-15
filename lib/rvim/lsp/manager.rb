@@ -203,6 +203,34 @@ module Rvim
         nil
       end
 
+      # Send textDocument/signatureHelp. Defaults to the cursor, but the
+      # caller can override line/character — the auto-trigger path needs
+      # to back off one column because ruby-lsp's CallNode end_offset is
+      # exclusive (cursor sitting just past `(` / `,` lands outside the
+      # node, and the server returns null).
+      def request_signature_help(buffer, line: nil, character: nil)
+        ft = filetype_for(buffer)
+        client = @clients[ft]
+        return false unless client && client.status == :running
+
+        client.signature_help(buffer_uri(buffer),
+                              line || @editor.line_index,
+                              character || @editor.byte_pointer)
+        true
+      end
+
+      def last_signature_help_result
+        @clients.each_value do |c|
+          r = c.last_signature_help_result
+          return r if r
+        end
+        nil
+      end
+
+      def clear_signature_help_result
+        @clients.each_value { |c| c.last_signature_help_result = nil }
+      end
+
       def clear_hover_result
         @clients.each_value { |c| c.last_hover_result = nil }
       end
