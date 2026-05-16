@@ -5553,6 +5553,10 @@ module Rvim
               # Inlay hints are also pull-mode in LSP 3.17. Refresh on
               # a 1s cadence so labels stay current as the buffer changes.
               editor.lsp.maybe_pull_inlay_hints(editor.current_buffer)
+              # Document highlights track the cursor — pull when the
+              # cursor moves to a new column / line, debounced so a fast
+              # j/k roll doesn't flood the server.
+              editor.lsp.maybe_pull_document_highlight(editor.current_buffer)
             end
             begin
               Reline.core.send(:read_io, Reline.core.config.keyseq_timeout) do |inputs|

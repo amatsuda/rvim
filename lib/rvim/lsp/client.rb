@@ -21,7 +21,7 @@ module Rvim
                     :last_code_actions_result, :last_execute_command_result,
                     :last_code_action_resolve_result, :last_completion_result,
                     :last_inlay_hints_result, :last_workspace_symbols_result,
-                    :last_signature_help_result
+                    :last_signature_help_result, :last_document_highlights_result
 
       def initialize(name:, command:, root_uri:, on_diagnostic: nil, cwd: nil, on_log: nil)
         @name = name
@@ -206,6 +206,15 @@ module Rvim
                 context: { diagnostics: diagnostics, triggerKind: 1 })
       end
 
+      # textDocument/documentHighlight. Result is DocumentHighlight[] |
+      # null. Each highlight = { range, kind?: 1=Text | 2=Read | 3=Write }.
+      def document_highlight(uri, line, character)
+        @last_document_highlights_result = nil
+        request('textDocument/documentHighlight',
+                textDocument: { uri: uri },
+                position: { line: line, character: character })
+      end
+
       # textDocument/signatureHelp. Result is SignatureHelp | null.
       # SignatureHelp = { signatures, activeSignature?, activeParameter? }.
       def signature_help(uri, line, character)
@@ -323,6 +332,7 @@ module Rvim
             publishDiagnostics: { relatedInformation: true },
             diagnostic: { dynamicRegistration: false, relatedDocumentSupport: false },
             hover: { contentFormat: %w[markdown plaintext] },
+            documentHighlight: { dynamicRegistration: false },
             signatureHelp: {
               signatureInformation: {
                 documentationFormat: %w[markdown plaintext],
@@ -475,6 +485,9 @@ module Rvim
         when 'textDocument/signatureHelp'
           # Result is SignatureHelp | null.
           @last_signature_help_result = msg[:result]
+        when 'textDocument/documentHighlight'
+          # Result is DocumentHighlight[] | null.
+          @last_document_highlights_result = msg[:result]
         end
       end
 

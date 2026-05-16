@@ -22,12 +22,19 @@ module Rvim
         @synced_end_pos = {} # buffer_id -> { line:, character: } end of last synced doc
         @last_hints_pulled_at = {} # buffer_id -> monotonic time of last inlayHint pull
         @inlay_hints_cache = {} # buffer_id -> InlayHint[]
+        @last_highlight_cursor = {} # buffer_id -> [line, char] of last pull
+        @last_highlight_pulled_at = {} # buffer_id -> monotonic time of last pull
+        @document_highlights_cache = {} # buffer_id -> DocumentHighlight[]
       end
 
       # Refresh interval (seconds) for the diagnostic auto-pull below.
       DIAG_PULL_INTERVAL = 0.5
       # Refresh interval (seconds) for the inlay-hint auto-pull.
       HINTS_PULL_INTERVAL = 1.0
+      # Debounce window (seconds) for document-highlight pulls. The
+      # request runs on cursor-move, so we throttle so a fast j/k roll
+      # doesn't flood the server.
+      DOC_HIGHLIGHT_PULL_INTERVAL = 0.15
       # Debounce window (seconds) for didChange. NeoVim uses ~0.15s.
       CHANGE_DEBOUNCE_INTERVAL = 0.15
 
@@ -505,6 +512,94 @@ module Rvim
           out[line.to_i] << hint
         end
         out.each_value { |arr| arr.sort_by! { |h| h.dig(:position, :character).to_i } }
+        out
+      end
+
+      # Send textDocument/documentHighlight at the cursor. Result
+      # (DocumentHighlight[] | null) lands on the client.
+      def request_document_highlight(buffer)
+        ft = filetype_for(buffer)
+        client = @clients[ft]
+        return false unless client && client.status == :running
+
+        # Drain any already-arrived result into the per-buffer cache
+        # BEFORE sending the next request — the client clears
+        # `last_document_highlights_result` on each new request, so
+        # without this an in-flight response that landed between
+        # renders would be discarded before the renderer could read it.
+        drain_document_highlights_into_cache(buffer)
+
+        line = @editor.line_index
+        char = @editor.byte_pointer
+        client.document_highlight(buffer_uri(buffer), line, char)
+        @last_highlight_cursor[buffer.id] = [line, char]
+        @last_highlight_pulled_at[buffer.id] = monotonic_now
+        true
+      end
+
+      def drain_document_highlights_into_cache(buffer)
+        result = last_document_highlights_result
+        return unless result.is_a?(Array)
+
+        @document_highlights_cache[buffer.id] = result
+        clear_document_highlights_result
+      end
+
+      # Throttled auto-pull called from the render loop. Re-pulls only
+      # when the cursor has moved AND the debounce window has elapsed.
+      # When the cursor lands on the same word twice in a row the
+      # server result we cached is still good, so this is a no-op.
+      def maybe_pull_document_highlight(buffer)
+        return false unless buffer
+
+        line = @editor.line_index
+        char = @editor.byte_pointer
+        last_cursor = @last_highlight_cursor[buffer.id]
+        if last_cursor == [line, char]
+          last_at = @last_highlight_pulled_at[buffer.id]
+          return false if last_at && monotonic_now - last_at < DOC_HIGHLIGHT_PULL_INTERVAL
+        end
+
+        # Cursor moved: invalidate the previous result so the renderer
+        # doesn't briefly paint stale highlights at the old word's
+        # positions before the new response lands.
+        @document_highlights_cache[buffer.id] = [] if last_cursor && last_cursor != [line, char]
+        request_document_highlight(buffer)
+      end
+
+      def last_document_highlights_result
+        @clients.each_value do |c|
+          r = c.last_document_highlights_result
+          return r if r
+        end
+        nil
+      end
+
+      def clear_document_highlights_result
+        @clients.each_value { |c| c.last_document_highlights_result = nil }
+      end
+
+      # { 0-based line => DocumentHighlight[] sorted by start char }
+      # for the buffer. Drains a freshly-arrived response into the
+      # per-buffer cache before bucketing so the renderer always sees
+      # the latest result.
+      def document_highlights_by_line(buffer)
+        return {} unless buffer
+
+        result = last_document_highlights_result
+        if result.is_a?(Array)
+          @document_highlights_cache[buffer.id] = result
+          clear_document_highlights_result
+        end
+
+        out = Hash.new { |h, k| h[k] = [] }
+        (@document_highlights_cache[buffer.id] || []).each do |hl|
+          sl = hl.dig(:range, :start, :line)
+          next unless sl
+
+          out[sl.to_i] << hl
+        end
+        out.each_value { |arr| arr.sort_by! { |h| h.dig(:range, :start, :character).to_i } }
         out
       end
 

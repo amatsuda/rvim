@@ -244,6 +244,7 @@ module Rvim
       lsp_signs = lsp_signs_for(buffer)
       lsp_ranges = lsp_ranges_for(buffer)
       lsp_hints = lsp_inlay_hints_for(buffer)
+      lsp_dhl = lsp_document_highlights_for(buffer)
       content_width = win.width - gw
       cursor_idx = is_current ? @editor.line_index : buffer.line_index
       wrap_on = @editor.settings.get(:wrap)
@@ -271,6 +272,14 @@ module Rvim
                      else
                        truncate_to_width(segment, content_width)
                      end
+          # Document highlights (matches of the symbol under cursor)
+          # paint a subtle background. Goes BEFORE diagnostics so the
+          # diagnostic underline color wins over the highlight bg on
+          # overlapping ranges.
+          line_dhl = lsp_dhl[line_idx]
+          if line_dhl && !line_dhl.empty? && byte_off.zero?
+            rendered = apply_document_highlight_overlay(rendered, line_dhl, buffer.lines[line_idx].to_s)
+          end
           # Diagnostic underline goes LAST. Earlier passes (syntax,
           # search, selection) tokenize the line text and would splice
           # color SGR mid-sequence if our underline SGR were already
@@ -758,6 +767,16 @@ module Rvim
       @editor.lsp.inlay_hints_by_line(buffer)
     end
 
+    # 0-based line => DocumentHighlight[] for the buffer (cursor-symbol
+    # occurrences), or {} when LSP is off.
+    def lsp_document_highlights_for(buffer)
+      return {} unless buffer
+      return {} unless @editor.respond_to?(:settings) && @editor.settings.get(:lsp_enabled)
+      return {} unless @editor.respond_to?(:lsp) && @editor.lsp.respond_to?(:document_highlights_by_line)
+
+      @editor.lsp.document_highlights_by_line(buffer)
+    end
+
     SEVERITY_GLYPHS = { 1 => 'E', 2 => 'W', 3 => 'I', 4 => 'H' }.freeze
     SEVERITY_COLORS = { 1 => 196, 2 => 214, 3 => 75, 4 => 245 }.freeze
 
@@ -1026,6 +1045,90 @@ module Rvim
       buf << ' ' if hint[:paddingRight]
       buf << INLAY_HINT_SGR_CLOSE
       buf
+    end
+
+    # Subtle dark-gray background for document-highlight occurrences.
+    # Distinct from the diagnostic underline (which uses fg color +
+    # underline) so the two can co-occur on the same span without
+    # collision.
+    DOC_HIGHLIGHT_BG_OPEN  = "\e[48;5;240m"
+    DOC_HIGHLIGHT_BG_CLOSE = "\e[49m"
+
+    # Splice document-highlight background SGR around each occurrence
+    # of the cursor symbol on the line. LSP returns character ranges
+    # (not bytes); we convert via the original line's char-to-byte
+    # offsets, then walk the rendered line SGR-aware (same approach as
+    # apply_diagnostic_overlay).
+    def apply_document_highlight_overlay(rendered, highlights, raw_line)
+      return rendered if highlights.nil? || highlights.empty?
+
+      byte_ranges = highlights.filter_map do |hl|
+        s_line = hl.dig(:range, :start, :line)
+        e_line = hl.dig(:range, :end,   :line)
+        s_char = hl.dig(:range, :start, :character).to_i
+        e_char = hl.dig(:range, :end,   :character).to_i
+        # Only render hits anchored on this single line — multi-line
+        # highlights are rare in practice (single-symbol refs).
+        next if s_line != e_line
+
+        s_byte = char_to_byte(raw_line, s_char)
+        e_byte = char_to_byte(raw_line, e_char)
+        next if s_byte >= e_byte
+
+        [s_byte, e_byte]
+      end.sort_by(&:first)
+      return rendered if byte_ranges.empty?
+
+      out = +''
+      pos = 0
+      orig = 0
+      idx = 0
+      active_end = nil
+      total = rendered.bytesize
+
+      while pos < total
+        if rendered.getbyte(pos) == 0x1b && (m = rendered.byteslice(pos..-1)&.match(DIAG_SGR_RE))
+          out << m[0]
+          pos += m[0].bytesize
+          next
+        end
+
+        if active_end && orig >= active_end
+          out << DOC_HIGHLIGHT_BG_CLOSE
+          active_end = nil
+          idx += 1
+        end
+
+        if active_end.nil? && idx < byte_ranges.size && orig >= byte_ranges[idx][0]
+          active_end = byte_ranges[idx][1]
+          out << DOC_HIGHLIGHT_BG_OPEN
+        end
+
+        cb = rendered.getbyte(pos)
+        char_bytes = if cb.nil? || cb < 0x80 then 1
+                     elsif cb < 0xc0 then 1
+                     elsif cb < 0xe0 then 2
+                     elsif cb < 0xf0 then 3
+                     else 4
+                     end
+        out << rendered.byteslice(pos, char_bytes)
+        pos += char_bytes
+        orig += char_bytes
+      end
+
+      out << DOC_HIGHLIGHT_BG_CLOSE if active_end
+      out
+    end
+
+    # Convert a 0-based character column on `line` into a byte offset.
+    # LSP ranges are in UTF-16 code units by default, but ruby-lsp
+    # (and our request) opt into UTF-8 code unit semantics, so a
+    # char-index is a UTF-8 character index here.
+    def char_to_byte(line, char_idx)
+      return 0 if char_idx <= 0
+      return line.bytesize if char_idx >= line.length
+
+      line[0, char_idx].bytesize
     end
 
     DEFAULT_LISTCHARS = { 'tab' => '> ', 'trail' => '·' }.freeze
