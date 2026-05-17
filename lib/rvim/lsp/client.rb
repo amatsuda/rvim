@@ -21,7 +21,8 @@ module Rvim
                     :last_code_actions_result, :last_execute_command_result,
                     :last_code_action_resolve_result, :last_completion_result,
                     :last_inlay_hints_result, :last_workspace_symbols_result,
-                    :last_signature_help_result, :last_document_highlights_result
+                    :last_signature_help_result, :last_document_highlights_result,
+                    :last_type_definition_result, :last_implementation_result
 
       def initialize(name:, command:, root_uri:, on_diagnostic: nil, cwd: nil, on_log: nil)
         @name = name
@@ -131,6 +132,26 @@ module Rvim
       def definition(uri, line, character)
         @last_definition_result = nil
         request('textDocument/definition',
+                textDocument: { uri: uri },
+                position: { line: line, character: character })
+      end
+
+      # textDocument/typeDefinition. Same response shape as definition;
+      # the server returns the location of the symbol's TYPE rather
+      # than the symbol's own declaration.
+      def type_definition(uri, line, character)
+        @last_type_definition_result = nil
+        request('textDocument/typeDefinition',
+                textDocument: { uri: uri },
+                position: { line: line, character: character })
+      end
+
+      # textDocument/implementation. Same response shape as definition;
+      # for an interface / abstract method, the server returns the
+      # location(s) of the concrete implementations.
+      def implementation(uri, line, character)
+        @last_implementation_result = nil
+        request('textDocument/implementation',
                 textDocument: { uri: uri },
                 position: { line: line, character: character })
       end
@@ -333,6 +354,8 @@ module Rvim
             diagnostic: { dynamicRegistration: false, relatedDocumentSupport: false },
             hover: { contentFormat: %w[markdown plaintext] },
             documentHighlight: { dynamicRegistration: false },
+            typeDefinition: { dynamicRegistration: false, linkSupport: false },
+            implementation: { dynamicRegistration: false, linkSupport: false },
             signatureHelp: {
               signatureInformation: {
                 documentationFormat: %w[markdown plaintext],
@@ -488,6 +511,12 @@ module Rvim
         when 'textDocument/documentHighlight'
           # Result is DocumentHighlight[] | null.
           @last_document_highlights_result = msg[:result]
+        when 'textDocument/typeDefinition'
+          # Same shape as textDocument/definition.
+          @last_type_definition_result = msg[:result]
+        when 'textDocument/implementation'
+          # Same shape as textDocument/definition.
+          @last_implementation_result = msg[:result]
         end
       end
 

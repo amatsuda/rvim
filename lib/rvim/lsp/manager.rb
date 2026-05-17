@@ -190,6 +190,73 @@ module Rvim
         @clients.each_value { |c| c.last_definition_result = nil }
       end
 
+      # textDocument/typeDefinition for the cursor. Same response shape
+      # as request_definition; the server returns the location of the
+      # symbol's TYPE rather than the symbol's declaration. Returns
+      # :unsupported when the server didn't advertise the capability
+      # (e.g. ruby-lsp 0.26 doesn't); the caller surfaces this so the
+      # user doesn't sit through a 2s timeout for nothing.
+      def request_type_definition(buffer)
+        ft = filetype_for(buffer)
+        client = @clients[ft]
+        return false unless client && client.status == :running
+        return :unsupported unless server_supports?(client, :typeDefinitionProvider)
+
+        client.type_definition(buffer_uri(buffer),
+                               @editor.line_index, @editor.byte_pointer)
+        true
+      end
+
+      def last_type_definition_result
+        @clients.each_value do |c|
+          r = c.last_type_definition_result
+          return r if r
+        end
+        nil
+      end
+
+      def clear_type_definition_result
+        @clients.each_value { |c| c.last_type_definition_result = nil }
+      end
+
+      # textDocument/implementation for the cursor. Same response shape
+      # as request_definition. Returns :unsupported when the server
+      # didn't advertise the capability.
+      def request_implementation(buffer)
+        ft = filetype_for(buffer)
+        client = @clients[ft]
+        return false unless client && client.status == :running
+        return :unsupported unless server_supports?(client, :implementationProvider)
+
+        client.implementation(buffer_uri(buffer),
+                              @editor.line_index, @editor.byte_pointer)
+        true
+      end
+
+      # True when the server advertised the given provider capability.
+      # The provider field can be a bool, an object (with id/options),
+      # or absent (nil). Treat anything non-nil and non-false as
+      # supported, matching how vscode-languageclient interprets these.
+      private def server_supports?(client, key)
+        caps = client.capabilities || {}
+        value = caps[key]
+        return false if value.nil? || value == false
+
+        true
+      end
+
+      def last_implementation_result
+        @clients.each_value do |c|
+          r = c.last_implementation_result
+          return r if r
+        end
+        nil
+      end
+
+      def clear_implementation_result
+        @clients.each_value { |c| c.last_implementation_result = nil }
+      end
+
       # Send textDocument/hover for the cursor's current position.
       # Result lands on the client; callers poll via #last_hover_result.
       def request_hover(buffer)

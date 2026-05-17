@@ -1428,6 +1428,97 @@ module Rvim
       true
     end
 
+    LSP_TYPE_DEFINITION_TIMEOUT = 2.0
+    LSP_IMPLEMENTATION_TIMEOUT  = 2.0
+
+    # Send textDocument/typeDefinition for the cursor, poll, jump.
+    # Returns true when the LSP path took over (whether it found a
+    # target or surfaced "no type definition" status), false if LSP
+    # isn't available for this buffer.
+    def lsp_jump_to_type_definition
+      return false unless @settings.get(:lsp_enabled)
+
+      buf = current_buffer
+      return false unless buf
+      lsp.flush_changes(buf)
+      sent = lsp.request_type_definition(buf)
+      if sent == :unsupported
+        @status_message = 'LSP: server does not support typeDefinition'
+        return true
+      end
+      return false unless sent
+
+      deadline = Time.now + LSP_TYPE_DEFINITION_TIMEOUT
+      result = nil
+      loop do
+        lsp.pump
+        result = lsp.last_type_definition_result
+        break if result
+        break unless lsp.pending_for?('textDocument/typeDefinition')
+        break if Time.now > deadline
+
+        sleep 0.02
+      end
+
+      jump_to_first_location(result, kind: 'type definition')
+    end
+
+    # Send textDocument/implementation for the cursor, poll, jump.
+    def lsp_jump_to_implementation
+      return false unless @settings.get(:lsp_enabled)
+
+      buf = current_buffer
+      return false unless buf
+      lsp.flush_changes(buf)
+      sent = lsp.request_implementation(buf)
+      if sent == :unsupported
+        @status_message = 'LSP: server does not support implementation'
+        return true
+      end
+      return false unless sent
+
+      deadline = Time.now + LSP_IMPLEMENTATION_TIMEOUT
+      result = nil
+      loop do
+        lsp.pump
+        result = lsp.last_implementation_result
+        break if result
+        break unless lsp.pending_for?('textDocument/implementation')
+        break if Time.now > deadline
+
+        sleep 0.02
+      end
+
+      jump_to_first_location(result, kind: 'implementation')
+    end
+
+    # Shared tail of definition/typeDefinition/implementation jumps:
+    # pulls the first Location out of the response, opens the target
+    # file if it's a different one, and moves the cursor. Returns true
+    # in all cases — the request path itself succeeded; "no result"
+    # surfaces as a status message rather than a fallback.
+    private def jump_to_first_location(result, kind:)
+      location = first_lsp_location(result)
+      if location.nil?
+        @status_message = "LSP: no #{kind} found"
+        return true
+      end
+
+      target_uri = location[:uri] || location[:targetUri]
+      target_range = location[:range] || location[:targetRange] || location[:targetSelectionRange]
+      return true if target_uri.nil? || target_range.nil?
+
+      target_path = target_uri.sub(/\Afile:\/\//, '')
+      target_line = target_range.dig(:start, :line).to_i
+      target_char = target_range.dig(:start, :character).to_i
+
+      push_jump
+      open(target_path) if target_path != @filepath
+      @line_index = target_line
+      @byte_pointer = target_char
+      true
+    end
+
     private def first_lsp_location(result)
       case result
       when nil then nil
