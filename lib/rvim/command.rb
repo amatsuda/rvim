@@ -151,6 +151,7 @@ module Rvim
              when 'LspSelectionExpand', 'lspselectionexpand' then :lsp_selection_expand
              when 'LspSelectionShrink', 'lspselectionshrink' then :lsp_selection_shrink
              when 'LspCodeLens', 'lspcodelens' then :lsp_code_lens
+             when 'LspWatch', 'lspwatch' then :lsp_watch
              when 'LspReferences', 'lspreferences' then :lsp_references
              when 'LspFormat', 'lspformat' then :lsp_format
              when 'LspSymbols', 'lspsymbols' then :lsp_symbols
@@ -444,6 +445,8 @@ module Rvim
         execute_lsp_selection_shrink(editor)
       when :lsp_code_lens
         execute_lsp_code_lens(editor, parsed)
+      when :lsp_watch
+        execute_lsp_watch(editor)
       when :lsp_references
         execute_lsp_references(editor)
       when :lsp_format
@@ -1894,6 +1897,12 @@ module Rvim
       return if editor.lsp_selection_shrink
 
       editor.status_message = 'LSP: selection range unavailable for this buffer'
+    end
+
+    def self.execute_lsp_watch(editor)
+      return if editor.lsp_open_watch_buffer
+
+      editor.status_message = 'LSP: watch buffer unavailable (no LSP running)'
     end
 
     # `:LspCodeLens`        — list the buffer's lenses in the quickfix.

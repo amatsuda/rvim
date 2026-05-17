@@ -29,7 +29,11 @@ module Rvim
         async modification documentation defaultLibrary
       ].freeze
 
-      attr_reader :name, :status, :capabilities, :diagnostics
+      attr_reader :name, :status, :capabilities, :diagnostics, :window_messages
+
+      # Cap on retained window messages so a chatty server can't grow
+      # memory without bound. Old entries fall off the front.
+      WINDOW_MESSAGE_LIMIT = 500
       attr_accessor :last_definition_result, :last_hover_result, :last_references_result,
                     :last_formatting_result, :last_document_symbols_result,
                     :last_rename_result, :last_prepare_rename_result,
@@ -58,6 +62,7 @@ module Rvim
         @inbox = Queue.new
         @diagnostics = {} # uri -> array of LSP Diagnostic
         @log_buffer = []  # last N stderr lines (drained by editor pump)
+        @window_messages = [] # FIFO of window/log+showMessage entries
         @stdin = nil
         @stdout = nil
         @stderr = nil
@@ -669,8 +674,32 @@ module Rvim
           @diagnostics[uri] = diags
           @on_diagnostic&.call(uri, diags)
         when 'window/logMessage', 'window/showMessage'
-          # Could surface to editor.status_message; skip for v1 to avoid noise.
+          # Capture both into a bounded ring so :LspWatch can stream
+          # them to a buffer. Types: 1=Error, 2=Warning, 3=Info, 4=Log.
+          record_window_message(
+            kind: msg[:method].sub('window/', ''),
+            type: msg.dig(:params, :type),
+            message: msg.dig(:params, :message).to_s,
+          )
         end
+      end
+
+      # Append one window/{log,show}Message entry to the bounded ring.
+      # `kind` is "logMessage" or "showMessage"; `type` is 1..4.
+      def record_window_message(kind:, type:, message:)
+        @window_messages << {
+          time: Time.now,
+          kind: kind,
+          type: type.to_i,
+          message: message,
+        }
+        # Drop the oldest entries when over the cap. We're called from
+        # the reader thread, but @window_messages is only read by the
+        # main thread via #window_messages — single-writer model, GIL
+        # makes appends safe enough.
+        return if @window_messages.size <= WINDOW_MESSAGE_LIMIT
+
+        @window_messages.shift(@window_messages.size - WINDOW_MESSAGE_LIMIT)
       end
     end
   end

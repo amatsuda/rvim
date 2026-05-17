@@ -96,6 +96,7 @@ module Rvim
       @selection_range_state = nil
       @last_code_lenses = nil
       @async_commands = [] # [{job: AsyncCommand, buffer: Buffer, label: String}]
+      @lsp_watch_buffers = [] # [{buffer:, last_index: Integer}]
       @last_code_actions = nil
       @cmdline_popup = nil
       @cmdline_completion_context = nil
@@ -1551,6 +1552,68 @@ module Rvim
       @next_buffer_id += 1
       header = "Running: #{shell_cmd}"
       buf.lines = [header.dup.force_encoding(encoding), '']
+      buf.line_index = 0
+      buf.byte_pointer = 0
+      buf.modified = false
+      @buffers[buf.id] = buf
+      @buffer_order << buf.id
+      swap_to_buffer(buf)
+      buf
+    end
+
+    # Open a buffer that tails window/{log,show}Message notifications
+    # from every running LSP server. New messages stream in as the
+    # server emits them (see pump_lsp_watch_buffers). Returns false
+    # when there's no LSP — caller surfaces a status message.
+    def lsp_open_watch_buffer
+      return false unless @settings.get(:lsp_enabled)
+
+      messages = lsp.window_messages
+      lines = ['LSP server log (window/logMessage + window/showMessage):', '']
+      lines.concat(messages.map { |m| format_lsp_watch_line(m) })
+      buf = open_log_terminal_buffer('term://lsp-watch', lines)
+      @lsp_watch_buffers << { buffer: buf, last_index: messages.size }
+      true
+    end
+
+    # Render-loop hook. Appends any window messages that landed since
+    # the last pump to every open :LspWatch buffer; if the user is
+    # viewing that buffer, keeps @buffer_of_lines synced so the new
+    # lines render on the next tick.
+    def pump_lsp_watch_buffers
+      return if @lsp_watch_buffers.empty?
+      return unless @settings.get(:lsp_enabled)
+      return unless lsp.respond_to?(:window_messages)
+
+      messages = lsp.window_messages
+      @lsp_watch_buffers.each do |entry|
+        next if messages.size <= entry[:last_index]
+
+        fresh = messages[entry[:last_index]..]
+        entry[:buffer].lines.concat(fresh.map { |m| format_lsp_watch_line(m) })
+        entry[:last_index] = messages.size
+        @buffer_of_lines = entry[:buffer].lines if @current_buffer&.equal?(entry[:buffer])
+      end
+
+      # Drop watch entries whose buffer was closed.
+      @lsp_watch_buffers.reject! { |e| @buffers[e[:buffer].id].nil? }
+    end
+
+    private def format_lsp_watch_line(m)
+      tag = LSP_WATCH_TYPE_TAGS[m[:type]] || 'L'
+      kind = m[:kind] == 'showMessage' ? '*' : ' '
+      ts = m[:time].strftime('%H:%M:%S')
+      "#{ts} [#{tag}]#{kind} (#{m[:source]}) #{m[:message]}"
+    end
+
+    LSP_WATCH_TYPE_TAGS = { 1 => 'E', 2 => 'W', 3 => 'I', 4 => 'L' }.freeze
+
+    # Like open_terminal_buffer but doesn't set an exit-status status
+    # message (the buffer never "exits").
+    private def open_log_terminal_buffer(name, lines)
+      buf = Rvim::Buffer.new(@next_buffer_id, name, encoding: encoding)
+      @next_buffer_id += 1
+      buf.lines = lines.map { |l| l.dup.force_encoding(encoding) }
       buf.line_index = 0
       buf.byte_pointer = 0
       buf.modified = false
@@ -6298,6 +6361,9 @@ module Rvim
             # test runs). Runs regardless of lsp_enabled so non-LSP
             # async jobs work too.
             editor.pump_async_commands
+            # Stream new window/log+showMessage entries into any open
+            # :LspWatch buffers.
+            editor.pump_lsp_watch_buffers
             begin
               Reline.core.send(:read_io, Reline.core.config.keyseq_timeout) do |inputs|
                 inputs.each do |key|

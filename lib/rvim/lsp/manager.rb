@@ -524,6 +524,18 @@ module Rvim
         @clients.each_value { |c| c.last_code_lens_result = nil }
       end
 
+      # All window/log+showMessage entries from every running client,
+      # in arrival order. Each entry has `:time, :kind, :type,
+      # :message` plus `:source` (the client name) appended here.
+      def window_messages
+        out = []
+        @clients.each do |_, c|
+          c.window_messages.each { |m| out << m.merge(source: c.name) }
+        end
+        out.sort_by! { |m| m[:time] }
+        out
+      end
+
       private def semantic_tokens_full_supported?(client)
         provider = (client.capabilities || {})[:semanticTokensProvider]
         return false unless provider.is_a?(Hash)
