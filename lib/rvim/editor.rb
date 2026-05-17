@@ -5895,6 +5895,10 @@ module Rvim
               # cursor moves to a new column / line, debounced so a fast
               # j/k roll doesn't flood the server.
               editor.lsp.maybe_pull_document_highlight(editor.current_buffer)
+              # Semantic tokens are a function of the buffer text, so
+              # pull only when the fingerprint changes (effectively
+              # once on first render + once per edit settled).
+              editor.lsp.maybe_pull_semantic_tokens(editor.current_buffer)
               # Open / close the diagnostic float based on whether the
               # cursor sits inside an underlined range. Runs after the
               # diagnostic pull so a freshly-arrived diagnostic at the

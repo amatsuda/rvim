@@ -25,6 +25,8 @@ module Rvim
         @last_highlight_cursor = {} # buffer_id -> [line, char] of last pull
         @last_highlight_pulled_at = {} # buffer_id -> monotonic time of last pull
         @document_highlights_cache = {} # buffer_id -> DocumentHighlight[]
+        @semantic_tokens_synced_fp = {} # buffer_id -> fingerprint of last pull
+        @semantic_tokens_cache = {} # buffer_id -> Hash{line => Array<Hash>}
       end
 
       # Refresh interval (seconds) for the diagnostic auto-pull below.
@@ -349,6 +351,136 @@ module Rvim
 
       def clear_call_hierarchy_outgoing_result
         @clients.each_value { |c| c.last_call_hierarchy_outgoing_result = nil }
+      end
+
+      # textDocument/semanticTokens/full. Returns :unsupported when
+      # the server didn't advertise semanticTokensProvider.full.
+      def request_semantic_tokens(buffer)
+        ft = filetype_for(buffer)
+        client = @clients[ft]
+        return false unless client && client.status == :running
+        return :unsupported unless semantic_tokens_full_supported?(client)
+
+        # Drain any in-flight response into cache before sending the
+        # next request — the client clears `last_semantic_tokens_result`
+        # on each new request, same race as documentHighlight.
+        drain_semantic_tokens_into_cache(buffer, client)
+        client.semantic_tokens_full(buffer_uri(buffer))
+        true
+      end
+
+      # Settle window (seconds) between a didChange and the next
+      # semanticTokens pull. ruby-lsp's reader thread pre-parses on
+      # requests while its worker thread asynchronously applies edits;
+      # a request fired right after didChange races against the worker
+      # and returns tokens for the previous buffer state (visible as
+      # the last typed character missing from a token's highlight).
+      SEMANTIC_TOKENS_SETTLE = 0.12
+
+      # Pull semanticTokens whenever the buffer fingerprint changes,
+      # but only AFTER didChange has synced this fingerprint to the
+      # server and a brief settle has passed.
+      def maybe_pull_semantic_tokens(buffer)
+        return false unless buffer
+
+        client = @clients[filetype_for(buffer)]
+        return false unless client && client.status == :running
+        return false unless semantic_tokens_full_supported?(client)
+
+        fp = buffer.lines.hash
+        return false if @semantic_tokens_synced_fp[buffer.id] == fp
+
+        # Don't pull tokens for a buffer state the server hasn't
+        # acknowledged yet — wait until note_change has issued the
+        # matching didChange.
+        return false unless @synced_fingerprints[buffer.id] == fp
+
+        last_sync = @synced_at[buffer.id]
+        return false if last_sync && monotonic_now - last_sync < SEMANTIC_TOKENS_SETTLE
+
+        request_semantic_tokens(buffer)
+        @semantic_tokens_synced_fp[buffer.id] = fp
+        true
+      end
+
+      def last_semantic_tokens_result
+        @clients.each_value do |c|
+          r = c.last_semantic_tokens_result
+          return r if r
+        end
+        nil
+      end
+
+      def clear_semantic_tokens_result
+        @clients.each_value { |c| c.last_semantic_tokens_result = nil }
+      end
+
+      # Decode the cached SemanticTokens (drain any new result first)
+      # into a Hash{ 0-based line => Array<{start, length, type, modifiers}> }.
+      # `type` is the legend-mapped string ('class', 'parameter', ...);
+      # `modifiers` is an Array<String> for the bits that were set.
+      def semantic_tokens_by_line(buffer)
+        return {} unless buffer
+
+        client = @clients[filetype_for(buffer)]
+        drain_semantic_tokens_into_cache(buffer, client) if client
+        @semantic_tokens_cache[buffer.id] || {}
+      end
+
+      private def drain_semantic_tokens_into_cache(buffer, client)
+        result = client.last_semantic_tokens_result
+        return unless result.is_a?(Hash) && result[:data].is_a?(Array)
+
+        legend = (client.capabilities || {}).dig(:semanticTokensProvider, :legend) || {}
+        types_legend = Array(legend[:tokenTypes])
+        mods_legend  = Array(legend[:tokenModifiers])
+        @semantic_tokens_cache[buffer.id] = decode_semantic_tokens(result[:data], types_legend, mods_legend)
+        client.last_semantic_tokens_result = nil
+      end
+
+      # The delta-encoded 5-int token sequence: each tuple is
+      # `(deltaLine, deltaStart, length, tokenType, tokenModifiers)`.
+      # deltaStart resets to absolute on a new line.
+      def decode_semantic_tokens(data, types_legend, mods_legend)
+        out = Hash.new { |h, k| h[k] = [] }
+        line = 0
+        start = 0
+        i = 0
+        while i + 4 < data.length
+          dl, ds, len, t, m = data[i, 5]
+          if dl.zero?
+            start += ds
+          else
+            line += dl
+            start = ds
+          end
+          out[line] << {
+            start: start,
+            length: len,
+            type: types_legend[t.to_i] || 'unknown',
+            modifiers: decode_modifiers(m.to_i, mods_legend),
+          }
+          i += 5
+        end
+        out
+      end
+
+      private def decode_modifiers(bits, mods_legend)
+        return [] if bits.zero? || mods_legend.empty?
+
+        mods = []
+        mods_legend.each_with_index do |name, idx|
+          mods << name if (bits & (1 << idx)) != 0
+        end
+        mods
+      end
+
+      private def semantic_tokens_full_supported?(client)
+        provider = (client.capabilities || {})[:semanticTokensProvider]
+        return false unless provider.is_a?(Hash)
+
+        full = provider[:full]
+        full == true || full.is_a?(Hash)
       end
 
       # Send textDocument/hover for the cursor's current position.

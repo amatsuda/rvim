@@ -14,6 +14,21 @@ module Rvim
     # via #notify; requests via #request (returns a future-like object that
     # resolves when the matching `id` reply arrives).
     class Client
+      # The standard LSP semantic-token legends. Sent in client
+      # capabilities so the server knows which types/modifiers we
+      # understand; the server may echo a subset as ITS legend, which
+      # the editor-side decoder consults to map index -> name.
+      SEMANTIC_TOKEN_TYPES = %w[
+        namespace type class enum interface struct typeParameter
+        parameter variable property enumMember event function method
+        macro keyword modifier comment string number regexp operator
+        decorator
+      ].freeze
+      SEMANTIC_TOKEN_MODIFIERS = %w[
+        declaration definition readonly static deprecated abstract
+        async modification documentation defaultLibrary
+      ].freeze
+
       attr_reader :name, :status, :capabilities, :diagnostics
       attr_accessor :last_definition_result, :last_hover_result, :last_references_result,
                     :last_formatting_result, :last_document_symbols_result,
@@ -26,7 +41,8 @@ module Rvim
                     :last_folding_range_result,
                     :last_call_hierarchy_prepare_result,
                     :last_call_hierarchy_incoming_result,
-                    :last_call_hierarchy_outgoing_result
+                    :last_call_hierarchy_outgoing_result,
+                    :last_semantic_tokens_result
 
       def initialize(name:, command:, root_uri:, on_diagnostic: nil, cwd: nil, on_log: nil)
         @name = name
@@ -138,6 +154,17 @@ module Rvim
         request('textDocument/definition',
                 textDocument: { uri: uri },
                 position: { line: line, character: character })
+      end
+
+      # textDocument/semanticTokens/full. Result is
+      # { resultId?, data: integer[] } | null. The `data` array is a
+      # flat list of 5-tuples (deltaLine, deltaStart, length,
+      # tokenType, tokenModifiers) — the editor-side decoder turns
+      # them into per-line records using the server's legend.
+      def semantic_tokens_full(uri)
+        @last_semantic_tokens_result = nil
+        request('textDocument/semanticTokens/full',
+                textDocument: { uri: uri })
       end
 
       # textDocument/prepareCallHierarchy. Result is
@@ -397,6 +424,15 @@ module Rvim
             implementation: { dynamicRegistration: false, linkSupport: false },
             foldingRange: { dynamicRegistration: false, lineFoldingOnly: true },
             callHierarchy: { dynamicRegistration: false },
+            semanticTokens: {
+              dynamicRegistration: false,
+              requests: { full: true, range: false },
+              tokenTypes: SEMANTIC_TOKEN_TYPES,
+              tokenModifiers: SEMANTIC_TOKEN_MODIFIERS,
+              formats: ['relative'],
+              overlappingTokenSupport: false,
+              multilineTokenSupport: false,
+            },
             signatureHelp: {
               signatureInformation: {
                 documentationFormat: %w[markdown plaintext],
@@ -570,6 +606,9 @@ module Rvim
         when 'callHierarchy/outgoingCalls'
           # Result is CallHierarchyOutgoingCall[] | null.
           @last_call_hierarchy_outgoing_result = msg[:result]
+        when 'textDocument/semanticTokens/full'
+          # Result is { resultId?, data: int[] } | null.
+          @last_semantic_tokens_result = msg[:result]
         end
       end
 

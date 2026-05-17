@@ -245,6 +245,7 @@ module Rvim
       lsp_ranges = lsp_ranges_for(buffer)
       lsp_hints = lsp_inlay_hints_for(buffer)
       lsp_dhl = lsp_document_highlights_for(buffer)
+      lsp_tokens = lsp_semantic_tokens_for(buffer)
       content_width = win.width - gw
       cursor_idx = is_current ? @editor.line_index : buffer.line_index
       wrap_on = @editor.settings.get(:wrap)
@@ -276,6 +277,16 @@ module Rvim
           # paint a subtle background. Goes BEFORE diagnostics so the
           # diagnostic underline color wins over the highlight bg on
           # overlapping ranges.
+          # Semantic tokens (server-driven syntax highlighting). Goes
+          # FIRST so subsequent overlays (doc highlight bg, diagnostic
+          # underline) wrap around our colored spans. Each token is
+          # painted with a distinct fg color; the rendered line still
+          # gets the regex highlighter's colors where semanticTokens
+          # didn't cover (ruby-lsp is conservative).
+          line_tokens = lsp_tokens[line_idx]
+          if line_tokens && !line_tokens.empty? && byte_off.zero?
+            rendered = apply_semantic_tokens_overlay(rendered, line_tokens, buffer.lines[line_idx].to_s)
+          end
           line_dhl = lsp_dhl[line_idx]
           if line_dhl && !line_dhl.empty? && byte_off.zero?
             rendered = apply_document_highlight_overlay(rendered, line_dhl, buffer.lines[line_idx].to_s)
@@ -803,6 +814,16 @@ module Rvim
       @editor.lsp.inlay_hints_by_line(buffer)
     end
 
+    # 0-based line => decoded SemanticToken[] for the buffer, or {}
+    # when LSP is off / server doesn't support semanticTokens.
+    def lsp_semantic_tokens_for(buffer)
+      return {} unless buffer
+      return {} unless @editor.respond_to?(:settings) && @editor.settings.get(:lsp_enabled)
+      return {} unless @editor.respond_to?(:lsp) && @editor.lsp.respond_to?(:semantic_tokens_by_line)
+
+      @editor.lsp.semantic_tokens_by_line(buffer)
+    end
+
     # 0-based line => DocumentHighlight[] for the buffer (cursor-symbol
     # occurrences), or {} when LSP is off.
     def lsp_document_highlights_for(buffer)
@@ -1081,6 +1102,98 @@ module Rvim
       buf << ' ' if hint[:paddingRight]
       buf << INLAY_HINT_SGR_CLOSE
       buf
+    end
+
+    # SGR foreground colors per semantic token type. Picked to avoid
+    # collision with the syntax highlighter's regex-driven palette
+    # for the same tokens (so where ruby-lsp labels things, the color
+    # is consistent with what users expect; where it doesn't, the
+    # regex highlighter's colors stay visible).
+    SEMANTIC_TOKEN_COLORS = {
+      'namespace'     => 178, # gold
+      'type'          => 178,
+      'class'         => 178,
+      'enum'          => 178,
+      'interface'     => 178,
+      'struct'        => 178,
+      'typeParameter' => 178,
+      'parameter'     => 215, # light orange
+      'variable'      => 252, # light gray
+      'property'      => 215,
+      'enumMember'    => 209, # orange
+      'function'      => 81,  # cyan
+      'method'        => 81,
+      'macro'         => 207, # magenta
+      'keyword'       => 197, # pink
+      'modifier'      => 197,
+      'comment'       => 102, # medium gray
+      'string'        => 150, # light green
+      'number'        => 209, # orange
+      'regexp'        => 207,
+      'operator'      => 250, # near-white gray
+      'decorator'     => 215,
+    }.freeze
+
+    # Splice fg-color SGR around each semantic token. SGR-aware walk
+    # like the other overlays: step bytes while counting characters,
+    # convert each token's (char_start, length) into byte positions,
+    # and wrap that range in `\e[38;5;Cm ... \e[39m`.
+    def apply_semantic_tokens_overlay(rendered, tokens, raw_line)
+      return rendered if tokens.nil? || tokens.empty?
+
+      byte_ranges = tokens.filter_map do |t|
+        s = t[:start].to_i
+        e = s + t[:length].to_i
+        color = SEMANTIC_TOKEN_COLORS[t[:type]]
+        next unless color
+
+        sb = char_to_byte(raw_line, s)
+        eb = char_to_byte(raw_line, e)
+        next if sb >= eb
+
+        [sb, eb, color]
+      end.sort_by(&:first)
+      return rendered if byte_ranges.empty?
+
+      out = +''
+      pos = 0
+      orig = 0
+      idx = 0
+      active = nil
+      total = rendered.bytesize
+
+      while pos < total
+        if rendered.getbyte(pos) == 0x1b && (m = rendered.byteslice(pos..-1)&.match(DIAG_SGR_RE))
+          out << m[0]
+          pos += m[0].bytesize
+          next
+        end
+
+        if active && orig >= active[1]
+          out << "\e[39m"
+          active = nil
+          idx += 1
+        end
+
+        if active.nil? && idx < byte_ranges.size && orig >= byte_ranges[idx][0]
+          active = byte_ranges[idx]
+          out << "\e[38;5;#{active[2]}m"
+        end
+
+        cb = rendered.getbyte(pos)
+        char_bytes = if cb.nil? || cb < 0x80 then 1
+                     elsif cb < 0xc0 then 1
+                     elsif cb < 0xe0 then 2
+                     elsif cb < 0xf0 then 3
+                     else 4
+                     end
+        out << rendered.byteslice(pos, char_bytes)
+        pos += char_bytes
+        orig += char_bytes
+      end
+
+      out << "\e[39m" if active
+      out
     end
 
     # Subtle dark-gray background for document-highlight occurrences.
