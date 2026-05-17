@@ -42,7 +42,8 @@ module Rvim
                     :last_call_hierarchy_prepare_result,
                     :last_call_hierarchy_incoming_result,
                     :last_call_hierarchy_outgoing_result,
-                    :last_semantic_tokens_result, :last_selection_range_result
+                    :last_semantic_tokens_result, :last_selection_range_result,
+                    :last_code_lens_result
 
       def initialize(name:, command:, root_uri:, on_diagnostic: nil, cwd: nil, on_log: nil)
         @name = name
@@ -154,6 +155,16 @@ module Rvim
         request('textDocument/definition',
                 textDocument: { uri: uri },
                 position: { line: line, character: character })
+      end
+
+      # textDocument/codeLens. Result is CodeLens[] | null. Each lens
+      # has { range, command?, data? }. When `command` is missing the
+      # spec says clients can fetch it via codeLens/resolve, but we
+      # don't bother since ruby-lsp returns commands inline.
+      def code_lens(uri)
+        @last_code_lens_result = nil
+        request('textDocument/codeLens',
+                textDocument: { uri: uri })
       end
 
       # textDocument/selectionRange. Result is SelectionRange[] | null,
@@ -434,6 +445,7 @@ module Rvim
             implementation: { dynamicRegistration: false, linkSupport: false },
             foldingRange: { dynamicRegistration: false, lineFoldingOnly: true },
             callHierarchy: { dynamicRegistration: false },
+            codeLens: { dynamicRegistration: false },
             semanticTokens: {
               dynamicRegistration: false,
               requests: { full: true, range: false },
@@ -622,6 +634,9 @@ module Rvim
         when 'textDocument/selectionRange'
           # Result is SelectionRange[] | null.
           @last_selection_range_result = msg[:result]
+        when 'textDocument/codeLens'
+          # Result is CodeLens[] | null.
+          @last_code_lens_result = msg[:result]
         end
       end
 

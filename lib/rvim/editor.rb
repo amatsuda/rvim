@@ -1435,6 +1435,54 @@ module Rvim
     LSP_FOLDING_RANGE_TIMEOUT   = 2.0
     LSP_CALL_HIERARCHY_TIMEOUT  = 3.0
     LSP_SELECTION_RANGE_TIMEOUT = 2.0
+    LSP_CODE_LENS_TIMEOUT       = 2.0
+
+    # Send textDocument/codeLens, poll, populate the quickfix with
+    # one entry per lens. Each lens's command.title is the entry text;
+    # the entry's line/col jumps to the lens's range start. Doesn't
+    # try to EXECUTE the lens — ruby-lsp's commands are client-side
+    # (rubyLsp.runTest etc.), so a generic workspace/executeCommand
+    # would 404. Users read the title and act manually.
+    def lsp_show_code_lenses
+      return false unless @settings.get(:lsp_enabled)
+
+      buf = current_buffer
+      return false unless buf
+      lsp.flush_changes(buf)
+      sent = lsp.request_code_lens(buf)
+      if sent == :unsupported
+        @status_message = 'LSP: server does not support codeLens'
+        return true
+      end
+      return false unless sent
+
+      result = poll_lsp_result(LSP_CODE_LENS_TIMEOUT, 'textDocument/codeLens') do
+        lsp.last_code_lens_result
+      end
+
+      lenses = result || []
+      if lenses.empty?
+        @status_message = 'LSP: no code lenses'
+        return true
+      end
+
+      entries = lenses.filter_map do |lens|
+        title = lens.dig(:command, :title).to_s
+        next if title.empty?
+
+        line = lens.dig(:range, :start, :line).to_i + 1
+        col  = lens.dig(:range, :start, :character).to_i + 1
+        Rvim::Quickfix::Entry.new(file: @filepath.to_s, line: line, col: col, text: title)
+      end
+      if entries.empty?
+        @status_message = 'LSP: no code lenses'
+        return true
+      end
+
+      @quickfix.set(entries)
+      show_list(Rvim::Command.format_quickfix(self))
+      true
+    end
 
     # Expand the visual selection to the next-larger syntactic unit
     # (word → expression → statement → method → class). Caches the

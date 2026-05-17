@@ -150,6 +150,7 @@ module Rvim
              when 'LspOutgoingCalls', 'lspoutgoingcalls' then :lsp_outgoing_calls
              when 'LspSelectionExpand', 'lspselectionexpand' then :lsp_selection_expand
              when 'LspSelectionShrink', 'lspselectionshrink' then :lsp_selection_shrink
+             when 'LspCodeLens', 'lspcodelens' then :lsp_code_lens
              when 'LspReferences', 'lspreferences' then :lsp_references
              when 'LspFormat', 'lspformat' then :lsp_format
              when 'LspSymbols', 'lspsymbols' then :lsp_symbols
@@ -441,6 +442,8 @@ module Rvim
         execute_lsp_selection_expand(editor)
       when :lsp_selection_shrink
         execute_lsp_selection_shrink(editor)
+      when :lsp_code_lens
+        execute_lsp_code_lens(editor)
       when :lsp_references
         execute_lsp_references(editor)
       when :lsp_format
@@ -1891,6 +1894,12 @@ module Rvim
       return if editor.lsp_selection_shrink
 
       editor.status_message = 'LSP: selection range unavailable for this buffer'
+    end
+
+    def self.execute_lsp_code_lens(editor)
+      return if editor.lsp_show_code_lenses
+
+      editor.status_message = 'LSP: code lens unavailable for this buffer'
     end
 
     def self.execute_lsp_references(editor)
