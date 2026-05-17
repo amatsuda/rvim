@@ -1956,6 +1956,47 @@ module Rvim
       @hover_popup = nil
     end
 
+    # Returns true when the key was a popup-control key (scrolled or
+    # explicit dismiss). False means "this key dismisses the popup
+    # AND should be processed by the rest of update()" — the caller
+    # clears @hover_popup and falls through.
+    private def consume_hover_popup_key(key)
+      ch = key.char
+      ch_str = ch.is_a?(Integer) ? ch.chr(Encoding::ASCII_8BIT) : ch.to_s
+      case ch_str
+      when 'q', "\e"
+        @hover_popup = nil
+        true
+      when "\x05" # Ctrl-E: scroll one line down (vim convention)
+        scroll_hover_popup(+1)
+        true
+      when "\x19" # Ctrl-Y: scroll one line up
+        scroll_hover_popup(-1)
+        true
+      when "\x04" # Ctrl-D: half-page down
+        scroll_hover_popup(+(@hover_popup.visible_height / 2))
+        true
+      when "\x15" # Ctrl-U: half-page up
+        scroll_hover_popup(-(@hover_popup.visible_height / 2))
+        true
+      when "\x06" # Ctrl-F: page down
+        scroll_hover_popup(+@hover_popup.visible_height)
+        true
+      when "\x02" # Ctrl-B: page up
+        scroll_hover_popup(-@hover_popup.visible_height)
+        true
+      else
+        false
+      end
+    end
+
+    private def scroll_hover_popup(delta)
+      return unless @hover_popup
+
+      max = [@hover_popup.size - 1, 0].max
+      @hover_popup.pointer = (@hover_popup.pointer + delta).clamp(0, max)
+    end
+
     DIAGNOSTIC_POPUP_MAX_WIDTH  = 80
     DIAGNOSTIC_POPUP_MAX_HEIGHT = 8
     SEVERITY_NAMES = { 1 => 'E', 2 => 'W', 3 => 'I', 4 => 'H' }.freeze
@@ -3300,10 +3341,14 @@ module Rvim
     end
 
     def update(key)
-      # Any keypress dismisses an open hover popup. Cleared first so the
-      # *next* render-loop tick won't show it; the key dispatched below
-      # is processed normally.
-      @hover_popup = nil if @hover_popup
+      # Hover popup intercepts a few scroll / dismiss keys so long
+      # docs are actually readable; anything else dismisses and falls
+      # through to normal key handling.
+      if @hover_popup
+        return if consume_hover_popup_key(key)
+
+        @hover_popup = nil
+      end
 
       if @prompt_mode == :listing
         process_listing_key(key)

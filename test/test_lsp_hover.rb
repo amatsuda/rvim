@@ -132,6 +132,81 @@ class TestEditorParseHoverContents < Test::Unit::TestCase
   end
 end
 
+class TestHoverPopupKeyConsumption < Test::Unit::TestCase
+  def setup
+    @editor = Rvim::Editor.new(Reline.core.config)
+    # 30-line hover content so the popup needs scrolling.
+    contents = (1..30).map { |i| "line #{i}" }
+    @editor.instance_variable_set(:@hover_popup,
+      Rvim::CompletionPopup.new(contents: contents, max_height: 8, max_width: 80))
+    @popup = @editor.hover_popup
+  end
+
+  def key(ch); Reline::Key.new(ch, ch, false); end
+
+  def test_ctrl_e_scrolls_down_one_line
+    @editor.send(:consume_hover_popup_key, key(0x05))
+    assert_equal 1, @popup.pointer
+    refute_nil @editor.hover_popup
+  end
+
+  def test_ctrl_y_scrolls_up_one_line
+    @popup.pointer = 5
+    @editor.send(:consume_hover_popup_key, key(0x19))
+    assert_equal 4, @popup.pointer
+  end
+
+  def test_ctrl_d_scrolls_half_page
+    @editor.send(:consume_hover_popup_key, key(0x04))
+    # visible_height=8, half=4
+    assert_equal 4, @popup.pointer
+  end
+
+  def test_ctrl_u_scrolls_half_page_up
+    @popup.pointer = 10
+    @editor.send(:consume_hover_popup_key, key(0x15))
+    assert_equal 6, @popup.pointer
+  end
+
+  def test_ctrl_f_scrolls_full_page_down
+    @editor.send(:consume_hover_popup_key, key(0x06))
+    assert_equal 8, @popup.pointer
+  end
+
+  def test_ctrl_b_scrolls_full_page_up
+    @popup.pointer = 16
+    @editor.send(:consume_hover_popup_key, key(0x02))
+    assert_equal 8, @popup.pointer
+  end
+
+  def test_q_dismisses_popup
+    @editor.send(:consume_hover_popup_key, key('q'.ord))
+    assert_nil @editor.hover_popup
+  end
+
+  def test_esc_dismisses_popup
+    @editor.send(:consume_hover_popup_key, key(0x1b))
+    assert_nil @editor.hover_popup
+  end
+
+  def test_letter_is_passthrough
+    refute @editor.send(:consume_hover_popup_key, key('j'.ord))
+    refute_nil @editor.hover_popup, 'popup stays (caller will dismiss on passthrough)'
+  end
+
+  def test_scroll_clamps_at_bottom
+    @popup.pointer = @popup.size - 1
+    @editor.send(:consume_hover_popup_key, key(0x05))
+    assert_equal @popup.size - 1, @popup.pointer
+  end
+
+  def test_scroll_clamps_at_top
+    @popup.pointer = 0
+    @editor.send(:consume_hover_popup_key, key(0x19))
+    assert_equal 0, @popup.pointer
+  end
+end
+
 class TestEditorRenderMarkdownForPopup < Test::Unit::TestCase
   def render(text)
     editor = Rvim::Editor.new(Reline.core.config)
