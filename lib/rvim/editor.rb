@@ -93,6 +93,7 @@ module Rvim
       @hover_popup = nil
       @signature_popup = nil
       @diagnostic_popup = nil
+      @selection_range_state = nil
       @last_code_actions = nil
       @cmdline_popup = nil
       @cmdline_completion_context = nil
@@ -1433,6 +1434,130 @@ module Rvim
     LSP_IMPLEMENTATION_TIMEOUT  = 2.0
     LSP_FOLDING_RANGE_TIMEOUT   = 2.0
     LSP_CALL_HIERARCHY_TIMEOUT  = 3.0
+    LSP_SELECTION_RANGE_TIMEOUT = 2.0
+
+    # Expand the visual selection to the next-larger syntactic unit
+    # (word → expression → statement → method → class). Caches the
+    # server's range hierarchy so subsequent expands are instant; the
+    # cache invalidates whenever the user moves the cursor or breaks
+    # the selection between calls.
+    def lsp_selection_expand
+      lsp_selection_step(+1)
+    end
+
+    # Shrink the visual selection one level back toward the innermost
+    # range. No-op (with status message) once at level 0.
+    def lsp_selection_shrink
+      lsp_selection_step(-1)
+    end
+
+    private def lsp_selection_step(direction)
+      return false unless @settings.get(:lsp_enabled)
+
+      buf = current_buffer
+      return false unless buf
+
+      # Reuse cache if the current selection is exactly what we set
+      # last time — the user has done nothing else since.
+      state = @selection_range_state
+      if state && selection_matches_state?(state)
+        new_level = state[:level] + direction
+        if new_level.negative?
+          @status_message = 'LSP: at innermost selection'
+          return true
+        end
+        if new_level >= state[:ranges].size
+          @status_message = 'LSP: at outermost selection'
+          return true
+        end
+        apply_selection_level(state, new_level)
+        return true
+      end
+
+      # Fresh request — fetch the hierarchy at cursor.
+      lsp.flush_changes(buf)
+      sent = lsp.request_selection_range(buf)
+      if sent == :unsupported
+        @status_message = 'LSP: server does not support selectionRange'
+        return true
+      end
+      return false unless sent
+
+      result = poll_lsp_result(LSP_SELECTION_RANGE_TIMEOUT, 'textDocument/selectionRange') do
+        lsp.last_selection_range_result
+      end
+      ranges = flatten_selection_range(result)
+      if ranges.empty?
+        @status_message = 'LSP: no selection range'
+        return true
+      end
+
+      # First expand goes to level 0 (innermost); first shrink with no
+      # state is also a no-op preceded by a fresh fetch — treat it as
+      # "show me the innermost".
+      state = { ranges: ranges, level: -1, recorded_anchor: nil, recorded_cursor: nil }
+      apply_selection_level(state, 0)
+      true
+    end
+
+    # Walk the LSP SelectionRange hierarchy (linked list via .parent),
+    # collect each unique Range as `{start_line, start_char, end_line,
+    # end_char}` from innermost to outermost. Consecutive duplicate
+    # ranges (servers often emit them) collapse to one entry.
+    private def flatten_selection_range(result)
+      return [] unless result.is_a?(Array) && result.first
+
+      out = []
+      node = result.first
+      while node
+        r = node[:range]
+        rec = {
+          start_line: r.dig(:start, :line).to_i,
+          start_char: r.dig(:start, :character).to_i,
+          end_line:   r.dig(:end,   :line).to_i,
+          end_char:   r.dig(:end,   :character).to_i,
+        }
+        out << rec unless out.last == rec
+        node = node[:parent]
+      end
+      out
+    end
+
+    private def selection_matches_state?(state)
+      state[:recorded_anchor] && state[:recorded_cursor] &&
+        @visual_anchor == state[:recorded_anchor] &&
+        [@line_index, @byte_pointer] == state[:recorded_cursor]
+    end
+
+    # Set the visual selection to the range at `level`, save state.
+    private def apply_selection_level(state, level)
+      range = state[:ranges][level]
+      sb = lsp_char_pos_to_byte(range[:start_line], range[:start_char])
+      eb = lsp_char_pos_to_byte(range[:end_line],   range[:end_char])
+      # Visual selection is inclusive on the end; LSP end is exclusive.
+      end_byte_inclusive = [eb - 1, 0].max
+
+      @visual_mode = :char
+      @visual_anchor = [range[:start_line], sb]
+      @line_index    = range[:end_line]
+      @byte_pointer  = end_byte_inclusive
+
+      @selection_range_state = state.merge(
+        level: level,
+        recorded_anchor: @visual_anchor.dup,
+        recorded_cursor: [@line_index, @byte_pointer],
+      )
+    end
+
+    # LSP positions are character indices; rvim's byte_pointer is bytes.
+    # For ASCII these are identical; for multibyte we count chars.
+    private def lsp_char_pos_to_byte(line_idx, char_idx)
+      line = @buffer_of_lines[line_idx] || ''
+      return 0 if char_idx <= 0
+      return line.bytesize if char_idx >= line.length
+
+      line[0, char_idx].bytesize
+    end
 
     # Show incoming calls to the symbol at the cursor — two-step
     # protocol: prepareCallHierarchy then callHierarchy/incomingCalls.

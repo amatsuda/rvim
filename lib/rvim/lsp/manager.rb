@@ -475,6 +475,31 @@ module Rvim
         mods
       end
 
+      # textDocument/selectionRange at the cursor. Returns :unsupported
+      # when the server didn't advertise selectionRangeProvider.
+      def request_selection_range(buffer)
+        ft = filetype_for(buffer)
+        client = @clients[ft]
+        return false unless client && client.status == :running
+        return :unsupported unless server_supports?(client, :selectionRangeProvider)
+
+        client.selection_range(buffer_uri(buffer),
+                               @editor.line_index, @editor.byte_pointer)
+        true
+      end
+
+      def last_selection_range_result
+        @clients.each_value do |c|
+          r = c.last_selection_range_result
+          return r if r
+        end
+        nil
+      end
+
+      def clear_selection_range_result
+        @clients.each_value { |c| c.last_selection_range_result = nil }
+      end
+
       private def semantic_tokens_full_supported?(client)
         provider = (client.capabilities || {})[:semanticTokensProvider]
         return false unless provider.is_a?(Hash)

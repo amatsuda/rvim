@@ -148,6 +148,8 @@ module Rvim
              when 'LspFold', 'lspfold' then :lsp_fold
              when 'LspIncomingCalls', 'lspincomingcalls' then :lsp_incoming_calls
              when 'LspOutgoingCalls', 'lspoutgoingcalls' then :lsp_outgoing_calls
+             when 'LspSelectionExpand', 'lspselectionexpand' then :lsp_selection_expand
+             when 'LspSelectionShrink', 'lspselectionshrink' then :lsp_selection_shrink
              when 'LspReferences', 'lspreferences' then :lsp_references
              when 'LspFormat', 'lspformat' then :lsp_format
              when 'LspSymbols', 'lspsymbols' then :lsp_symbols
@@ -435,6 +437,10 @@ module Rvim
         execute_lsp_incoming_calls(editor)
       when :lsp_outgoing_calls
         execute_lsp_outgoing_calls(editor)
+      when :lsp_selection_expand
+        execute_lsp_selection_expand(editor)
+      when :lsp_selection_shrink
+        execute_lsp_selection_shrink(editor)
       when :lsp_references
         execute_lsp_references(editor)
       when :lsp_format
@@ -1873,6 +1879,18 @@ module Rvim
       return if editor.lsp_show_outgoing_calls
 
       editor.status_message = 'LSP: call hierarchy unavailable for this buffer'
+    end
+
+    def self.execute_lsp_selection_expand(editor)
+      return if editor.lsp_selection_expand
+
+      editor.status_message = 'LSP: selection range unavailable for this buffer'
+    end
+
+    def self.execute_lsp_selection_shrink(editor)
+      return if editor.lsp_selection_shrink
+
+      editor.status_message = 'LSP: selection range unavailable for this buffer'
     end
 
     def self.execute_lsp_references(editor)

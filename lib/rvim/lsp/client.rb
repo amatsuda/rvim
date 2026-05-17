@@ -42,7 +42,7 @@ module Rvim
                     :last_call_hierarchy_prepare_result,
                     :last_call_hierarchy_incoming_result,
                     :last_call_hierarchy_outgoing_result,
-                    :last_semantic_tokens_result
+                    :last_semantic_tokens_result, :last_selection_range_result
 
       def initialize(name:, command:, root_uri:, on_diagnostic: nil, cwd: nil, on_log: nil)
         @name = name
@@ -154,6 +154,16 @@ module Rvim
         request('textDocument/definition',
                 textDocument: { uri: uri },
                 position: { line: line, character: character })
+      end
+
+      # textDocument/selectionRange. Result is SelectionRange[] | null,
+      # one per input position. Each SelectionRange has `range` and
+      # optional `parent` forming a hierarchy from innermost outward.
+      def selection_range(uri, line, character)
+        @last_selection_range_result = nil
+        request('textDocument/selectionRange',
+                textDocument: { uri: uri },
+                positions: [{ line: line, character: character }])
       end
 
       # textDocument/semanticTokens/full. Result is
@@ -609,6 +619,9 @@ module Rvim
         when 'textDocument/semanticTokens/full'
           # Result is { resultId?, data: int[] } | null.
           @last_semantic_tokens_result = msg[:result]
+        when 'textDocument/selectionRange'
+          # Result is SelectionRange[] | null.
+          @last_selection_range_result = msg[:result]
         end
       end
 
