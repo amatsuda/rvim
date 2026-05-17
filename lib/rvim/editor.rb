@@ -95,6 +95,7 @@ module Rvim
       @diagnostic_popup = nil
       @selection_range_state = nil
       @last_code_lenses = nil
+      @async_commands = [] # [{job: AsyncCommand, buffer: Buffer, label: String}]
       @last_code_actions = nil
       @cmdline_popup = nil
       @cmdline_completion_context = nil
@@ -1530,20 +1531,60 @@ module Rvim
       true
     end
 
-    # Run a shell command and open its captured output in a new
-    # terminal-style buffer. Mirrors execute_terminal but uses the
-    # lens title rather than the raw command as the buffer name.
+    # Open a terminal-style buffer for the lens output and spawn the
+    # shell command asynchronously. Output streams into the buffer as
+    # lines arrive (see pump_async_commands) so long test runs don't
+    # freeze the editor.
     private def run_code_lens_shell_command(shell_cmd)
-      result = Rvim::Filter.run(
-        shell_cmd,
-        shell: @settings.get(:shell).to_s,
-        shellcmdflag: @settings.get(:shellcmdflag).to_s,
-      )
-      output = result.stdout.to_s
-      output += result.stderr.to_s if result.stderr && !result.stderr.empty?
-      lines = output.lines.map(&:chomp)
-      lines = [''] if lines.empty?
-      open_terminal_buffer("term://#{shell_cmd}", lines, status: result.status.exitstatus)
+      buf = open_async_terminal_buffer(shell_cmd)
+      job = Rvim::AsyncCommand.new(shell_cmd,
+                                   shell: @settings.get(:shell).to_s,
+                                   shellcmdflag: @settings.get(:shellcmdflag).to_s)
+      job.start
+      @async_commands << { job: job, buffer: buf, label: shell_cmd }
+    end
+
+    # Create the terminal buffer pre-filled with a "Running:" header
+    # line and a blank slot; output appends after these.
+    private def open_async_terminal_buffer(shell_cmd)
+      buf = Rvim::Buffer.new(@next_buffer_id, "term://#{shell_cmd}", encoding: encoding)
+      @next_buffer_id += 1
+      header = "Running: #{shell_cmd}"
+      buf.lines = [header.dup.force_encoding(encoding), '']
+      buf.line_index = 0
+      buf.byte_pointer = 0
+      buf.modified = false
+      @buffers[buf.id] = buf
+      @buffer_order << buf.id
+      swap_to_buffer(buf)
+      buf
+    end
+
+    # Render-loop hook. Drains each active async command's queue into
+    # its target buffer; finalizes (and removes) jobs that have exited.
+    def pump_async_commands
+      return if @async_commands.empty?
+
+      @async_commands.each do |entry|
+        new_lines = entry[:job].drain
+        next if new_lines.empty?
+
+        entry[:buffer].lines.concat(new_lines)
+        # If the user is currently viewing this buffer, keep
+        # @buffer_of_lines in sync so the renderer sees the new lines.
+        @buffer_of_lines = entry[:buffer].lines if @current_buffer&.equal?(entry[:buffer])
+      end
+
+      @async_commands.reject! do |entry|
+        next false unless entry[:job].done?
+
+        status = entry[:job].exit_status
+        footer = "[Exit #{status.inspect}]"
+        entry[:buffer].lines << footer
+        @buffer_of_lines = entry[:buffer].lines if @current_buffer&.equal?(entry[:buffer])
+        @status_message = "[async] #{entry[:label]} → #{footer}"
+        true
+      end
     end
 
     # Expand the visual selection to the next-larger syntactic unit
@@ -6253,6 +6294,10 @@ module Rvim
               # cursor's position shows up on the same render tick.
               editor.update_diagnostic_popup_for_cursor
             end
+            # Drain output from async shell commands (e.g. :LspCodeLens
+            # test runs). Runs regardless of lsp_enabled so non-LSP
+            # async jobs work too.
+            editor.pump_async_commands
             begin
               Reline.core.send(:read_io, Reline.core.config.keyseq_timeout) do |inputs|
                 inputs.each do |key|

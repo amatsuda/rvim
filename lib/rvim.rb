@@ -14,6 +14,7 @@ module Rvim
 end
 
 require_relative 'rvim/version'
+require_relative 'rvim/async_command'
 require_relative 'rvim/selection'
 require_relative 'rvim/text_object'
 require_relative 'rvim/operations'
