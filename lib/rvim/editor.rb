@@ -1431,6 +1431,66 @@ module Rvim
 
     LSP_TYPE_DEFINITION_TIMEOUT = 2.0
     LSP_IMPLEMENTATION_TIMEOUT  = 2.0
+    LSP_FOLDING_RANGE_TIMEOUT   = 2.0
+
+    # Send textDocument/foldingRange, poll, and rebuild the buffer's
+    # fold list from the server's ranges. Replaces any existing folds
+    # — the user invoked :LspFold deliberately, so it's a refresh.
+    # All folds are created in the OPEN state so the buffer doesn't
+    # suddenly collapse; the user can zM / zc to close.
+    def lsp_apply_folding_ranges
+      return false unless @settings.get(:lsp_enabled)
+
+      buf = current_buffer
+      return false unless buf
+      lsp.flush_changes(buf)
+      sent = lsp.request_folding_range(buf)
+      if sent == :unsupported
+        @status_message = 'LSP: server does not support foldingRange'
+        return true
+      end
+      return false unless sent
+
+      deadline = Time.now + LSP_FOLDING_RANGE_TIMEOUT
+      result = nil
+      loop do
+        lsp.pump
+        result = lsp.last_folding_range_result
+        break if result
+        break unless lsp.pending_for?('textDocument/foldingRange')
+        break if Time.now > deadline
+
+        sleep 0.02
+      end
+
+      ranges = result || []
+      if ranges.empty?
+        @status_message = 'LSP: no folding ranges'
+        return true
+      end
+
+      buf.folds.clear
+      added = 0
+      # Process largest ranges first so containing folds are added
+      # before contained ones — Folds#add allows proper containment
+      # but rejects partial overlap, and the outer-first order plays
+      # well with insertion sort by start_line.
+      sorted = ranges
+                 .reject { |r| r[:endLine].to_i <= r[:startLine].to_i }
+                 .uniq   { |r| [r[:startLine].to_i, r[:endLine].to_i] }
+                 .sort_by { |r| -(r[:endLine].to_i - r[:startLine].to_i) }
+      sorted.each do |r|
+        added += 1 if buf.folds.add(r[:startLine].to_i, r[:endLine].to_i, closed: false)
+      end
+
+      # Folds are no use if foldenable is off — the renderer skips
+      # them entirely. Flip it on so :LspFold actually shows results;
+      # the user can :set nofoldenable to hide them again.
+      @settings.set(:foldenable, true) if added > 0
+
+      @status_message = "LSP: applied #{added} fold#{'s' unless added == 1}"
+      true
+    end
 
     # Send textDocument/typeDefinition for the cursor, poll, jump.
     # Returns true when the LSP path took over (whether it found a

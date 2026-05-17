@@ -257,6 +257,30 @@ module Rvim
         @clients.each_value { |c| c.last_implementation_result = nil }
       end
 
+      # textDocument/foldingRange. Returns :unsupported when the
+      # server didn't advertise foldingRangeProvider.
+      def request_folding_range(buffer)
+        ft = filetype_for(buffer)
+        client = @clients[ft]
+        return false unless client && client.status == :running
+        return :unsupported unless server_supports?(client, :foldingRangeProvider)
+
+        client.folding_range(buffer_uri(buffer))
+        true
+      end
+
+      def last_folding_range_result
+        @clients.each_value do |c|
+          r = c.last_folding_range_result
+          return r if r
+        end
+        nil
+      end
+
+      def clear_folding_range_result
+        @clients.each_value { |c| c.last_folding_range_result = nil }
+      end
+
       # Send textDocument/hover for the cursor's current position.
       # Result lands on the client; callers poll via #last_hover_result.
       def request_hover(buffer)

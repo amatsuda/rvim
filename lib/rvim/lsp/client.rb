@@ -22,7 +22,8 @@ module Rvim
                     :last_code_action_resolve_result, :last_completion_result,
                     :last_inlay_hints_result, :last_workspace_symbols_result,
                     :last_signature_help_result, :last_document_highlights_result,
-                    :last_type_definition_result, :last_implementation_result
+                    :last_type_definition_result, :last_implementation_result,
+                    :last_folding_range_result
 
       def initialize(name:, command:, root_uri:, on_diagnostic: nil, cwd: nil, on_log: nil)
         @name = name
@@ -134,6 +135,15 @@ module Rvim
         request('textDocument/definition',
                 textDocument: { uri: uri },
                 position: { line: line, character: character })
+      end
+
+      # textDocument/foldingRange. Result is FoldingRange[] | null,
+      # where each entry is { startLine, endLine, kind? }. Lines are
+      # 0-based; endLine is inclusive (the line of the closing token).
+      def folding_range(uri)
+        @last_folding_range_result = nil
+        request('textDocument/foldingRange',
+                textDocument: { uri: uri })
       end
 
       # textDocument/typeDefinition. Same response shape as definition;
@@ -356,6 +366,7 @@ module Rvim
             documentHighlight: { dynamicRegistration: false },
             typeDefinition: { dynamicRegistration: false, linkSupport: false },
             implementation: { dynamicRegistration: false, linkSupport: false },
+            foldingRange: { dynamicRegistration: false, lineFoldingOnly: true },
             signatureHelp: {
               signatureInformation: {
                 documentationFormat: %w[markdown plaintext],
@@ -517,6 +528,9 @@ module Rvim
         when 'textDocument/implementation'
           # Same shape as textDocument/definition.
           @last_implementation_result = msg[:result]
+        when 'textDocument/foldingRange'
+          # Result is FoldingRange[] | null.
+          @last_folding_range_result = msg[:result]
         end
       end
 

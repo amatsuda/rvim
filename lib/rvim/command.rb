@@ -145,6 +145,7 @@ module Rvim
              when 'LspDefinition', 'lspdefinition' then :lsp_definition
              when 'LspTypeDefinition', 'lsptypedefinition' then :lsp_type_definition
              when 'LspImplementation', 'lspimplementation' then :lsp_implementation
+             when 'LspFold', 'lspfold' then :lsp_fold
              when 'LspReferences', 'lspreferences' then :lsp_references
              when 'LspFormat', 'lspformat' then :lsp_format
              when 'LspSymbols', 'lspsymbols' then :lsp_symbols
@@ -426,6 +427,8 @@ module Rvim
         execute_lsp_type_definition(editor)
       when :lsp_implementation
         execute_lsp_implementation(editor)
+      when :lsp_fold
+        execute_lsp_fold(editor)
       when :lsp_references
         execute_lsp_references(editor)
       when :lsp_format
@@ -1846,6 +1849,12 @@ module Rvim
       return if editor.lsp_jump_to_implementation
 
       editor.status_message = 'LSP: implementation unavailable for this buffer'
+    end
+
+    def self.execute_lsp_fold(editor)
+      return if editor.lsp_apply_folding_ranges
+
+      editor.status_message = 'LSP: folding unavailable for this buffer'
     end
 
     def self.execute_lsp_references(editor)
