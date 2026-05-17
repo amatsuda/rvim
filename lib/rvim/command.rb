@@ -139,6 +139,7 @@ module Rvim
              when 'LspStatus', 'lspstatus' then :lsp_status
              when 'LspStop', 'lspstop' then :lsp_stop
              when 'LspDiagnostics', 'lspdiagnostics' then :lsp_diagnostics
+             when 'LspDiagnosticFloat', 'lspdiagnosticfloat' then :lsp_diagnostic_float
              when 'LspHover', 'lsphover' then :lsp_hover
              when 'LspSignatureHelp', 'lspsignaturehelp' then :lsp_signature_help
              when 'LspDefinition', 'lspdefinition' then :lsp_definition
@@ -413,6 +414,8 @@ module Rvim
         editor.status_message = 'LSP: shut down'
       when :lsp_diagnostics
         execute_lsp_diagnostics(editor)
+      when :lsp_diagnostic_float
+        execute_lsp_diagnostic_float(editor)
       when :lsp_hover
         execute_lsp_hover(editor)
       when :lsp_signature_help
@@ -1795,6 +1798,12 @@ module Rvim
     SEVERITY = { 1 => 'ERROR', 2 => 'WARN', 3 => 'INFO', 4 => 'HINT' }.freeze
     def self.severity_label(n)
       SEVERITY[n] || 'NOTE'
+    end
+
+    def self.execute_lsp_diagnostic_float(editor)
+      return if editor.lsp_show_diagnostic_float
+
+      editor.status_message = 'LSP: no diagnostics at cursor'
     end
 
     def self.execute_lsp_log(editor)

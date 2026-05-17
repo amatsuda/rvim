@@ -92,6 +92,7 @@ module Rvim
       @completion_popup = nil
       @hover_popup = nil
       @signature_popup = nil
+      @diagnostic_popup = nil
       @last_code_actions = nil
       @cmdline_popup = nil
       @cmdline_completion_context = nil
@@ -1190,7 +1191,7 @@ module Rvim
     end
 
     attr_reader :completion_popup, :completion_base_byte, :completion_line_index
-    attr_reader :hover_popup, :signature_popup
+    attr_reader :hover_popup, :signature_popup, :diagnostic_popup
 
     private def completion_key?(key)
       sym = key.method_symbol
@@ -1601,6 +1602,93 @@ module Rvim
 
     def dismiss_hover_popup
       @hover_popup = nil
+    end
+
+    DIAGNOSTIC_POPUP_MAX_WIDTH  = 80
+    DIAGNOSTIC_POPUP_MAX_HEIGHT = 8
+    SEVERITY_NAMES = { 1 => 'E', 2 => 'W', 3 => 'I', 4 => 'H' }.freeze
+
+    # Render-loop hook: open/close @diagnostic_popup based on whether
+    # the cursor currently sits inside a diagnostic range. Cheap —
+    # diagnostics are already cached locally, no LSP round-trip.
+    def update_diagnostic_popup_for_cursor
+      unless @settings.get(:lsp_enabled) && @settings.get(:lsp_diagnostic_float)
+        @diagnostic_popup = nil
+        return
+      end
+      buf = current_buffer
+      diags = diagnostics_at_cursor(buf)
+      if diags.empty?
+        @diagnostic_popup = nil
+        return
+      end
+      @diagnostic_popup = build_diagnostic_popup(diags)
+    end
+
+    # Manually open the popup (used by :LspDiagnosticFloat). Returns
+    # true when something was shown, false when there's nothing under
+    # the cursor — caller falls back to a status message.
+    def lsp_show_diagnostic_float
+      return false unless @settings.get(:lsp_enabled)
+
+      buf = current_buffer
+      diags = diagnostics_at_cursor(buf)
+      return false if diags.empty?
+
+      @diagnostic_popup = build_diagnostic_popup(diags)
+      true
+    end
+
+    # Returns the diagnostics whose range covers the current cursor.
+    # Handles single- and multi-line ranges. LSP positions are
+    # `character` indices; for byte-based byte_pointer this matches
+    # for ASCII (the common case).
+    private def diagnostics_at_cursor(buffer)
+      return [] unless buffer
+      return [] unless lsp.respond_to?(:diagnostics_for)
+
+      cursor_line = @line_index
+      cursor_char = @byte_pointer
+      lsp.diagnostics_for(buffer).select do |d|
+        diagnostic_covers?(d, cursor_line, cursor_char)
+      end
+    end
+
+    private def diagnostic_covers?(d, line, char)
+      r = d[:range]
+      return false unless r
+
+      sl = r.dig(:start, :line).to_i
+      el = r.dig(:end,   :line).to_i
+      return false unless sl <= line && line <= el
+
+      sc = r.dig(:start, :character).to_i
+      ec = r.dig(:end,   :character).to_i
+      # Empty ranges (sc == ec) match the single column they point at.
+      ec = sc + 1 if sl == el && sc == ec
+      return false if sl == line && char < sc
+      return false if el == line && char >= ec
+
+      true
+    end
+
+    private def build_diagnostic_popup(diagnostics)
+      lines = diagnostics.flat_map do |d|
+        sev = SEVERITY_NAMES[d[:severity]] || '*'
+        src = d[:source] ? " (#{d[:source]})" : ''
+        prefix = "[#{sev}]#{src} "
+        first, *rest = d[:message].to_s.split("\n", -1)
+        [prefix + first.to_s, *rest.map { |l| "    #{l}" }]
+      end
+      Rvim::CompletionPopup.new(
+        contents: lines,
+        max_width: DIAGNOSTIC_POPUP_MAX_WIDTH,
+        max_height: DIAGNOSTIC_POPUP_MAX_HEIGHT,
+      )
+    end
+
+    def dismiss_diagnostic_popup
+      @diagnostic_popup = nil
     end
 
     LSP_SIGNATURE_HELP_TIMEOUT = 1.5
@@ -5648,6 +5736,11 @@ module Rvim
               # cursor moves to a new column / line, debounced so a fast
               # j/k roll doesn't flood the server.
               editor.lsp.maybe_pull_document_highlight(editor.current_buffer)
+              # Open / close the diagnostic float based on whether the
+              # cursor sits inside an underlined range. Runs after the
+              # diagnostic pull so a freshly-arrived diagnostic at the
+              # cursor's position shows up on the same render tick.
+              editor.update_diagnostic_popup_for_cursor
             end
             begin
               Reline.core.send(:read_io, Reline.core.config.keyseq_timeout) do |inputs|

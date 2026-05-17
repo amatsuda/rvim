@@ -7,6 +7,10 @@ module Rvim
       # registered server (default: ruby -> ruby-lsp). Off by default
       # because spawning a child process at every :e is intrusive.
       lsp_enabled: false,
+      # When the cursor sits on a diagnostic-underlined range, show
+      # the full message in a small floating popup. Off the popup
+      # leaves only the gutter sign + underline visible.
+      lsp_diagnostic_float: true,
       hlsearch: true,
       ignorecase: false,
       shiftwidth: 2,
