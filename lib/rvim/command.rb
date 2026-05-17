@@ -146,6 +146,8 @@ module Rvim
              when 'LspTypeDefinition', 'lsptypedefinition' then :lsp_type_definition
              when 'LspImplementation', 'lspimplementation' then :lsp_implementation
              when 'LspFold', 'lspfold' then :lsp_fold
+             when 'LspIncomingCalls', 'lspincomingcalls' then :lsp_incoming_calls
+             when 'LspOutgoingCalls', 'lspoutgoingcalls' then :lsp_outgoing_calls
              when 'LspReferences', 'lspreferences' then :lsp_references
              when 'LspFormat', 'lspformat' then :lsp_format
              when 'LspSymbols', 'lspsymbols' then :lsp_symbols
@@ -429,6 +431,10 @@ module Rvim
         execute_lsp_implementation(editor)
       when :lsp_fold
         execute_lsp_fold(editor)
+      when :lsp_incoming_calls
+        execute_lsp_incoming_calls(editor)
+      when :lsp_outgoing_calls
+        execute_lsp_outgoing_calls(editor)
       when :lsp_references
         execute_lsp_references(editor)
       when :lsp_format
@@ -1855,6 +1861,18 @@ module Rvim
       return if editor.lsp_apply_folding_ranges
 
       editor.status_message = 'LSP: folding unavailable for this buffer'
+    end
+
+    def self.execute_lsp_incoming_calls(editor)
+      return if editor.lsp_show_incoming_calls
+
+      editor.status_message = 'LSP: call hierarchy unavailable for this buffer'
+    end
+
+    def self.execute_lsp_outgoing_calls(editor)
+      return if editor.lsp_show_outgoing_calls
+
+      editor.status_message = 'LSP: call hierarchy unavailable for this buffer'
     end
 
     def self.execute_lsp_references(editor)

@@ -1432,6 +1432,105 @@ module Rvim
     LSP_TYPE_DEFINITION_TIMEOUT = 2.0
     LSP_IMPLEMENTATION_TIMEOUT  = 2.0
     LSP_FOLDING_RANGE_TIMEOUT   = 2.0
+    LSP_CALL_HIERARCHY_TIMEOUT  = 3.0
+
+    # Show incoming calls to the symbol at the cursor — two-step
+    # protocol: prepareCallHierarchy then callHierarchy/incomingCalls.
+    # The list of callers populates the quickfix.
+    def lsp_show_incoming_calls
+      lsp_show_call_hierarchy(direction: :incoming)
+    end
+
+    # Show outgoing calls from the symbol at the cursor.
+    def lsp_show_outgoing_calls
+      lsp_show_call_hierarchy(direction: :outgoing)
+    end
+
+    private def lsp_show_call_hierarchy(direction:)
+      return false unless @settings.get(:lsp_enabled)
+
+      buf = current_buffer
+      return false unless buf
+      lsp.flush_changes(buf)
+      sent = lsp.request_prepare_call_hierarchy(buf)
+      if sent == :unsupported
+        @status_message = 'LSP: server does not support callHierarchy'
+        return true
+      end
+      return false unless sent
+
+      item = poll_lsp_result(LSP_CALL_HIERARCHY_TIMEOUT, 'textDocument/prepareCallHierarchy') do
+        lsp.last_call_hierarchy_prepare_result
+      end
+      items = item.is_a?(Array) ? item : (item ? [item] : [])
+      target = items.first
+      if target.nil?
+        @status_message = 'LSP: no callable symbol at cursor'
+        return true
+      end
+
+      if direction == :incoming
+        return true unless lsp.request_call_hierarchy_incoming(buf, target)
+
+        calls = poll_lsp_result(LSP_CALL_HIERARCHY_TIMEOUT, 'callHierarchy/incomingCalls') do
+          lsp.last_call_hierarchy_incoming_result
+        end
+      else
+        return true unless lsp.request_call_hierarchy_outgoing(buf, target)
+
+        calls = poll_lsp_result(LSP_CALL_HIERARCHY_TIMEOUT, 'callHierarchy/outgoingCalls') do
+          lsp.last_call_hierarchy_outgoing_result
+        end
+      end
+
+      entries = build_call_hierarchy_entries(calls || [], direction)
+      label = direction == :incoming ? 'incoming' : 'outgoing'
+      if entries.empty?
+        @status_message = "LSP: no #{label} calls"
+        return true
+      end
+
+      @quickfix.set(entries)
+      show_list(Rvim::Command.format_quickfix(self))
+      true
+    end
+
+    # Generic poll loop for an LSP result accessor. Yields each tick
+    # and returns the first non-nil value. Used by the two-step
+    # call-hierarchy flow so we don't duplicate the loop verbatim.
+    private def poll_lsp_result(timeout, method_name)
+      deadline = Time.now + timeout
+      loop do
+        lsp.pump
+        result = yield
+        return result if result
+        return nil unless lsp.pending_for?(method_name)
+        return nil if Time.now > deadline
+
+        sleep 0.02
+      end
+    end
+
+    private def build_call_hierarchy_entries(calls, direction)
+      calls.flat_map do |call|
+        item = direction == :incoming ? call[:from] : call[:to]
+        next [] unless item
+
+        uri = item[:uri].to_s
+        path = uri.sub(/\Afile:\/\//, '')
+        name = item[:name].to_s
+        # `fromRanges` points to the actual call-site lines (incoming)
+        # or the call expressions inside `item` (outgoing). One entry
+        # per range, falling back to the item's own selectionRange.
+        ranges = call[:fromRanges]
+        ranges = [item[:selectionRange] || item[:range]] if ranges.nil? || ranges.empty?
+        ranges.map do |r|
+          line = r.dig(:start, :line).to_i + 1
+          col  = r.dig(:start, :character).to_i + 1
+          Rvim::Quickfix::Entry.new(file: path, line: line, col: col, text: name)
+        end
+      end
+    end
 
     # Send textDocument/foldingRange, poll, and rebuild the buffer's
     # fold list from the server's ranges. Replaces any existing folds

@@ -23,7 +23,10 @@ module Rvim
                     :last_inlay_hints_result, :last_workspace_symbols_result,
                     :last_signature_help_result, :last_document_highlights_result,
                     :last_type_definition_result, :last_implementation_result,
-                    :last_folding_range_result
+                    :last_folding_range_result,
+                    :last_call_hierarchy_prepare_result,
+                    :last_call_hierarchy_incoming_result,
+                    :last_call_hierarchy_outgoing_result
 
       def initialize(name:, command:, root_uri:, on_diagnostic: nil, cwd: nil, on_log: nil)
         @name = name
@@ -135,6 +138,32 @@ module Rvim
         request('textDocument/definition',
                 textDocument: { uri: uri },
                 position: { line: line, character: character })
+      end
+
+      # textDocument/prepareCallHierarchy. Result is
+      # CallHierarchyItem[] | null. The item(s) become the input for
+      # the second-step call_hierarchy_incoming / _outgoing requests.
+      def prepare_call_hierarchy(uri, line, character)
+        @last_call_hierarchy_prepare_result = nil
+        request('textDocument/prepareCallHierarchy',
+                textDocument: { uri: uri },
+                position: { line: line, character: character })
+      end
+
+      # callHierarchy/incomingCalls. Input is a CallHierarchyItem from
+      # the prepare step; result is CallHierarchyIncomingCall[] | null
+      # — each `{ from: CallHierarchyItem, fromRanges: Range[] }`.
+      def call_hierarchy_incoming(item)
+        @last_call_hierarchy_incoming_result = nil
+        request('callHierarchy/incomingCalls', item: item)
+      end
+
+      # callHierarchy/outgoingCalls. Result is
+      # CallHierarchyOutgoingCall[] | null — each
+      # `{ to: CallHierarchyItem, fromRanges: Range[] }`.
+      def call_hierarchy_outgoing(item)
+        @last_call_hierarchy_outgoing_result = nil
+        request('callHierarchy/outgoingCalls', item: item)
       end
 
       # textDocument/foldingRange. Result is FoldingRange[] | null,
@@ -367,6 +396,7 @@ module Rvim
             typeDefinition: { dynamicRegistration: false, linkSupport: false },
             implementation: { dynamicRegistration: false, linkSupport: false },
             foldingRange: { dynamicRegistration: false, lineFoldingOnly: true },
+            callHierarchy: { dynamicRegistration: false },
             signatureHelp: {
               signatureInformation: {
                 documentationFormat: %w[markdown plaintext],
@@ -531,6 +561,15 @@ module Rvim
         when 'textDocument/foldingRange'
           # Result is FoldingRange[] | null.
           @last_folding_range_result = msg[:result]
+        when 'textDocument/prepareCallHierarchy'
+          # Result is CallHierarchyItem[] | null.
+          @last_call_hierarchy_prepare_result = msg[:result]
+        when 'callHierarchy/incomingCalls'
+          # Result is CallHierarchyIncomingCall[] | null.
+          @last_call_hierarchy_incoming_result = msg[:result]
+        when 'callHierarchy/outgoingCalls'
+          # Result is CallHierarchyOutgoingCall[] | null.
+          @last_call_hierarchy_outgoing_result = msg[:result]
         end
       end
 
