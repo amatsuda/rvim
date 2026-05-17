@@ -94,6 +94,7 @@ module Rvim
       @signature_popup = nil
       @diagnostic_popup = nil
       @selection_range_state = nil
+      @last_code_lenses = nil
       @last_code_actions = nil
       @cmdline_popup = nil
       @cmdline_completion_context = nil
@@ -1466,22 +1467,83 @@ module Rvim
         return true
       end
 
-      entries = lenses.filter_map do |lens|
-        title = lens.dig(:command, :title).to_s
-        next if title.empty?
-
-        line = lens.dig(:range, :start, :line).to_i + 1
-        col  = lens.dig(:range, :start, :character).to_i + 1
-        Rvim::Quickfix::Entry.new(file: @filepath.to_s, line: line, col: col, text: title)
-      end
-      if entries.empty?
+      kept = lenses.select { |lens| !lens.dig(:command, :title).to_s.empty? }
+      if kept.empty?
         @status_message = 'LSP: no code lenses'
         return true
       end
 
+      @last_code_lenses = kept
+      entries = kept.each_with_index.map do |lens, i|
+        title = lens.dig(:command, :title).to_s
+        line = lens.dig(:range, :start, :line).to_i + 1
+        col  = lens.dig(:range, :start, :character).to_i + 1
+        Rvim::Quickfix::Entry.new(file: @filepath.to_s, line: line, col: col,
+                                  text: "#{i + 1}. #{title}")
+      end
       @quickfix.set(entries)
       show_list(Rvim::Command.format_quickfix(self))
       true
+    end
+
+    # Execute the Nth (1-based) lens from the last :LspCodeLens listing.
+    # ruby-lsp's commands (rubyLsp.runTest, ...) are client-side: their
+    # third argument is the full shell command to invoke. We shell it
+    # out via Rvim::Filter and dump the output into a terminal-style
+    # buffer. Spec-compliant server commands go through
+    # workspace/executeCommand.
+    def lsp_execute_code_lens(index_1_based)
+      return false unless @settings.get(:lsp_enabled)
+      return false unless @last_code_lenses && !@last_code_lenses.empty?
+
+      idx = index_1_based.to_i - 1
+      return false unless idx.between?(0, @last_code_lenses.size - 1)
+
+      lens = @last_code_lenses[idx]
+      cmd_name = lens.dig(:command, :command).to_s
+      args = lens.dig(:command, :arguments) || []
+      title = lens.dig(:command, :title).to_s
+
+      if cmd_name.start_with?('rubyLsp.run')
+        shell_cmd = args[2].to_s
+        if shell_cmd.empty?
+          @status_message = 'LSP: lens has no command to run'
+          return true
+        end
+        run_code_lens_shell_command(shell_cmd)
+        @status_message = "LSP: ran '#{title}'"
+        return true
+      end
+
+      if cmd_name == 'rubyLsp.debugTest'
+        @status_message = 'LSP: debug lens not supported'
+        return true
+      end
+
+      buf = current_buffer
+      if buf && !cmd_name.empty?
+        lsp.request_execute_command(buf, cmd_name, args)
+        @status_message = "LSP: executed '#{title}'"
+      else
+        @status_message = "LSP: lens '#{title}' has no executable command"
+      end
+      true
+    end
+
+    # Run a shell command and open its captured output in a new
+    # terminal-style buffer. Mirrors execute_terminal but uses the
+    # lens title rather than the raw command as the buffer name.
+    private def run_code_lens_shell_command(shell_cmd)
+      result = Rvim::Filter.run(
+        shell_cmd,
+        shell: @settings.get(:shell).to_s,
+        shellcmdflag: @settings.get(:shellcmdflag).to_s,
+      )
+      output = result.stdout.to_s
+      output += result.stderr.to_s if result.stderr && !result.stderr.empty?
+      lines = output.lines.map(&:chomp)
+      lines = [''] if lines.empty?
+      open_terminal_buffer("term://#{shell_cmd}", lines, status: result.status.exitstatus)
     end
 
     # Expand the visual selection to the next-larger syntactic unit

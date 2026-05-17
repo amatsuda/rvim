@@ -443,7 +443,7 @@ module Rvim
       when :lsp_selection_shrink
         execute_lsp_selection_shrink(editor)
       when :lsp_code_lens
-        execute_lsp_code_lens(editor)
+        execute_lsp_code_lens(editor, parsed)
       when :lsp_references
         execute_lsp_references(editor)
       when :lsp_format
@@ -1896,10 +1896,25 @@ module Rvim
       editor.status_message = 'LSP: selection range unavailable for this buffer'
     end
 
-    def self.execute_lsp_code_lens(editor)
-      return if editor.lsp_show_code_lenses
+    # `:LspCodeLens`        — list the buffer's lenses in the quickfix.
+    # `:LspCodeLens <N>`    — execute the Nth (1-based) cached lens.
+    def self.execute_lsp_code_lens(editor, parsed)
+      arg = parsed.arg.to_s.strip
+      if arg.empty?
+        return if editor.lsp_show_code_lenses
 
-      editor.status_message = 'LSP: code lens unavailable for this buffer'
+        editor.status_message = 'LSP: code lens unavailable for this buffer'
+        return
+      end
+
+      n = arg.to_i
+      if n < 1
+        editor.status_message = 'LSP: usage :LspCodeLens [N]'
+        return
+      end
+      unless editor.lsp_execute_code_lens(n)
+        editor.status_message = "LSP: no cached lens #{n} (run :LspCodeLens first)"
+      end
     end
 
     def self.execute_lsp_references(editor)

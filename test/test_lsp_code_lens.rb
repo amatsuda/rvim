@@ -157,10 +157,12 @@ class TestEditorLspShowCodeLenses < Test::Unit::TestCase
     assert @editor.lsp_show_code_lenses
     entries = @editor.quickfix.entries
     assert_equal 3, entries.size
-    assert_equal '▶ Run', entries[0].text
+    # Title is prefixed with a 1-based index so the user can pick the
+    # lens to run via `:LspCodeLens 2`.
+    assert_equal '1. ▶ Run', entries[0].text
     assert_equal 1, entries[0].line # 0 + 1 (1-based)
     assert_equal 1, entries[0].col  # 0 + 1
-    assert_equal '▶ Run Test: test_hello', entries[2].text
+    assert_equal '3. ▶ Run Test: test_hello', entries[2].text
     assert_equal 2, entries[2].line # 1 + 1
     assert_equal 3, entries[2].col  # 2 + 1
     assert_equal '/tmp/test.rb', entries[0].file
@@ -173,5 +175,96 @@ class TestEditorLspShowCodeLenses < Test::Unit::TestCase
     ]
     @editor.lsp_show_code_lenses
     refute_nil @editor.list_view, 'expected listing overlay to be populated'
+  end
+end
+
+class TestEditorLspExecuteCodeLens < Test::Unit::TestCase
+  class FakeLsp
+    attr_accessor :execute_calls
+
+    def initialize
+      @execute_calls = []
+    end
+
+    def request_execute_command(_buf, name, args)
+      @execute_calls << { name: name, args: args }
+      true
+    end
+
+    def flush_changes(_buf); false; end
+    def diagnostic_signs(_); {}; end
+    def diagnostic_ranges(_); {}; end
+    def diagnostics_for(_); []; end
+    def document_highlights_by_line(_); {}; end
+    def inlay_hints_by_line(_); {}; end
+    def semantic_tokens_by_line(_); {}; end
+    def pending_for?(_); false; end
+    def pump; end
+  end
+
+  def setup
+    @editor = Rvim::Editor.new(Reline.core.config)
+    @editor.settings.set(:lsp_enabled, true)
+    @lsp = FakeLsp.new
+    @editor.instance_variable_set(:@lsp, @lsp)
+
+    @buf = Rvim::Buffer.new(1, '/tmp/test.rb')
+    @buf.lines = ['def test_foo', 'end']
+    @editor.instance_variable_set(:@buffer_of_lines, @buf.lines)
+    @editor.instance_variable_set(:@current_buffer, @buf)
+    @editor.instance_variable_set(:@filepath, '/tmp/test.rb')
+
+    # Pretend the user just ran :LspCodeLens.
+    @editor.instance_variable_set(:@last_code_lenses, [
+      { range: { start: { line: 0, character: 0 }, end: { line: 1, character: 3 } },
+        command: { title: '▶ Run', command: 'rubyLsp.runTest',
+                   arguments: ['/tmp/test.rb', 'FooTest', 'echo from-shell', {}, 'FooTest'] } },
+      { range: { start: { line: 0, character: 0 }, end: { line: 1, character: 3 } },
+        command: { title: 'Debug', command: 'rubyLsp.debugTest', arguments: [] } },
+      { range: { start: { line: 0, character: 0 }, end: { line: 1, character: 3 } },
+        command: { title: 'Server cmd', command: 'gopls.test', arguments: ['arg1'] } },
+    ])
+
+    # Avoid actually shelling out — capture the shell command instead.
+    @ran = nil
+    captured = ->(c) { @ran = c }
+    @editor.define_singleton_method(:run_code_lens_shell_command) { |c| captured.call(c) }
+  end
+
+  def test_returns_false_when_no_cache
+    @editor.instance_variable_set(:@last_code_lenses, nil)
+    refute @editor.lsp_execute_code_lens(1)
+  end
+
+  def test_returns_false_when_index_out_of_range
+    refute @editor.lsp_execute_code_lens(0)
+    refute @editor.lsp_execute_code_lens(99)
+  end
+
+  def test_runs_rubyLsp_runTest_via_shell_args2
+    assert @editor.lsp_execute_code_lens(1)
+    assert_equal 'echo from-shell', @ran
+    assert_match(/ran '▶ Run'/, @editor.status_message.to_s)
+  end
+
+  def test_debug_lens_not_supported
+    assert @editor.lsp_execute_code_lens(2)
+    assert_nil @ran, 'should NOT shell out for debug'
+    assert_match(/debug lens not supported/, @editor.status_message.to_s)
+  end
+
+  def test_falls_back_to_workspace_executeCommand_for_other_servers
+    assert @editor.lsp_execute_code_lens(3)
+    assert_nil @ran
+    assert_equal 1, @lsp.execute_calls.size
+    assert_equal 'gopls.test', @lsp.execute_calls.first[:name]
+    assert_equal ['arg1'], @lsp.execute_calls.first[:args]
+  end
+
+  def test_empty_shell_args2_reports_no_command
+    @editor.instance_variable_get(:@last_code_lenses)[0][:command][:arguments][2] = ''
+    @editor.lsp_execute_code_lens(1)
+    assert_match(/no command to run/, @editor.status_message.to_s)
+    assert_nil @ran
   end
 end
