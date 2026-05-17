@@ -1860,28 +1860,96 @@ module Rvim
     # - { contents: "..." }                 (legacy MarkedString string)
     # - { contents: [...] }                 (MarkedString[])
     # - nil / empty                          → []
+    # Markdown content is run through render_markdown_for_popup so
+    # `**bold**`, fenced code blocks, links, and HTML comments don't
+    # leak into the popup as raw syntax.
     private def parse_hover_contents(result)
       return [] unless result
 
       contents = result.is_a?(Hash) ? result[:contents] : nil
       return [] unless contents
 
-      case contents
-      when String
-        contents.split("\n", -1)
-      when Hash
-        (contents[:value] || '').split("\n", -1)
-      when Array
-        contents.flat_map do |c|
-          case c
-          when String then c.split("\n", -1)
-          when Hash then (c[:value] || '').split("\n", -1)
-          else []
-          end
+      raw = case contents
+            when String then contents
+            when Hash then (contents[:value] || '').to_s
+            when Array
+              contents.map do |c|
+                case c
+                when String then c
+                when Hash then (c[:value] || '').to_s
+                else ''
+                end
+              end.join("\n")
+            else ''
+            end
+
+      markdown = case contents
+                 when Hash then contents[:kind] != 'plaintext'
+                 else true
+                 end
+      markdown ? render_markdown_for_popup(raw) : raw.split("\n", -1)
+    end
+
+    # Strip markdown syntax so the hover popup reads as prose rather
+    # than literal `**bold**` and `` `code` `` markers.
+    # - Fenced code blocks (```lang ... ```) keep their content; the
+    #   fence delimiter lines are dropped.
+    # - HTML comments and bare tags are removed.
+    # - Inline emphasis (**, __, *, _, `) markers are stripped, keeping
+    #   the inner text.
+    # - Links `[text](url)` collapse to `text`.
+    # - Heading prefixes (#, ##, …) are dropped.
+    # - Runs of 3+ blank lines collapse to a single blank.
+    # - Leading / trailing blanks are trimmed.
+    def render_markdown_for_popup(text)
+      lines = text.to_s.split("\n", -1)
+
+      # Drop HTML comments first — they may span multiple lines and
+      # the per-line transforms below would otherwise see partial markers.
+      joined = lines.join("\n").gsub(/<!--.*?-->/m, '')
+      lines = joined.split("\n", -1)
+
+      out = []
+      in_fence = false
+      lines.each do |raw|
+        if raw.match?(/\A\s*```/)
+          in_fence = !in_fence
+          next
         end
-      else
-        []
+
+        line = raw.dup
+        unless in_fence
+          line.sub!(/\A\s{0,3}#{'\#'}{1,6}\s+/, '') # heading prefix
+          line.gsub!(/\[([^\]]*)\]\([^)]*\)/, '\1') # [text](url) -> text
+          line.gsub!(/(\*\*|__)([^*_]+)\1/, '\2')  # bold
+          line.gsub!(/(?<![*_])[*_]([^*_\n]+)[*_](?![*_])/, '\1') # italic
+          line.gsub!(/`([^`]*)`/, '\1')            # inline code
+          line.gsub!(/<\/?[A-Za-z][^>]*>/, '')     # bare HTML tags
+        end
+        out << line
       end
+
+      # Collapse runs of 3+ blank lines down to one, and trim
+      # leading/trailing blanks. Keeps the popup tight.
+      out = collapse_blank_runs(out)
+      out.shift while out.first&.strip&.empty?
+      out.pop while out.last&.strip&.empty?
+      out
+    end
+
+    private def collapse_blank_runs(lines)
+      result = []
+      blanks = 0
+      lines.each do |l|
+        if l.strip.empty?
+          blanks += 1
+          result << '' if blanks == 1
+        else
+          blanks = 0
+          result << l
+        end
+      end
+      result
     end
 
     def dismiss_hover_popup

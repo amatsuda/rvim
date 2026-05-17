@@ -95,8 +95,15 @@ class TestEditorParseHoverContents < Test::Unit::TestCase
   end
 
   def test_markup_content
+    # Markdown rendering strips the heading prefix; the title text survives.
     out = parse({ contents: { kind: 'markdown', value: "# Title\nbody line" } })
-    assert_equal ['# Title', 'body line'], out
+    assert_equal ['Title', 'body line'], out
+  end
+
+  def test_markup_content_plaintext_kind_is_not_rendered
+    # When the server explicitly says `kind: 'plaintext'`, leave the text alone.
+    out = parse({ contents: { kind: 'plaintext', value: "# raw asterisks **stay**" } })
+    assert_equal ['# raw asterisks **stay**'], out
   end
 
   def test_legacy_marked_string_object
@@ -122,6 +129,81 @@ class TestEditorParseHoverContents < Test::Unit::TestCase
 
   def test_no_contents_field
     assert_equal [], parse({})
+  end
+end
+
+class TestEditorRenderMarkdownForPopup < Test::Unit::TestCase
+  def render(text)
+    editor = Rvim::Editor.new(Reline.core.config)
+    editor.send(:render_markdown_for_popup, text)
+  end
+
+  def test_strips_bold_markers
+    assert_equal ['Definitions: link.rbs'], render('**Definitions**: link.rbs')
+  end
+
+  def test_strips_italic_markers
+    assert_equal ['Note: emphasized'], render('Note: *emphasized*')
+    assert_equal ['Note: emphasized'], render('Note: _emphasized_')
+  end
+
+  def test_does_not_collapse_bold_when_surrounded_by_word_chars
+    # `foo*bar*baz` is NOT italic in markdown (no surrounding whitespace);
+    # we err on the side of stripping. Verifies the regex doesn't blow up.
+    assert_equal ['foobarbaz'], render('foo*bar*baz')
+  end
+
+  def test_strips_inline_code_backticks
+    assert_equal ['Calls method foo on self.'], render('Calls method `foo` on self.')
+  end
+
+  def test_strips_link_wrappers_keeping_text
+    assert_equal ['See String for details.'],
+                 render('See [String](https://docs.example.com/String) for details.')
+  end
+
+  def test_strips_heading_prefixes
+    assert_equal ['Title', 'Subtitle'], render("# Title\n## Subtitle")
+  end
+
+  def test_drops_fenced_code_block_delimiters_keeping_content
+    src = <<~MD
+      Example:
+      ```ruby
+      def foo
+        1
+      end
+      ```
+      after
+    MD
+    out = render(src)
+    assert_equal ['Example:', 'def foo', '  1', 'end', 'after'], out
+  end
+
+  def test_inline_markers_inside_fenced_code_are_left_alone
+    src = "```ruby\n**not_bold** and `not_code`\n```"
+    assert_equal ['**not_bold** and `not_code`'], render(src)
+  end
+
+  def test_strips_html_comments_even_across_multiple_lines
+    # The 3-line comment is removed in one shot; the surrounding
+    # newlines collapse down to a single blank separator.
+    src = "before\n<!--\n  rdoc note\n-->\nafter"
+    assert_equal ['before', '', 'after'], render(src)
+  end
+
+  def test_strips_bare_html_tags
+    assert_equal ['hello world'], render('<span>hello</span> <em>world</em>')
+  end
+
+  def test_collapses_runs_of_blank_lines
+    src = "a\n\n\n\nb"
+    assert_equal ['a', '', 'b'], render(src)
+  end
+
+  def test_trims_leading_and_trailing_blanks
+    src = "\n\n\nbody\n\n\n"
+    assert_equal ['body'], render(src)
   end
 end
 
@@ -186,7 +268,8 @@ class TestEditorLspShowHover < Test::Unit::TestCase
     @lsp.result = { contents: { kind: 'markdown', value: "# foo\nbar" } }
     assert @editor.lsp_show_hover
     refute_nil @editor.hover_popup
-    assert_equal ['# foo', 'bar'], @editor.hover_popup.contents
+    # Markdown is rendered for the popup — the `# ` heading prefix is stripped.
+    assert_equal ['foo', 'bar'], @editor.hover_popup.contents
   end
 
   def test_update_dismisses_existing_popup
