@@ -1082,7 +1082,12 @@ module Rvim
       end
     end
 
-    private def start_completion(delta)
+    # `auto_insert: false` opens the popup WITHOUT replacing the
+    # typed text with the first candidate. Used by trigger-char
+    # auto-fire (after `.`, `:`, `@`, …) where surprise-inserting a
+    # method name onto a freshly-typed `.` is jarring; the user still
+    # cycles with <C-N>/<C-P> or types to filter.
+    private def start_completion(delta, auto_insert: true)
       line = @buffer_of_lines[@line_index] || ''
       base = Rvim::Completion.base_at(line, @byte_pointer)
 
@@ -1095,7 +1100,7 @@ module Rvim
       # when ruby-lsp returns [] for bare-identifier contexts.
       candidates = lsp_cands + (keyword - lsp_cands)
       if candidates.empty?
-        @status_message = 'Pattern not found'
+        @status_message = 'Pattern not found' if auto_insert
         return
       end
 
@@ -1106,7 +1111,9 @@ module Rvim
       @completion_base_byte = Rvim::Completion.base_start(line, @byte_pointer)
       @completion_line_index = @line_index
       @completion_popup = Rvim::CompletionPopup.new(contents: candidates, pointer: @completion_index, max_height: configured_pum_height)
-      replace_completion_with(@completion_candidates[@completion_index]) unless completeopt_flags.include?('noinsert')
+      if auto_insert && !completeopt_flags.include?('noinsert')
+        replace_completion_with(@completion_candidates[@completion_index])
+      end
       update_completion_status
     end
 
@@ -3870,6 +3877,7 @@ module Rvim
       capture_special_marks(pre_buffer, pre_mode)
       freeze_change_if_settled(pre_buffer) unless @replaying
       update_signature_popup(key, pre_mode)
+      maybe_auto_complete_on_trigger(key)
     end
 
     # Auto-trigger signatureHelp on `(` and `,`; dismiss on `)` or any
@@ -3897,6 +3905,32 @@ module Rvim
       # Insert-mode auto-trigger must never crash the editor — swallow
       # any unexpected LSP / parse failure and keep typing usable.
       @signature_popup = nil
+    end
+
+    # Pop the completion menu automatically when the user types one
+    # of the server's advertised trigger characters (e.g. `.`, `:`,
+    # `@`) in insert mode. Skips when completion is already active
+    # (so a popup doesn't re-trigger on every typed char) and uses
+    # auto_insert: false so we don't surprise-insert a method name
+    # onto a freshly typed `.`.
+    private def maybe_auto_complete_on_trigger(key)
+      return unless @settings.get(:lsp_enabled)
+      return unless editing_mode_label == :vi_insert
+      return if @completion_active
+
+      buf = current_buffer
+      return unless buf
+      return unless lsp.respond_to?(:completion_trigger_characters)
+
+      ch = key.char
+      ch_str = ch.is_a?(Integer) ? ch.chr(Encoding::ASCII_8BIT) : ch.to_s
+      return unless lsp.completion_trigger_characters(buf).include?(ch_str)
+
+      start_completion(+1, auto_insert: false)
+    rescue StandardError
+      # Same insert-loop safety as update_signature_popup — never
+      # let an LSP misbehavior take the editor down.
+      cancel_completion
     end
 
     # Reline's move_undo_redo replaces @buffer_of_lines with a new array

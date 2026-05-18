@@ -548,6 +548,19 @@ module Rvim
         @clients.each_value { |c| c.last_document_link_result = nil }
       end
 
+      # The completion trigger characters advertised by the buffer's
+      # server. ruby-lsp lists ".", ":", "@", '"', "'", "/", "=",
+      # "<", "$" — when the user types one in insert mode the editor
+      # auto-pops the completion menu instead of waiting for <C-N>.
+      def completion_trigger_characters(buffer)
+        ft = filetype_for(buffer)
+        client = @clients[ft]
+        return [] unless client && client.status == :running
+
+        chars = client.capabilities&.dig(:completionProvider, :triggerCharacters)
+        chars.is_a?(Array) ? chars : []
+      end
+
       # All window/log+showMessage entries from every running client,
       # in arrival order. Each entry has `:time, :kind, :type,
       # :message` plus `:source` (the client name) appended here.
