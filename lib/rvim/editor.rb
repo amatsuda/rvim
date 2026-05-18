@@ -196,6 +196,22 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_command, [?H.ord], :rvim_window_top)
       @config.add_default_key_binding_by_keymap(:vi_command, [?M.ord], :rvim_window_middle)
       @config.add_default_key_binding_by_keymap(:vi_command, [?L.ord], :rvim_window_bottom)
+
+      # Arrow keys in insert mode: move the cursor without leaving
+      # insert (vim/NeoVim default). Without these bindings the Esc
+      # in `\e[A` would exit insert mode and `[A` would dangle in
+      # command mode doing nothing. Same bindings on vi_command for
+      # users who reach for arrows there.
+      arrow_keys = {
+        [0x1b, 0x5b, 0x41] => :rvim_arrow_up,
+        [0x1b, 0x5b, 0x42] => :rvim_arrow_down,
+        [0x1b, 0x5b, 0x43] => :rvim_arrow_right,
+        [0x1b, 0x5b, 0x44] => :rvim_arrow_left,
+      }
+      arrow_keys.each do |bytes, sym|
+        @config.add_default_key_binding_by_keymap(:vi_insert, bytes, sym)
+        @config.add_default_key_binding_by_keymap(:vi_command, bytes, sym)
+      end
       @config.add_default_key_binding_by_keymap(:vi_command, [?v.ord], :rvim_visual_char)
       @config.add_default_key_binding_by_keymap(:vi_command, [?V.ord], :rvim_visual_line)
       @config.add_default_key_binding_by_keymap(:vi_command, [0x16], :rvim_visual_block) # Ctrl-V
@@ -3502,6 +3518,63 @@ module Rvim
       @modified = true
     end
 
+    # Arrow keys. In insert mode the cursor can sit PAST the last
+    # char (vim's "between columns" semantic); in command mode it
+    # must be ON a char, so we clamp to line.bytesize - 1.
+    private def rvim_arrow_left(key, arg: 1)
+      arg.times { move_cursor_horizontal(-1) }
+    end
+
+    private def rvim_arrow_right(key, arg: 1)
+      arg.times { move_cursor_horizontal(+1) }
+    end
+
+    private def rvim_arrow_up(key, arg: 1)
+      arg.times { move_cursor_vertical(-1) }
+    end
+
+    private def rvim_arrow_down(key, arg: 1)
+      arg.times { move_cursor_vertical(+1) }
+    end
+
+    private def move_cursor_horizontal(delta)
+      line = @buffer_of_lines[@line_index] || ''
+      if delta.negative?
+        return if @byte_pointer.zero?
+
+        # Snap to the previous UTF-8 char boundary.
+        b = @byte_pointer - 1
+        b -= 1 while b > 0 && (line.getbyte(b) || 0).between?(0x80, 0xbf)
+        @byte_pointer = b
+      else
+        max = insert_mode_cursor? ? line.bytesize : [line.bytesize - 1, 0].max
+        return if @byte_pointer >= max
+
+        cb = line.getbyte(@byte_pointer) || 0
+        char_bytes = if cb < 0x80 then 1
+                     elsif cb < 0xc0 then 1
+                     elsif cb < 0xe0 then 2
+                     elsif cb < 0xf0 then 3
+                     else 4
+                     end
+        @byte_pointer = [@byte_pointer + char_bytes, max].min
+      end
+    end
+
+    private def move_cursor_vertical(delta)
+      target = @line_index + delta
+      return if target.negative? || target >= @buffer_of_lines.size
+
+      @line_index = target
+      target_line = @buffer_of_lines[@line_index] || ''
+      max = insert_mode_cursor? ? target_line.bytesize : [target_line.bytesize - 1, 0].max
+      @byte_pointer = @byte_pointer.clamp(0, max)
+    end
+
+    private def insert_mode_cursor?
+      editing_mode_label == :vi_insert
+    end
+
     # Vim H/M/L: jump to the top / middle / bottom of the visible
     # window, then to the first non-blank column on that line.
     # `count` (for H and L only) offsets from the edge by that many
@@ -6762,7 +6835,15 @@ module Rvim
             # :LspWatch buffers.
             editor.pump_lsp_watch_buffers
             begin
-              Reline.core.send(:read_io, Reline.core.config.keyseq_timeout) do |inputs|
+              # In insert mode, drop the wait-for-more-bytes window to
+              # a tight value so Esc fires almost instantly (vim's
+              # `set ttimeoutlen=10` equivalent). Without this, a bare
+              # Esc sits for the full keyseq_timeout (500ms) while
+              # Reline waits to see if it's the start of `\e[A` etc.,
+              # which makes leaving insert mode feel sluggish.
+              insert_mode = editor.editing_mode_label == :vi_insert
+              timeout = insert_mode ? 25 : Reline.core.config.keyseq_timeout
+              Reline.core.send(:read_io, timeout) do |inputs|
                 inputs.each do |key|
                   editor.set_pasting_state(Reline::IOGate.in_pasting?)
                   editor.update(key)
