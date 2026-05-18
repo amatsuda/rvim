@@ -71,4 +71,17 @@ class TestWantColumn < Test::Unit::TestCase
     @editor.send(:ed_prev_history, nil) # abcd
     assert_equal 3, @editor.byte_pointer
   end
+
+  def test_vertical_motion_snaps_back_to_char_start_for_multibyte
+    # Cursor at col 2 (on `c`) of `abcd`, then UP onto a line whose
+    # col 2 lands inside a multibyte `あ`. The byte_pointer must snap
+    # back to byte 1 (start of `あ`) — otherwise Reline's width / regex
+    # code crashes on the invalid UTF-8 continuation byte.
+    @editor.instance_variable_set(:@buffer_of_lines, [+'xあy', +'abcd'])
+    @editor.instance_variable_set(:@line_index, 1)
+    @editor.instance_variable_set(:@byte_pointer, 2) # on 'c'
+    @editor.send(:rvim_arrow_up, nil)
+    assert_equal 0, @editor.line_index
+    assert_equal 1, @editor.byte_pointer, 'snapped back to start of あ'
+  end
 end

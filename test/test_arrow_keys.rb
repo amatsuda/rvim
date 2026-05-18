@@ -95,4 +95,24 @@ class TestArrowKeys < Test::Unit::TestCase
     @editor.send(:rvim_arrow_right, nil)
     assert_equal 4, @editor.byte_pointer, 'jumps across 3-byte char'
   end
+
+  def test_right_at_command_mode_end_of_line_with_multibyte_stays_on_last_char
+    # "xあ" — command mode rightmost cursor must sit ON the start of
+    # `あ` (byte 1), NOT inside its continuation bytes. Without the
+    # last_char_start_byte clamp, Reline crashed walking width on
+    # the torn UTF-8 sequence.
+    @editor.config.editing_mode = :vi_command
+    @editor.buffer_of_lines[@editor.line_index] = +'xあ'
+    @editor.instance_variable_set(:@byte_pointer, 1) # on `あ`
+    @editor.send(:rvim_arrow_right, nil)
+    assert_equal 1, @editor.byte_pointer, 'no move past last char in command mode'
+  end
+
+  def test_right_in_insert_mode_can_advance_past_trailing_multibyte
+    @editor.config.editing_mode = :vi_insert
+    @editor.buffer_of_lines[@editor.line_index] = +'xあ'
+    @editor.instance_variable_set(:@byte_pointer, 1) # on `あ`
+    @editor.send(:rvim_arrow_right, nil)
+    assert_equal 4, @editor.byte_pointer, 'past last char allowed in insert'
+  end
 end

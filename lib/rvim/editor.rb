@@ -3554,7 +3554,15 @@ module Rvim
         b -= 1 while b > 0 && (line.getbyte(b) || 0).between?(0x80, 0xbf)
         @byte_pointer = b
       else
-        max = insert_mode_cursor? ? line.bytesize : [line.bytesize - 1, 0].max
+        # Insert: cursor can sit one past the last byte. Command: it
+        # must sit ON a char start, so the rightmost valid position
+        # is the start byte of the last char (NOT bytesize - 1,
+        # which lands inside a multibyte char's continuation bytes).
+        max = if insert_mode_cursor?
+                line.bytesize
+              else
+                last_char_start_byte(line)
+              end
         return if @byte_pointer >= max
 
         cb = line.getbyte(@byte_pointer) || 0
@@ -3566,6 +3574,17 @@ module Rvim
                      end
         @byte_pointer = [@byte_pointer + char_bytes, max].min
       end
+    end
+
+    # Byte index of the last UTF-8 character's leading byte in
+    # `line`. Returns 0 for empty lines (and is the right answer for
+    # any line whose only char is at byte 0).
+    private def last_char_start_byte(line)
+      return 0 if line.bytesize <= 1
+
+      b = line.bytesize - 1
+      b -= 1 while b > 0 && (line.getbyte(b) || 0).between?(0x80, 0xbf)
+      b
     end
 
     private def move_cursor_vertical(delta)
@@ -3582,8 +3601,20 @@ module Rvim
       @line_index = target
       target_line = @buffer_of_lines[@line_index] || ''
       max = insert_mode_cursor? ? target_line.bytesize : [target_line.bytesize - 1, 0].max
-      @byte_pointer = (@want_column || @byte_pointer).clamp(0, max)
+      pointer = (@want_column || @byte_pointer).clamp(0, max)
+      @byte_pointer = snap_byte_back_to_char_start(target_line, pointer)
       @last_vertical_pos = [@line_index, @byte_pointer]
+    end
+
+    # Snap `byte` backward to the start of the multibyte char that
+    # contains it. Without this, want_column clamped to a byte index
+    # mid-`あ` lands on a UTF-8 continuation byte and downstream
+    # Reline width / regex code crashes with "invalid byte sequence".
+    private def snap_byte_back_to_char_start(line, byte)
+      return byte if byte <= 0 || byte >= line.bytesize
+
+      byte -= 1 while byte > 0 && (line.getbyte(byte) || 0).between?(0x80, 0xbf)
+      byte
     end
 
     private def insert_mode_cursor?
