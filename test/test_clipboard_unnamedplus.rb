@@ -80,4 +80,44 @@ class TestClipboardUnnamedPlus < Test::Unit::TestCase
     # P pastes BEFORE cursor.
     assert_equal 'AXB', @editor.buffer_of_lines[0]
   end
+
+  # Linewise yanks (yy, dd, cc, …) include the trailing newline in
+  # the system clipboard so an external paste lands on its own line —
+  # matches NeoVim. The internal register still stores the plain
+  # text since our paste_lines_* code uses split("\n", -1) and a
+  # trailing newline would insert a spurious blank line.
+
+  def test_yy_writes_trailing_newline_to_clipboard
+    @editor.settings.set(:clipboard, 'unnamedplus')
+    setup_buffer('hello', byte_pointer: 0)
+    send_keys('y', 'y')
+    refute_empty @writes
+    assert_equal "hello\n", @writes.last
+  end
+
+  def test_dd_writes_trailing_newline_to_clipboard
+    @editor.settings.set(:clipboard, 'unnamedplus')
+    setup_buffer('hello', byte_pointer: 0)
+    send_keys('d', 'd')
+    refute_empty @writes
+    assert_equal "hello\n", @writes.last
+  end
+
+  def test_charwise_yank_does_not_get_extra_newline
+    # yw on "hello world" yanks "hello " (charwise); clipboard text
+    # must NOT have a tacked-on newline.
+    @editor.settings.set(:clipboard, 'unnamedplus')
+    setup_buffer('hello world', byte_pointer: 0)
+    send_keys('y', 'w')
+    refute_empty @writes
+    refute @writes.last.end_with?("\n"), 'charwise yank stays exact'
+  end
+
+  def test_explicit_plus_register_also_carries_linewise_newline
+    @editor.settings.set(:clipboard, '')
+    setup_buffer('hello', byte_pointer: 0)
+    send_keys('"', '+', 'y', 'y')
+    refute_empty @writes
+    assert_equal "hello\n", @writes.last
+  end
 end

@@ -4734,7 +4734,7 @@ module Rvim
     def write_register(text, kind, register: nil)
       name = register || '"'
       if name == '+'
-        Rvim::SystemClipboard.write(text.is_a?(Array) ? text.join("\n") : text.to_s)
+        Rvim::SystemClipboard.write(clipboard_text_for(text, kind))
       end
       if name == '%'
         @status_message = 'E354: Invalid register name: %'
@@ -4744,8 +4744,19 @@ module Rvim
       # When 'clipboard' includes 'unnamedplus', mirror unnamed yanks to the
       # system clipboard register too.
       if register.nil? && @settings.get(:clipboard).to_s.split(',').include?('unnamedplus')
-        Rvim::SystemClipboard.write(text.is_a?(Array) ? text.join("\n") : text.to_s)
+        Rvim::SystemClipboard.write(clipboard_text_for(text, kind))
       end
+    end
+
+    # Linewise yanks (yy / Y / dd / cc / etc.) carry the line break
+    # in the system clipboard so an external paste lands on its own
+    # line — matches NeoVim. Internal registers still store the
+    # plain text (no trailing newline) since our paste_lines_* code
+    # treats split("\n", -1) terminators as extra blank lines.
+    private def clipboard_text_for(text, kind)
+      str = text.is_a?(Array) ? text.join("\n") : text.to_s
+      str += "\n" if kind == :line && !str.end_with?("\n")
+      str
     end
 
     def read_register(name = nil)
