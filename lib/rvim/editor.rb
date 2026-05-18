@@ -193,6 +193,9 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_command, [0x12], :redo) # Ctrl-R
       @config.add_default_key_binding_by_keymap(:vi_command, [?p.ord], :rvim_paste_after)
       @config.add_default_key_binding_by_keymap(:vi_command, [?P.ord], :rvim_paste_before)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?H.ord], :rvim_window_top)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?M.ord], :rvim_window_middle)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?L.ord], :rvim_window_bottom)
       @config.add_default_key_binding_by_keymap(:vi_command, [?v.ord], :rvim_visual_char)
       @config.add_default_key_binding_by_keymap(:vi_command, [?V.ord], :rvim_visual_line)
       @config.add_default_key_binding_by_keymap(:vi_command, [0x16], :rvim_visual_block) # Ctrl-V
@@ -3497,6 +3500,44 @@ module Rvim
       @buffer_of_lines[@line_index] = String.new(before + formatted + after, encoding: encoding)
       @byte_pointer = (before + formatted).bytesize - 1
       @modified = true
+    end
+
+    # Vim H/M/L: jump to the top / middle / bottom of the visible
+    # window, then to the first non-blank column on that line.
+    # `count` (for H and L only) offsets from the edge by that many
+    # rows — `2H` goes two rows below scroll_top, `3L` three above
+    # the bottom. M ignores count.
+    private def rvim_window_top(key, arg: 1)
+      jump_to_window_line(:top, arg)
+    end
+
+    private def rvim_window_middle(key, arg: 1)
+      jump_to_window_line(:middle, 1)
+    end
+
+    private def rvim_window_bottom(key, arg: 1)
+      jump_to_window_line(:bottom, arg)
+    end
+
+    private def jump_to_window_line(where, count)
+      win = @current_window
+      return unless win
+
+      content_rows = [win.height - 1, 1].max
+      top = win.scroll_top || 0
+      last = [top + content_rows - 1, @buffer_of_lines.size - 1].min
+      target = case where
+               when :top    then top + (count - 1)
+               when :middle then top + (last - top) / 2
+               when :bottom then last - (count - 1)
+               end
+      target = target.clamp(top, last)
+      return if target == @line_index
+
+      push_jump
+      @line_index = target
+      target_line = @buffer_of_lines[@line_index] || ''
+      @byte_pointer = first_non_whitespace_col(target_line).clamp(0, target_line.bytesize)
     end
 
     private def page_jump(direction, count)
