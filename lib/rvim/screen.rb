@@ -339,6 +339,10 @@ module Rvim
         out << render_completion_popup(win, gw, content_width, wrap_on)
       end
 
+      if is_current && @editor.completion_detail_popup && !@editor.completion_detail_popup.empty?
+        out << render_completion_detail_popup(win, gw, content_width, wrap_on)
+      end
+
       if is_current && @editor.hover_popup && !@editor.hover_popup.empty?
         out << render_hover_popup(win, gw, content_width, wrap_on)
       end
@@ -468,6 +472,54 @@ module Rvim
         else
           out << DIM_ON << line_with_bar << DIM_OFF
         end
+      end
+      out
+    end
+
+    # Side-panel that sits to the RIGHT of the main completion
+    # popup, showing detail + documentation for the selected
+    # candidate. Falls back to the LEFT side if there's no room
+    # right; falls back to below if neither side fits.
+    def render_completion_detail_popup(win, gw, content_width, wrap_on)
+      popup = @editor.completion_detail_popup
+      main = @editor.completion_popup
+      return '' if popup.nil? || popup.empty? || main.nil?
+
+      cursor_row, _cursor_col = cursor_display_position(win, content_width, wrap_on)
+      base_byte = @editor.completion_base_byte || 0
+      cursor_line = @editor.line_index
+      buffer = win.buffer
+      line_text = render_line(buffer.lines[cursor_line] || '')
+      base_col = display_column(line_text, base_byte)
+
+      width = popup.width
+      visible = popup.visible_height
+      need_bar = popup.needs_scrollbar?
+      total_width = width + (need_bar ? 1 : 0)
+
+      # Main popup occupies [base_col, base_col + main.width). Try to
+      # sit immediately to its right.
+      main_total = main.width + (main.needs_scrollbar? ? 1 : 0)
+      right_anchor = win.col + gw + base_col + 1 + main_total
+      max_col = win.col + win.width
+      start_col = if right_anchor + total_width <= max_col + 1
+                    right_anchor
+                  else
+                    # Right doesn't fit — try left of the main popup.
+                    left = win.col + gw + base_col + 1 - total_width
+                    [left, win.col + 1].max
+                  end
+
+      base_row = win.row + cursor_row + 1
+      base_row = (win.row + cursor_row - visible).clamp(win.row, win.row + win.height - 1) \
+        if base_row + visible > win.row + win.height - 1
+
+      out = +''
+      popup.visible_range.each_with_index do |idx, i|
+        line = pad_to_width(truncate_to_width(popup.contents[idx].to_s, width), width)
+        line_with_bar = line + (need_bar ? scrollbar_glyph_for(popup, idx) : '')
+        out << move_to(base_row + i + 1, start_col)
+        out << DIM_ON << line_with_bar << DIM_OFF
       end
       out
     end

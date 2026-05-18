@@ -90,6 +90,9 @@ module Rvim
       @completion_base_byte = 0
       @completion_line_index = 0
       @completion_popup = nil
+      @completion_items_by_label = {} # label -> CompletionItem hash from LSP
+      @completion_detail_popup = nil  # side popup showing resolved docs
+      @completion_resolve_pending_for = nil # label currently being resolved
       @hover_popup = nil
       @signature_popup = nil
       @diagnostic_popup = nil
@@ -1077,6 +1080,7 @@ module Rvim
         replace_completion_with(@completion_candidates[@completion_index])
         @completion_popup&.pointer = @completion_index
         update_completion_status
+        kick_off_completion_detail
       else
         start_completion(delta)
       end
@@ -1115,6 +1119,92 @@ module Rvim
         replace_completion_with(@completion_candidates[@completion_index])
       end
       update_completion_status
+      kick_off_completion_detail
+    end
+
+    # Send completionItem/resolve for whichever candidate is selected.
+    # Skipped when there's no LSP item behind the label (keyword-only
+    # candidate) or when the server doesn't support resolveProvider.
+    # If the item already carries `documentation` we render it
+    # immediately; otherwise we wait for the response via
+    # pump_completion_detail.
+    private def kick_off_completion_detail
+      label = @completion_candidates[@completion_index]
+      item = @completion_items_by_label[label]
+      if item.nil?
+        @completion_detail_popup = nil
+        @completion_resolve_pending_for = nil
+        return
+      end
+
+      # If docs are already present (some servers do this on the
+      # initial response), render right away.
+      if item[:documentation] || item[:detail]
+        @completion_detail_popup = build_completion_detail_popup(item)
+      else
+        @completion_detail_popup = nil
+      end
+
+      return unless @settings.get(:lsp_enabled)
+
+      buf = current_buffer
+      return unless buf
+      return unless lsp.respond_to?(:request_completion_item_resolve)
+
+      sent = lsp.request_completion_item_resolve(buf, item)
+      @completion_resolve_pending_for = (sent == true ? label : nil)
+    end
+
+    # Render-loop hook. Drains a completionItem/resolve response if
+    # one arrived AND the user is still on the same candidate that
+    # we asked about. Out-of-band responses (user already moved on)
+    # are silently dropped.
+    def pump_completion_detail
+      return unless @completion_active
+      return unless @settings.get(:lsp_enabled)
+      return unless lsp.respond_to?(:last_completion_item_resolve_result)
+
+      result = lsp.last_completion_item_resolve_result
+      return unless result.is_a?(Hash)
+
+      lsp.clear_completion_item_resolve_result if lsp.respond_to?(:clear_completion_item_resolve_result)
+      label = completion_item_text(result)
+      return unless label == @completion_resolve_pending_for
+      return unless label == @completion_candidates[@completion_index]
+
+      @completion_items_by_label[label] = result
+      @completion_detail_popup = build_completion_detail_popup(result)
+      @completion_resolve_pending_for = nil
+    end
+
+    COMPLETION_DETAIL_MAX_WIDTH  = 60
+    COMPLETION_DETAIL_MAX_HEIGHT = 12
+
+    # Compose the side-popup lines from a resolved CompletionItem.
+    # First line is `detail` (typically the signature / type), then
+    # the rendered documentation. Empty result returns nil so the
+    # caller drops the popup.
+    private def build_completion_detail_popup(item)
+      lines = []
+      detail = item[:detail].to_s.strip
+      lines << detail unless detail.empty?
+      doc = item[:documentation]
+      doc_text = case doc
+                 when String then doc
+                 when Hash then doc[:value].to_s
+                 else ''
+                 end
+      unless doc_text.strip.empty?
+        lines << '' unless lines.empty?
+        lines.concat(render_markdown_for_popup(doc_text))
+      end
+      return nil if lines.empty?
+
+      Rvim::CompletionPopup.new(
+        contents: lines,
+        max_width: COMPLETION_DETAIL_MAX_WIDTH,
+        max_height: COMPLETION_DETAIL_MAX_HEIGHT,
+      )
     end
 
     LSP_COMPLETION_TIMEOUT = 1.5
@@ -1144,6 +1234,13 @@ module Rvim
       end
 
       items = extract_completion_items(result)
+      # Keep raw CompletionItem objects keyed by their displayed text
+      # so we can send completionItem/resolve when the user navigates
+      # to them in the popup.
+      items.each do |it|
+        txt = completion_item_text(it)
+        @completion_items_by_label[txt] = it if txt
+      end
       texts = items.map { |it| completion_item_text(it) }.compact.uniq
       texts = texts.select { |t| t.start_with?(base) } unless base.empty?
       texts
@@ -1199,9 +1296,13 @@ module Rvim
       @completion_base_byte = 0
       @completion_line_index = 0
       @completion_popup = nil
+      @completion_detail_popup = nil
+      @completion_items_by_label = {}
+      @completion_resolve_pending_for = nil
     end
 
     attr_reader :completion_popup, :completion_base_byte, :completion_line_index
+    attr_reader :completion_detail_popup
     attr_reader :hover_popup, :signature_popup, :diagnostic_popup
 
     private def completion_key?(key)
@@ -6519,6 +6620,9 @@ module Rvim
               # diagnostic pull so a freshly-arrived diagnostic at the
               # cursor's position shows up on the same render tick.
               editor.update_diagnostic_popup_for_cursor
+              # Drain completionItem/resolve responses for the selected
+              # candidate so the side-popup shows up-to-date docs.
+              editor.pump_completion_detail
             end
             # Drain output from async shell commands (e.g. :LspCodeLens
             # test runs). Runs regardless of lsp_enabled so non-LSP

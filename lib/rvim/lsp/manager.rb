@@ -548,6 +548,31 @@ module Rvim
         @clients.each_value { |c| c.last_document_link_result = nil }
       end
 
+      # completionItem/resolve. Returns :unsupported when the server's
+      # completionProvider didn't advertise `resolveProvider: true`.
+      def request_completion_item_resolve(buffer, item)
+        ft = filetype_for(buffer)
+        client = @clients[ft]
+        return false unless client && client.status == :running
+        provider = client.capabilities&.dig(:completionProvider) || {}
+        return :unsupported unless provider[:resolveProvider]
+
+        client.completion_item_resolve(item)
+        true
+      end
+
+      def last_completion_item_resolve_result
+        @clients.each_value do |c|
+          r = c.last_completion_item_resolve_result
+          return r if r
+        end
+        nil
+      end
+
+      def clear_completion_item_resolve_result
+        @clients.each_value { |c| c.last_completion_item_resolve_result = nil }
+      end
+
       # The completion trigger characters advertised by the buffer's
       # server. ruby-lsp lists ".", ":", "@", '"', "'", "/", "=",
       # "<", "$" — when the user types one in insert mode the editor

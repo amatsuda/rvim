@@ -47,7 +47,8 @@ module Rvim
                     :last_call_hierarchy_incoming_result,
                     :last_call_hierarchy_outgoing_result,
                     :last_semantic_tokens_result, :last_selection_range_result,
-                    :last_code_lens_result, :last_document_link_result
+                    :last_code_lens_result, :last_document_link_result,
+                    :last_completion_item_resolve_result
 
       def initialize(name:, command:, root_uri:, on_diagnostic: nil, cwd: nil, on_log: nil)
         @name = name
@@ -369,6 +370,18 @@ module Rvim
                 context: { triggerKind: 1 })
       end
 
+      # completionItem/resolve. The initial textDocument/completion
+      # response is often lightweight — servers fill in `detail`,
+      # `documentation`, and `additionalTextEdits` only when asked.
+      # The editor sends one resolve per selected candidate so the
+      # detail popup shows full docs.
+      def completion_item_resolve(item)
+        @last_completion_item_resolve_result = nil
+        # The JSON-RPC `params` field is the CompletionItem itself —
+        # spread its keys through `request`'s **params signature.
+        request('completionItem/resolve', **item)
+      end
+
       # codeAction/resolve. Server-deferred actions are returned from
       # textDocument/codeAction with only `data` set (no `edit` /
       # `command`). This request asks the server to fill them in so the
@@ -656,6 +669,9 @@ module Rvim
         when 'textDocument/documentLink'
           # Result is DocumentLink[] | null.
           @last_document_link_result = msg[:result]
+        when 'completionItem/resolve'
+          # Result is the fully-resolved CompletionItem.
+          @last_completion_item_resolve_result = msg[:result]
         end
       end
 
