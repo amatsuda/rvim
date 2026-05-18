@@ -3761,6 +3761,54 @@ module Rvim
       @exit_code = exit_code
     end
 
+    # Ctrl-C in vim is a cancel, not a quit. Clear whatever input
+    # state we were accumulating and return to resting normal mode.
+    #
+    # Matches NeoVim's UX: silent exit when we were in insert /
+    # visual / command-line / pending-op state; the "Type :q to
+    # quit" hint only fires from a freshly-resting normal mode,
+    # where there's nothing to cancel.
+    def handle_ctrl_c_interrupt
+      # Only insert / visual / command-line are "modes we were in";
+      # everything else (pending op, popups, completion session…)
+      # is still normal-mode state. Per NeoVim, those still print
+      # the "Type :q to quit" hint after being cleared.
+      was_insert = editing_mode_label == :vi_insert
+      was_visual = !@visual_mode.nil?
+      was_prompt = !@prompt_mode.nil?
+
+      cancel_completion if @completion_active
+      @hover_popup = nil
+      @signature_popup = nil
+      @diagnostic_popup = nil
+      @digraph_pending = false
+      @digraph_chars = +''
+      @completion_chain_pending = false
+      @rvim_pending_op = nil
+      @rvim_pending_op_count = 1
+      @rvim_text_object_pending = nil
+      @waiting_proc = nil
+      exit_visual if @visual_mode
+      if @prompt_mode
+        @prompt_mode = nil
+        @prompt_buffer = +''
+      end
+      if was_insert
+        @config.editing_mode = :vi_command
+        # In insert mode the cursor sits BETWEEN chars; in command
+        # mode it sits ON a char. When leaving insert past the end
+        # of the line (cursor at line.bytesize), clamp back to the
+        # last-char column so the box cursor doesn't render out of
+        # bounds. Matches what Esc does.
+        line = @buffer_of_lines[@line_index] || ''
+        max = [line.bytesize - 1, 0].max
+        @byte_pointer = max if @byte_pointer > max
+      end
+
+      mode_change = was_insert || was_visual || was_prompt
+      @status_message = mode_change ? nil : 'Type :q to quit'
+    end
+
     def exit_code
       @exit_code || 0
     end
@@ -6507,11 +6555,13 @@ module Rvim
     end
 
     def handle_signal
-      if @interrupted
-        @interrupted = false
-        @quit = true
-        raise Interrupt
-      end
+      return unless @interrupted
+
+      @interrupted = false
+      # Raise so the render loop's `rescue Interrupt` runs and
+      # cancels the current input state. We deliberately do NOT
+      # set @quit here — Ctrl-C in vim is a cancel, not an exit.
+      raise Interrupt
     end
 
     RVIMRC_PATH = '~/.rvimrc'
@@ -6639,7 +6689,10 @@ module Rvim
                 end
               end
             rescue Interrupt
-              editor.quit!
+              # Ctrl-C in vim doesn't quit the editor — it cancels
+              # whatever input state we're in (pending operator,
+              # waiting_proc, visual selection, insert mode, etc.).
+              editor.handle_ctrl_c_interrupt
             end
             break if editor.quit?
           end
