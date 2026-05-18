@@ -141,4 +141,59 @@ class TestEditorPumpAsyncCommands < Test::Unit::TestCase
     # renderer sees the appended content immediately.
     assert_equal @buf.lines, @editor.buffer_of_lines
   end
+
+  # ----- tail-mode follow -----
+
+  def test_tail_mode_advances_cursor_to_new_bottom_when_at_bottom
+    @editor.instance_variable_set(:@line_index, @buf.lines.size - 1)
+    job = FakeJob.new
+    job.queued_lines.push('a', 'b', 'c')
+    @editor.instance_variable_set(:@async_commands,
+      [{ job: job, buffer: @buf, label: 'echo' }])
+    @editor.pump_async_commands
+    assert_equal @buf.lines.size - 1, @editor.line_index, 'cursor follows new bottom'
+  end
+
+  def test_tail_mode_does_not_move_cursor_when_scrolled_up
+    # User is reading line 0 (header).
+    @editor.instance_variable_set(:@line_index, 0)
+    job = FakeJob.new
+    job.queued_lines.push('a', 'b', 'c')
+    @editor.instance_variable_set(:@async_commands,
+      [{ job: job, buffer: @buf, label: 'echo' }])
+    @editor.pump_async_commands
+    assert_equal 0, @editor.line_index, 'cursor stays put'
+  end
+
+  def test_tail_mode_re_engages_after_user_jumps_to_bottom
+    @editor.instance_variable_set(:@line_index, 0)
+    job = FakeJob.new
+    job.queued_lines.push('a', 'b')
+    @editor.instance_variable_set(:@async_commands,
+      [{ job: job, buffer: @buf, label: 'echo' }])
+    @editor.pump_async_commands
+    assert_equal 0, @editor.line_index
+
+    # User presses G; cursor is now at last line.
+    @editor.instance_variable_set(:@line_index, @buf.lines.size - 1)
+    job.queued_lines.push('c', 'd')
+    @editor.pump_async_commands
+    assert_equal @buf.lines.size - 1, @editor.line_index
+  end
+
+  def test_tail_mode_follows_in_non_current_buffer_via_buffer_line_index
+    other = Rvim::Buffer.new(2, 'other')
+    other.lines = ['hello']
+    @editor.instance_variable_set(:@current_buffer, other)
+    @editor.instance_variable_set(:@buffer_of_lines, other.lines)
+
+    @buf.line_index = @buf.lines.size - 1
+    job = FakeJob.new
+    job.queued_lines.push('streamed')
+    @editor.instance_variable_set(:@async_commands,
+      [{ job: job, buffer: @buf, label: 'echo' }])
+    @editor.pump_async_commands
+    assert_equal @buf.lines.size - 1, @buf.line_index
+    assert_equal 'streamed', @buf.lines.last
+  end
 end

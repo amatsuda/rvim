@@ -1645,13 +1645,16 @@ module Rvim
     end
 
     # Create the terminal buffer pre-filled with a "Running:" header
-    # line and a blank slot; output appends after these.
+    # and a blank slot; output appends after these. Cursor starts at
+    # the LAST line so tail-mode engages automatically: every batch
+    # of output lands at the cursor's line, keeping the view glued
+    # to the bottom (until the user scrolls up).
     private def open_async_terminal_buffer(shell_cmd)
       buf = Rvim::Buffer.new(@next_buffer_id, "term://#{shell_cmd}", encoding: encoding)
       @next_buffer_id += 1
       header = "Running: #{shell_cmd}"
       buf.lines = [header.dup.force_encoding(encoding), '']
-      buf.line_index = 0
+      buf.line_index = buf.lines.size - 1
       buf.byte_pointer = 0
       buf.modified = false
       @buffers[buf.id] = buf
@@ -1688,10 +1691,9 @@ module Rvim
       @lsp_watch_buffers.each do |entry|
         next if messages.size <= entry[:last_index]
 
-        fresh = messages[entry[:last_index]..]
-        entry[:buffer].lines.concat(fresh.map { |m| format_lsp_watch_line(m) })
+        fresh_lines = messages[entry[:last_index]..].map { |m| format_lsp_watch_line(m) }
+        append_to_streaming_buffer(entry[:buffer], fresh_lines)
         entry[:last_index] = messages.size
-        @buffer_of_lines = entry[:buffer].lines if @current_buffer&.equal?(entry[:buffer])
       end
 
       # Drop watch entries whose buffer was closed.
@@ -1708,12 +1710,13 @@ module Rvim
     LSP_WATCH_TYPE_TAGS = { 1 => 'E', 2 => 'W', 3 => 'I', 4 => 'L' }.freeze
 
     # Like open_terminal_buffer but doesn't set an exit-status status
-    # message (the buffer never "exits").
+    # message (the buffer never "exits"). Cursor starts at the last
+    # line so tail-mode engages automatically.
     private def open_log_terminal_buffer(name, lines)
       buf = Rvim::Buffer.new(@next_buffer_id, name, encoding: encoding)
       @next_buffer_id += 1
       buf.lines = lines.map { |l| l.dup.force_encoding(encoding) }
-      buf.line_index = 0
+      buf.line_index = [buf.lines.size - 1, 0].max
       buf.byte_pointer = 0
       buf.modified = false
       @buffers[buf.id] = buf
@@ -1731,10 +1734,7 @@ module Rvim
         new_lines = entry[:job].drain
         next if new_lines.empty?
 
-        entry[:buffer].lines.concat(new_lines)
-        # If the user is currently viewing this buffer, keep
-        # @buffer_of_lines in sync so the renderer sees the new lines.
-        @buffer_of_lines = entry[:buffer].lines if @current_buffer&.equal?(entry[:buffer])
+        append_to_streaming_buffer(entry[:buffer], new_lines)
       end
 
       @async_commands.reject! do |entry|
@@ -1742,11 +1742,41 @@ module Rvim
 
         status = entry[:job].exit_status
         footer = "[Exit #{status.inspect}]"
-        entry[:buffer].lines << footer
-        @buffer_of_lines = entry[:buffer].lines if @current_buffer&.equal?(entry[:buffer])
+        append_to_streaming_buffer(entry[:buffer], [footer])
         @status_message = "[async] #{entry[:label]} → #{footer}"
         true
       end
+    end
+
+    # Append lines to a streaming buffer (async command output or
+    # :LspWatch log), keeping the renderer in sync AND auto-scrolling
+    # to the bottom in "tail mode" — i.e. when the cursor sits on
+    # what was previously the last line. If the user scrolled up to
+    # read older content, we leave the cursor alone; pressing `G`
+    # re-engages tail-follow on the next batch.
+    private def append_to_streaming_buffer(buf, new_lines)
+      return if new_lines.empty?
+
+      is_current = @current_buffer&.equal?(buf)
+      was_at_bottom = if is_current
+                        @line_index >= [buf.lines.size - 1, 0].max
+                      else
+                        buf.line_index >= [buf.lines.size - 1, 0].max
+                      end
+
+      buf.lines.concat(new_lines)
+      new_bottom = buf.lines.size - 1
+
+      if was_at_bottom
+        if is_current
+          @line_index = new_bottom
+          @byte_pointer = 0
+        else
+          buf.line_index = new_bottom
+          buf.byte_pointer = 0
+        end
+      end
+      @buffer_of_lines = buf.lines if is_current
     end
 
     # Expand the visual selection to the next-larger syntactic unit
