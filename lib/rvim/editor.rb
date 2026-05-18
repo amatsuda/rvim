@@ -57,6 +57,13 @@ module Rvim
       @global_marks = Rvim::GlobalMarks.new
       @last_change_pos = nil
       @last_insert_pos = nil
+      # Vim's "curswant": the column the user *wants* to be in for
+      # vertical motions. j/k preserve it across short-line clamps so
+      # `abcd` ↓ `ef` ↑ returns to `d`, not `b`. Reset on any
+      # horizontal motion. last_vertical_pos catches that — if the
+      # cursor moved since we last set it, the user did a horizontal.
+      @want_column = nil
+      @last_vertical_pos = nil
       @last_yank_range = nil
       @jump_list = []
       @jump_index = 0
@@ -3565,10 +3572,18 @@ module Rvim
       target = @line_index + delta
       return if target.negative? || target >= @buffer_of_lines.size
 
+      # If the cursor isn't at the position our last vertical move
+      # placed it, the user did a horizontal in between — snapshot a
+      # fresh want_column from where they are now.
+      if @last_vertical_pos != [@line_index, @byte_pointer]
+        @want_column = @byte_pointer
+      end
+
       @line_index = target
       target_line = @buffer_of_lines[@line_index] || ''
       max = insert_mode_cursor? ? target_line.bytesize : [target_line.bytesize - 1, 0].max
-      @byte_pointer = @byte_pointer.clamp(0, max)
+      @byte_pointer = (@want_column || @byte_pointer).clamp(0, max)
+      @last_vertical_pos = [@line_index, @byte_pointer]
     end
 
     private def insert_mode_cursor?
@@ -5454,10 +5469,13 @@ module Rvim
       arg.times do
         break if @line_index <= 0
 
-        cursor = current_byte_pointer_cursor
+        if @last_vertical_pos != [@line_index, @byte_pointer]
+          @want_column = current_byte_pointer_cursor
+        end
         @line_index -= 1
         skip_into_fold(:up)
-        calculate_nearest_cursor(cursor)
+        calculate_nearest_cursor(@want_column)
+        @last_vertical_pos = [@line_index, @byte_pointer]
       end
     end
 
@@ -5465,10 +5483,13 @@ module Rvim
       arg.times do
         break if @line_index >= @buffer_of_lines.size - 1
 
-        cursor = current_byte_pointer_cursor
+        if @last_vertical_pos != [@line_index, @byte_pointer]
+          @want_column = current_byte_pointer_cursor
+        end
         @line_index += 1
         skip_into_fold(:down)
-        calculate_nearest_cursor(cursor)
+        calculate_nearest_cursor(@want_column)
+        @last_vertical_pos = [@line_index, @byte_pointer]
       end
     end
 
