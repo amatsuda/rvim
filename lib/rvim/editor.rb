@@ -4215,9 +4215,37 @@ module Rvim
         @replace_mode = false
         @replace_originals = nil
         finalize_block_insert
+        collapse_insert_undo_history
         @autocommands&.fire(:insertleave, @filepath.to_s, self)
       elsif pre_mode == :vi_command && cur_mode == :vi_insert
+        # Remember where the undo history was when insert started so
+        # we can collapse every per-keystroke entry into a single
+        # undo step on insert-leave. Matches vim/NeoVim's "one undo
+        # per insert session" UX.
+        @insert_undo_start_index = @undo_redo_index
         @autocommands&.fire(:insertenter, @filepath.to_s, self)
+      end
+    end
+
+    # Reline pushes an undo entry on every key that mutates the
+    # buffer. In vim's model, an entire insert session (i...Esc) is
+    # one undo step. On insert-leave, replace the intermediate
+    # entries with just the final state — undo jumps straight back
+    # to the pre-insert snapshot; redo replays straight to the
+    # post-insert one.
+    private def collapse_insert_undo_history
+      start = @insert_undo_start_index
+      @insert_undo_start_index = nil
+      return if start.nil?
+      return unless @undo_redo_history
+      return if @undo_redo_index <= start + 1 # nothing to collapse
+
+      final = @undo_redo_history[@undo_redo_index]
+      @undo_redo_history = @undo_redo_history[0..start] + [final]
+      @undo_redo_index = start + 1
+      if @undo_timestamps && @undo_timestamps.size > start
+        final_ts = @undo_timestamps[@undo_redo_index] || @undo_timestamps.last || Time.now
+        @undo_timestamps = @undo_timestamps[0..start] + [final_ts]
       end
     end
 
