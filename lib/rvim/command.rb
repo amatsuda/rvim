@@ -154,6 +154,9 @@ module Rvim
              when 'LspWatch', 'lspwatch' then :lsp_watch
              when 'LspDocumentLinks', 'lspdocumentlinks' then :lsp_document_links
              when 'LspGotoLink', 'lspgotolink' then :lsp_goto_link
+             when 'LspWorkspaceFolders', 'lspworkspacefolders' then :lsp_workspace_folders
+             when 'LspAddWorkspaceFolder', 'lspaddworkspacefolder' then :lsp_add_workspace_folder
+             when 'LspRemoveWorkspaceFolder', 'lspremoveworkspacefolder' then :lsp_remove_workspace_folder
              when 'LspReferences', 'lspreferences' then :lsp_references
              when 'LspFormat', 'lspformat' then :lsp_format
              when 'LspSymbols', 'lspsymbols' then :lsp_symbols
@@ -453,6 +456,12 @@ module Rvim
         execute_lsp_document_links(editor)
       when :lsp_goto_link
         execute_lsp_goto_link(editor)
+      when :lsp_workspace_folders
+        execute_lsp_workspace_folders(editor)
+      when :lsp_add_workspace_folder
+        execute_lsp_add_workspace_folder(editor, parsed)
+      when :lsp_remove_workspace_folder
+        execute_lsp_remove_workspace_folder(editor, parsed)
       when :lsp_references
         execute_lsp_references(editor)
       when :lsp_format
@@ -1921,6 +1930,49 @@ module Rvim
       return if editor.lsp_goto_document_link_at_cursor
 
       editor.status_message = 'LSP: document links unavailable for this buffer'
+    end
+
+    def self.execute_lsp_workspace_folders(editor)
+      folders = editor.lsp.respond_to?(:workspace_folders) ? editor.lsp.workspace_folders : []
+      if folders.empty?
+        editor.status_message = 'LSP: no workspace folders'
+        return
+      end
+      rows = ['LSP workspace folders:']
+      folders.each_with_index do |f, i|
+        rows << "  #{i + 1}. #{f[:name]} (#{f[:uri]})"
+      end
+      editor.show_list(rows)
+    end
+
+    def self.execute_lsp_add_workspace_folder(editor, parsed)
+      path = parsed.arg.to_s.strip
+      if path.empty?
+        editor.status_message = 'LSP: usage :LspAddWorkspaceFolder <path>'
+        return
+      end
+      abs = File.expand_path(path)
+      n = editor.lsp.add_workspace_folder("file://#{abs}", File.basename(abs))
+      editor.status_message = if n.zero?
+                                'LSP: no running server to notify (folder may already be tracked)'
+                              else
+                                "LSP: added workspace folder #{abs} (#{n} server#{'s' unless n == 1})"
+                              end
+    end
+
+    def self.execute_lsp_remove_workspace_folder(editor, parsed)
+      path = parsed.arg.to_s.strip
+      if path.empty?
+        editor.status_message = 'LSP: usage :LspRemoveWorkspaceFolder <path>'
+        return
+      end
+      abs = File.expand_path(path)
+      n = editor.lsp.remove_workspace_folder("file://#{abs}")
+      editor.status_message = if n.zero?
+                                'LSP: workspace folder not tracked'
+                              else
+                                "LSP: removed workspace folder #{abs} (#{n} server#{'s' unless n == 1})"
+                              end
     end
 
     # `:LspCodeLens`        — list the buffer's lenses in the quickfix.

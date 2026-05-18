@@ -29,7 +29,8 @@ module Rvim
         async modification documentation defaultLibrary
       ].freeze
 
-      attr_reader :name, :status, :capabilities, :diagnostics, :window_messages
+      attr_reader :name, :status, :capabilities, :diagnostics, :window_messages,
+                  :workspace_folders
 
       # Cap on retained window messages so a chatty server can't grow
       # memory without bound. Old entries fall off the front.
@@ -50,10 +51,18 @@ module Rvim
                     :last_code_lens_result, :last_document_link_result,
                     :last_completion_item_resolve_result
 
-      def initialize(name:, command:, root_uri:, on_diagnostic: nil, cwd: nil, on_log: nil)
+      def initialize(name:, command:, root_uri:, on_diagnostic: nil, cwd: nil, on_log: nil,
+                     workspace_folders: nil)
         @name = name
         @command = command
         @root_uri = root_uri
+        # Workspace folders sent in initialize and updated via runtime
+        # workspace/didChangeWorkspaceFolders notifications. Defaults
+        # to a single entry derived from root_uri so servers that need
+        # workspaceFolders (gopls, rust-analyzer, etc.) get something.
+        @workspace_folders = workspace_folders || [
+          { uri: root_uri, name: File.basename(root_uri.to_s.sub(/\Afile:\/\//, '')) },
+        ]
         @on_diagnostic = on_diagnostic
         @on_log = on_log
         @cwd = cwd
@@ -64,6 +73,7 @@ module Rvim
         @diagnostics = {} # uri -> array of LSP Diagnostic
         @log_buffer = []  # last N stderr lines (drained by editor pump)
         @window_messages = [] # FIFO of window/log+showMessage entries
+        @registered_capabilities = {} # registration id -> method (for unregister cleanup)
         @stdin = nil
         @stdout = nil
         @stderr = nil
@@ -450,12 +460,44 @@ module Rvim
         end
       end
 
+      # Respond to a server-to-client request. Required for spec
+      # compliance — without it, servers that ask the client for
+      # workspaceFolders or dynamic-registration capability hang
+      # waiting for our reply.
+      def send_response(id, result)
+        send_message(jsonrpc: '2.0', id: id, result: result)
+      end
+
+      # Add a workspace folder and notify the server. The folder is
+      # de-duped against the current list; returns false if it was
+      # already present.
+      def add_workspace_folder(uri, name = nil)
+        name ||= File.basename(uri.to_s.sub(/\Afile:\/\//, ''))
+        return false if @workspace_folders.any? { |f| f[:uri] == uri }
+
+        @workspace_folders << { uri: uri, name: name }
+        notify('workspace/didChangeWorkspaceFolders',
+               event: { added: [{ uri: uri, name: name }], removed: [] })
+        true
+      end
+
+      def remove_workspace_folder(uri)
+        removed = @workspace_folders.find { |f| f[:uri] == uri }
+        return false unless removed
+
+        @workspace_folders.delete(removed)
+        notify('workspace/didChangeWorkspaceFolders',
+               event: { added: [], removed: [removed] })
+        true
+      end
+
       private
 
       def send_initialize
         request('initialize',
                 processId: Process.pid,
                 rootUri: @root_uri,
+                workspaceFolders: @workspace_folders,
                 capabilities: client_capabilities,
                 initializationOptions: initialization_options,
                 clientInfo: { name: 'rvim', version: Rvim::VERSION })
@@ -494,8 +536,14 @@ module Rvim
             inlayHint: { dynamicRegistration: false },
           },
           workspace: {
-            workspaceFolders: false,
+            workspaceFolders: true,
             symbol: { dynamicRegistration: false },
+            # We ack registerCapability / unregisterCapability so
+            # servers that dynamically register watchers etc. don't
+            # hang. We don't actually run filesystem watchers though.
+            didChangeWatchedFiles: { dynamicRegistration: true },
+            didChangeConfiguration: { dynamicRegistration: false },
+            configuration: true,
           },
         }
       end
@@ -711,6 +759,31 @@ module Rvim
             type: msg.dig(:params, :type),
             message: msg.dig(:params, :message).to_s,
           )
+        when 'client/registerCapability'
+          # Server is dynamically registering for some capability
+          # (commonly workspace/didChangeWatchedFiles). We track the
+          # registration ids so unregisterCapability can clean up,
+          # but don't actually start filesystem watchers — most
+          # rvim users have a small project tree.
+          Array(msg.dig(:params, :registrations)).each do |reg|
+            @registered_capabilities[reg[:id]] = reg[:method]
+          end
+          send_response(msg[:id], nil) if msg[:id]
+        when 'client/unregisterCapability'
+          Array(msg.dig(:params, :unregisterations)).each do |reg|
+            @registered_capabilities.delete(reg[:id])
+          end
+          send_response(msg[:id], nil) if msg[:id]
+        when 'workspace/workspaceFolders'
+          # Server is asking the client for its current workspace
+          # roots. Return our list verbatim.
+          send_response(msg[:id], @workspace_folders) if msg[:id]
+        when 'workspace/configuration'
+          # Server is asking for config sections. We don't have any
+          # per-server config UI yet, so reply with nils so the
+          # server falls back to defaults rather than hanging.
+          sections = Array(msg.dig(:params, :items))
+          send_response(msg[:id], Array.new(sections.size, nil)) if msg[:id]
         end
       end
 

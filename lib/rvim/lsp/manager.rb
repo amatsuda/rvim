@@ -573,6 +573,32 @@ module Rvim
         @clients.each_value { |c| c.last_completion_item_resolve_result = nil }
       end
 
+      # Workspace folders aggregated across all running clients, in
+      # de-duped order. Each entry is { uri:, name: }.
+      def workspace_folders
+        seen = {}
+        @clients.each_value do |c|
+          c.workspace_folders.each do |f|
+            seen[f[:uri]] ||= f
+          end
+        end
+        seen.values
+      end
+
+      # Add a folder (file:// uri) to every running client. Returns
+      # the count of clients that actually applied the change.
+      def add_workspace_folder(uri, name = nil)
+        n = 0
+        @clients.each_value { |c| n += 1 if c.status == :running && c.add_workspace_folder(uri, name) }
+        n
+      end
+
+      def remove_workspace_folder(uri)
+        n = 0
+        @clients.each_value { |c| n += 1 if c.status == :running && c.remove_workspace_folder(uri) }
+        n
+      end
+
       # The completion trigger characters advertised by the buffer's
       # server. ruby-lsp lists ".", ":", "@", '"', "'", "/", "=",
       # "<", "$" — when the user types one in insert mode the editor
