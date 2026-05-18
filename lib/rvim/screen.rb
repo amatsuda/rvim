@@ -1390,18 +1390,31 @@ module Rvim
       [first, [last, line.bytesize].min]
     end
 
+    # Distinct style for the match the cursor is currently inside.
+    # The terminal renders the text cursor by inverting the cell;
+    # over a REVERSE-styled match that inversion cancels out and the
+    # cursor becomes invisible. An explicit bg+fg pair keeps the
+    # cursor's inversion visible (matches NeoVim's CurSearch).
+    CURSEARCH_OPEN  = "\e[48;5;220;38;5;232m"
+    CURSEARCH_CLOSE = "\e[39;49m"
+
     def apply_search_highlight(line, line_index, matches, width)
       ranges = matches.select { |l, _, _| l == line_index }.map { |_, s, e| [s, e] }
+      cursor_byte = (@editor.line_index == line_index) ? @editor.byte_pointer : nil
       out = line.dup
+      added = 0
       ranges.sort_by { |s, _| -s }.each do |s, e|
         first = snap_to_char_boundary(out, [s, out.bytesize].min)
         last = snap_to_char_boundary(out, [e + 1, out.bytesize].min)
         head = out.byteslice(0, first) || +''
         mid = out.byteslice(first, last - first) || +''
         tail = out.byteslice(last, out.bytesize - last) || +''
-        out = head + REVERSE_ON + mid + REVERSE_OFF + tail
+        current = cursor_byte && s <= cursor_byte && cursor_byte <= e
+        open, close = current ? [CURSEARCH_OPEN, CURSEARCH_CLOSE] : [REVERSE_ON, REVERSE_OFF]
+        out = head + open + mid + close + tail
+        added += open.bytesize + close.bytesize
       end
-      truncate(out, width + ranges.size * (REVERSE_ON.bytesize + REVERSE_OFF.bytesize))
+      truncate(out, width + added)
     end
 
     def splice_highlight(line, first, last, width)
