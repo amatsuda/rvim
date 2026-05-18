@@ -524,6 +524,30 @@ module Rvim
         @clients.each_value { |c| c.last_code_lens_result = nil }
       end
 
+      # textDocument/documentLink for the buffer. :unsupported when
+      # the server didn't advertise documentLinkProvider.
+      def request_document_link(buffer)
+        ft = filetype_for(buffer)
+        client = @clients[ft]
+        return false unless client && client.status == :running
+        return :unsupported unless server_supports?(client, :documentLinkProvider)
+
+        client.document_link(buffer_uri(buffer))
+        true
+      end
+
+      def last_document_link_result
+        @clients.each_value do |c|
+          r = c.last_document_link_result
+          return r if r
+        end
+        nil
+      end
+
+      def clear_document_link_result
+        @clients.each_value { |c| c.last_document_link_result = nil }
+      end
+
       # All window/log+showMessage entries from every running client,
       # in arrival order. Each entry has `:time, :kind, :type,
       # :message` plus `:source` (the client name) appended here.

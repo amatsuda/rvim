@@ -1439,6 +1439,105 @@ module Rvim
     LSP_CALL_HIERARCHY_TIMEOUT  = 3.0
     LSP_SELECTION_RANGE_TIMEOUT = 2.0
     LSP_CODE_LENS_TIMEOUT       = 2.0
+    LSP_DOCUMENT_LINK_TIMEOUT   = 2.0
+
+    # Fetch textDocument/documentLink results and populate the
+    # quickfix — one entry per link with its tooltip (or target) as
+    # the text. Caches the raw result on @last_document_links so
+    # :LspGotoLink can find the entry covering the cursor.
+    def lsp_show_document_links
+      links = fetch_document_links
+      return false if links == false
+      return true if links == :unsupported_msg_set
+
+      if links.empty?
+        @status_message = 'LSP: no document links'
+        return true
+      end
+
+      entries = links.each_with_index.map do |link, i|
+        text = link[:tooltip].to_s
+        text = link[:target].to_s if text.empty?
+        text = 'link' if text.empty?
+        line = link.dig(:range, :start, :line).to_i + 1
+        col  = link.dig(:range, :start, :character).to_i + 1
+        Rvim::Quickfix::Entry.new(file: @filepath.to_s, line: line, col: col,
+                                  text: "#{i + 1}. #{text}")
+      end
+      @quickfix.set(entries)
+      show_list(Rvim::Command.format_quickfix(self))
+      true
+    end
+
+    # Find the document link whose range covers the cursor and open
+    # its target. file:// URIs with `#N` fragments open the file and
+    # jump to that line. http(s):// targets just show the URL in the
+    # status bar (no browser to launch from a terminal editor).
+    def lsp_goto_document_link_at_cursor
+      links = fetch_document_links
+      return false if links == false
+      return true if links == :unsupported_msg_set
+
+      hit = links.find { |link| diagnostic_covers?(link, @line_index, @byte_pointer) }
+      if hit.nil?
+        @status_message = 'LSP: no document link at cursor'
+        return true
+      end
+
+      open_document_link(hit)
+      true
+    end
+
+    # Shared body for the two public commands above. Returns:
+    # - false when LSP off / no buffer (caller surfaces fallback msg)
+    # - :unsupported_msg_set when the server doesn't speak documentLink
+    #   (status_message already set; caller short-circuits with true)
+    # - Array<DocumentLink> otherwise (possibly empty)
+    private def fetch_document_links
+      return false unless @settings.get(:lsp_enabled)
+
+      buf = current_buffer
+      return false unless buf
+      lsp.flush_changes(buf)
+      sent = lsp.request_document_link(buf)
+      if sent == :unsupported
+        @status_message = 'LSP: server does not support documentLink'
+        return :unsupported_msg_set
+      end
+      return false unless sent
+
+      result = poll_lsp_result(LSP_DOCUMENT_LINK_TIMEOUT, 'textDocument/documentLink') do
+        lsp.last_document_link_result
+      end
+      result || []
+    end
+
+    # Open one DocumentLink's target. For file:// URIs we honor a
+    # `#N` line-number fragment (ruby-lsp uses these to point inside
+    # gem sources).
+    private def open_document_link(link)
+      target = link[:target].to_s
+      if target.empty?
+        @status_message = 'LSP: link has no target'
+        return
+      end
+
+      if target.start_with?('file://')
+        path_with_frag = target.sub(/\Afile:\/\//, '')
+        path, frag = path_with_frag.split('#', 2)
+        push_jump
+        open(path) if path && path != @filepath
+        if frag && frag.to_i.positive?
+          @line_index = (frag.to_i - 1).clamp(0, [@buffer_of_lines.size - 1, 0].max)
+          @byte_pointer = 0
+        end
+        @status_message = "LSP: opened #{path}#{frag ? ":#{frag}" : ''}"
+      else
+        # http(s):// — no portable way to open a browser from inside
+        # a terminal editor. Show the URL so the user can copy it.
+        @status_message = "LSP: link -> #{target}"
+      end
+    end
 
     # Send textDocument/codeLens, poll, populate the quickfix with
     # one entry per lens. Each lens's command.title is the entry text;

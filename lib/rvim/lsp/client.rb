@@ -47,7 +47,7 @@ module Rvim
                     :last_call_hierarchy_incoming_result,
                     :last_call_hierarchy_outgoing_result,
                     :last_semantic_tokens_result, :last_selection_range_result,
-                    :last_code_lens_result
+                    :last_code_lens_result, :last_document_link_result
 
       def initialize(name:, command:, root_uri:, on_diagnostic: nil, cwd: nil, on_log: nil)
         @name = name
@@ -160,6 +160,16 @@ module Rvim
         request('textDocument/definition',
                 textDocument: { uri: uri },
                 position: { line: line, character: character })
+      end
+
+      # textDocument/documentLink. Result is DocumentLink[] | null.
+      # Each link has `range, target?, tooltip?`. ruby-lsp extracts
+      # them from `source://` / `pkg:gem/` magic comments above
+      # methods, pointing into stdlib / gem sources.
+      def document_link(uri)
+        @last_document_link_result = nil
+        request('textDocument/documentLink',
+                textDocument: { uri: uri })
       end
 
       # textDocument/codeLens. Result is CodeLens[] | null. Each lens
@@ -451,6 +461,7 @@ module Rvim
             foldingRange: { dynamicRegistration: false, lineFoldingOnly: true },
             callHierarchy: { dynamicRegistration: false },
             codeLens: { dynamicRegistration: false },
+            documentLink: { dynamicRegistration: false, tooltipSupport: true },
             semanticTokens: {
               dynamicRegistration: false,
               requests: { full: true, range: false },
@@ -642,6 +653,9 @@ module Rvim
         when 'textDocument/codeLens'
           # Result is CodeLens[] | null.
           @last_code_lens_result = msg[:result]
+        when 'textDocument/documentLink'
+          # Result is DocumentLink[] | null.
+          @last_document_link_result = msg[:result]
         end
       end
 

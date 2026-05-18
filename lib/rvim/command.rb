@@ -152,6 +152,8 @@ module Rvim
              when 'LspSelectionShrink', 'lspselectionshrink' then :lsp_selection_shrink
              when 'LspCodeLens', 'lspcodelens' then :lsp_code_lens
              when 'LspWatch', 'lspwatch' then :lsp_watch
+             when 'LspDocumentLinks', 'lspdocumentlinks' then :lsp_document_links
+             when 'LspGotoLink', 'lspgotolink' then :lsp_goto_link
              when 'LspReferences', 'lspreferences' then :lsp_references
              when 'LspFormat', 'lspformat' then :lsp_format
              when 'LspSymbols', 'lspsymbols' then :lsp_symbols
@@ -447,6 +449,10 @@ module Rvim
         execute_lsp_code_lens(editor, parsed)
       when :lsp_watch
         execute_lsp_watch(editor)
+      when :lsp_document_links
+        execute_lsp_document_links(editor)
+      when :lsp_goto_link
+        execute_lsp_goto_link(editor)
       when :lsp_references
         execute_lsp_references(editor)
       when :lsp_format
@@ -1903,6 +1909,18 @@ module Rvim
       return if editor.lsp_open_watch_buffer
 
       editor.status_message = 'LSP: watch buffer unavailable (no LSP running)'
+    end
+
+    def self.execute_lsp_document_links(editor)
+      return if editor.lsp_show_document_links
+
+      editor.status_message = 'LSP: document links unavailable for this buffer'
+    end
+
+    def self.execute_lsp_goto_link(editor)
+      return if editor.lsp_goto_document_link_at_cursor
+
+      editor.status_message = 'LSP: document links unavailable for this buffer'
     end
 
     # `:LspCodeLens`        — list the buffer's lenses in the quickfix.
