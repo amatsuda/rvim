@@ -238,6 +238,46 @@ class TestLuaLazyShims < Test::Unit::TestCase
     end
   end
 
+  def test_vim_o_reads_and_writes_options
+    @editor.lua.eval('vim.o.tabstop = 8')
+    assert_equal 8, @editor.settings.get(:tabstop)
+    assert_equal 8, @editor.lua.eval('return vim.o.tabstop').to_i
+  end
+
+  def test_nvim_get_keymap_lists_normal_mode_entries
+    @editor.lua.eval('vim.keymap.set("n", "<leader>x", function() end, { desc = "test" })')
+    @editor.let_vars['mapleader'] = ' '
+    count = @editor.lua.eval('return #vim.api.nvim_get_keymap("n")').to_i
+    assert_operator count, :>, 0
+    sample = @editor.lua.eval(<<~LUA)
+      local m = vim.api.nvim_get_keymap("n")
+      for _, e in ipairs(m) do
+        if e.lhs:find("x", 1, true) then return e.lhs end
+      end
+      return ""
+    LUA
+    refute_empty sample
+  end
+
+  def test_nvim_get_autocmds_filtered_by_event
+    @editor.lua.eval(<<~LUA)
+      vim.api.nvim_create_autocmd("BufEnter", { pattern = "*", command = "echo hi" })
+      vim.api.nvim_create_autocmd("BufLeave", { pattern = "*.txt", command = "echo bye" })
+    LUA
+    n = @editor.lua.eval('return #vim.api.nvim_get_autocmds({ event = "BufEnter" })').to_i
+    assert_equal 1, n
+  end
+
+  def test_nvim_create_user_command_does_not_leak_struct_to_lua
+    # Regression: the previous impl returned the assigned UserCommand
+    # struct, which rufus-lua couldn't push back, breaking any caller
+    # that used the return value (lazy.nvim's autocmd dispatch did).
+    assert_nothing_raised do
+      @editor.lua.eval('vim.api.nvim_create_user_command("MyCmd", "echo hi", {})')
+    end
+    assert_equal nil, @editor.lua.eval('return vim.api.nvim_create_user_command("MyCmd2", "echo bye", {})')
+  end
+
   def test_vim_loader_find_wildcard_returns_all_modules
     Dir.mktmpdir('rvim-loader-') do |dir|
       FileUtils.mkdir_p(File.join(dir, 'lua', 'pkg'))

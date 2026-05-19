@@ -141,6 +141,13 @@ module Rvim
           vim.go  = make_opt(_rvim_opt_set, _rvim_opt_get)
           vim.bo  = make_opt(_rvim_bo_set,  _rvim_bo_get)
           vim.wo  = make_opt(_rvim_opt_set, _rvim_opt_get)  -- window-local stubs to global
+
+          -- vim.o — simple table-style access, no :get() wrapper.
+          -- Returns raw values; identical to vim.go for globals.
+          vim.o = setmetatable({}, {
+            __index = function(_, name) return _rvim_opt_get(name) end,
+            __newindex = function(_, name, value) _rvim_opt_set(name, value) end,
+          })
         LUA
       end
 

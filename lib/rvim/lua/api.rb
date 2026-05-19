@@ -69,6 +69,7 @@ module Rvim
         install_window_api(state, editor)
         install_extended_api(state, editor)
         install_user_command_api(state, editor)
+        install_keymap_introspection_api(state, editor)
         install_runtime_api(state, editor)
         install_global_keymap_api(state, editor)
         install_exec_api(state, editor)
@@ -153,6 +154,10 @@ module Rvim
           vim.api.nvim_create_user_command  = _rvim_api_create_user_command
           vim.api.nvim_del_user_command     = _rvim_api_del_user_command
 
+          -- Keymap introspection.
+          vim.api.nvim_get_keymap           = _rvim_api_get_keymap
+          vim.api.nvim_buf_get_keymap       = _rvim_api_buf_get_keymap
+
           -- Runtimepath, exec, autocmd dispatch, global keymap.
           vim.api.nvim_get_runtime_file     = _rvim_api_get_runtime_file
           vim.api.nvim_list_runtime_paths   = _rvim_api_list_runtime_paths
@@ -162,6 +167,7 @@ module Rvim
           vim.api.nvim_exec                 = _rvim_api_exec
           vim.api.nvim_exec2                = _rvim_api_exec2
           vim.api.nvim_exec_autocmds        = _rvim_api_exec_autocmds
+          vim.api.nvim_get_autocmds         = _rvim_api_get_autocmds
         LUA
       end
 
@@ -253,6 +259,67 @@ module Rvim
         install_attach_feedkeys_api(state, editor)
       end
 
+      # nvim_get_keymap(mode) / nvim_buf_get_keymap(buf, mode) —
+      # enumerate registered mappings. Each entry mirrors NeoVim's
+      # shape so plugins like which-key.nvim can introspect.
+      def self.install_keymap_introspection_api(state, editor)
+        state.function '_rvim_api_get_keymap' do |mode_arg|
+          mode = lua_mode_to_internal(mode_arg.to_s)
+          serialize_keymap_entries(editor.keymap, mode, buffer: 0)
+        end
+
+        state.function '_rvim_api_buf_get_keymap' do |bufnr, mode_arg|
+          buf = resolve_buffer(editor, bufnr) || editor.current_buffer
+          mode = lua_mode_to_internal(mode_arg.to_s)
+          buf && buf.keymap? ? serialize_keymap_entries(buf.keymap, mode, buffer: buf.id) : []
+        end
+      end
+
+      def self.lua_mode_to_internal(mode)
+        case mode
+        when 'n' then :normal
+        when 'i' then :insert
+        when 'v', 'x' then :visual
+        when 'o' then :op_pending
+        when 'c' then :cmdline
+        when '' then :normal
+        else :normal
+        end
+      end
+
+      def self.serialize_keymap_entries(keymap, mode, buffer:)
+        out = []
+        keymap.each(mode) do |lhs, mapping|
+          out << {
+            'lhs'      => lhs.to_s,
+            'lhsraw'   => lhs.to_s,
+            'rhs'      => mapping.rhs.to_s,
+            'mode'     => internal_mode_to_lua(mode),
+            'noremap'  => mapping.recursive ? 0 : 1,
+            'silent'   => mapping.silent ? 1 : 0,
+            'nowait'   => 0,
+            'expr'     => 0,
+            'script'   => 0,
+            'buffer'   => buffer,
+            # callback presence is what plugins check most often.
+            'callback' => mapping.callback ? true : nil,
+            'desc'     => '',
+          }
+        end
+        out
+      end
+
+      def self.internal_mode_to_lua(mode)
+        case mode
+        when :normal then 'n'
+        when :insert then 'i'
+        when :visual then 'v'
+        when :op_pending then 'o'
+        when :cmdline then 'c'
+        else 'n'
+        end
+      end
+
       # nvim_create_user_command(name, command, opts):
       #   - name: PascalCase command name (e.g. "Lazy")
       #   - command: string body OR a Lua function (callback) receiving
@@ -292,10 +359,12 @@ module Rvim
             bang_allowed: opts_h['bang'] == true,
             range_allowed: opts_h['range'] == true,
           )
+          nil  # don't leak the UserCommand struct back to Lua
         end
 
         state.function '_rvim_api_del_user_command' do |name|
           editor.user_commands.delete(name.to_s)
+          nil
         end
       end
 
@@ -440,7 +509,52 @@ module Rvim
       # value passed to listeners. lazy.nvim emits its own User events
       # ("LazyLoad", "VeryLazy", "LazyDone") through this; nothing
       # would fire those without it.
+      def self.normalize_event_filter(raw)
+        return nil if raw.nil? || raw == ''
+
+        arr = if raw.respond_to?(:to_h)
+                raw.to_h.values
+              elsif raw.is_a?(Array)
+                raw
+              else
+                [raw]
+              end
+        # Autocommands store events as lowercase symbols; the filter
+        # gets case-insensitive matching to mirror NeoVim.
+        arr.map { |e| e.to_s.downcase }
+      end
+
       def self.install_exec_autocmds_api(state, editor)
+        # nvim_get_autocmds(opts) — list registered autocmds, filtered
+        # by opts.event (string|array) and opts.pattern. Returns each
+        # entry as a hash matching NeoVim's shape: { id, event,
+        # pattern, command, callback, group, ... }. Used by plugins
+        # to detect/clean up old registrations before installing new
+        # ones (lazy.nvim's event handler does this).
+        state.function '_rvim_api_get_autocmds' do |opts|
+          opts_h = opts.respond_to?(:to_h) ? opts.to_h : {}
+          ev_filter = normalize_event_filter(opts_h['event'])
+
+          out = []
+          editor.autocommands.each do |entry|
+            next if ev_filter && !ev_filter.include?(entry.event.to_s.downcase)
+
+            out << {
+              'id'       => entry.object_id,
+              'event'    => entry.event.to_s,
+              'pattern'  => entry.pattern.to_s,
+              'command'  => entry.command.to_s,
+              'callback' => nil, # we don't surface Ruby lambdas
+              'group'    => entry.group,
+              'group_name' => entry.group ? entry.group.to_s : nil,
+              'buflocal' => false,
+              'once'     => false,
+              'desc'     => '',
+            }
+          end
+          out
+        end
+
         state.function '_rvim_api_exec_autocmds' do |events, opts|
           events_arr = if events.respond_to?(:to_h)
                          events.to_h.values.map(&:to_s)

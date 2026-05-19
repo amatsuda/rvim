@@ -60,6 +60,20 @@ module Rvim
         state.function('vim.fn.localtime')    { Time.now.to_i }
         state.function('vim.fn.strftime')     { |fmt, time| Time.at((time || Time.now.to_i).to_i).strftime(fmt.to_s) }
         state.function('vim.fn.getcompletion'){ |pat, type, _filt| getcompletion(editor, pat.to_s, type.to_s) }
+
+        # Character / byte utilities. keytrans is normally the inverse
+        # of nvim_replace_termcodes — translates internal byte
+        # sequences (\x80\xfd<...>) to readable <Key> forms. For plain
+        # ASCII strings (rvim's usual case) it's identity; complex
+        # encodings are out of scope here.
+        state.function('vim.fn.keytrans')   { |s| s.to_s }
+        state.function('vim.fn.str2list')   { |s, _utf8| s.to_s.bytes }
+        state.function('vim.fn.nr2char')    { |n, _utf8| n.to_i < 0x80 ? n.to_i.chr : [n.to_i].pack('U') }
+        state.function('vim.fn.char2nr')    { |s, _utf8| s.to_s.empty? ? 0 : s.to_s.codepoints.first }
+        state.function('vim.fn.reg_recording') { editor.instance_variable_get(:@recording_macro).to_s }
+        state.function('vim.fn.reg_executing') { '' }
+        state.function('vim.fn.strchars')   { |s, _skip| s.to_s.length }
+        state.function('vim.fn.strdisplaywidth') { |s, _col| s.to_s.length }
       end
 
       # vim.fn.getcompletion(pat, type) — return matches for the given
