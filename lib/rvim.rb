@@ -11,6 +11,11 @@ Encoding.default_internal = Encoding::UTF_8
 require 'reline'
 
 module Rvim
+  # Absolute path to the bundled runtime/ directory. NeoVim ships
+  # one of these at $VIMRUNTIME and many plugins (lazy.nvim, anything
+  # touching filetype detection or colorschemes) read from it. We
+  # ship a minimal version next to lib/.
+  RUNTIME_PATH = File.expand_path('../runtime', __dir__).freeze
 end
 
 require_relative 'rvim/version'

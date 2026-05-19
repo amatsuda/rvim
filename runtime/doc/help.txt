@@ -1,0 +1,7 @@
+*help.txt*  rvim help — placeholder
+
+rvim is a NeoVim-compatible editor written in pure Ruby. This file
+exists so that `:help` (and `&helpfile`, which defaults to
+$VIMRUNTIME/doc/help.txt) resolves to a real path.
+
+For real help, see the README at https://github.com/amatsuda/rvim.

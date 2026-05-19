@@ -6975,6 +6975,21 @@ module Rvim
       editor.settings.set(:runtimepath, rtp.join(',')) if changed
     end
 
+    # NeoVim's $VIMRUNTIME is the bundled runtime directory. Plugins
+    # source `$VIMRUNTIME/filetype.lua` at startup and expect it to
+    # exist on disk. We ship one at Rvim::RUNTIME_PATH and point
+    # VIMRUNTIME at it, then prepend it to runtimepath so
+    # nvim_get_runtime_file('filetype.lua') / colorschemes / syntax
+    # files are discoverable.
+    def self.ensure_bundled_runtime(editor)
+      ENV['VIMRUNTIME'] ||= Rvim::RUNTIME_PATH
+      rtp = editor.settings.get(:runtimepath).to_s.split(',')
+      return if rtp.include?(Rvim::RUNTIME_PATH)
+
+      rtp.unshift(Rvim::RUNTIME_PATH)
+      editor.settings.set(:runtimepath, rtp.join(','))
+    end
+
     def self.start(*filepaths, norc: false)
       editor = new(Reline.core.config)
       filepaths = filepaths.flatten.compact
@@ -6982,6 +6997,7 @@ module Rvim
       # Source the user's config BEFORE opening files, matching vim/nvim:
       # settings, autocmds, and feature flags (e.g. :lsp_enabled) need to
       # be in effect by the time BufRead fires for the first buffer.
+      ensure_bundled_runtime(editor) unless norc
       ensure_user_runtimepath(editor) unless norc
       unless norc
         [File.expand_path(RVIMRC_PATH), init_vim_path, init_lua_path].each do |rc|
