@@ -113,7 +113,7 @@ module Rvim
       matchpairs: '(:),{:},[:]',
       formatoptions: 'tcq',
       comments: 's1:/*,mb:*,ex:*/,://,b:#,:%,:XCOMM,n:>,fb:-',
-      commentstring: '/*%s*/',
+      commentstring: '# %s',
       path: '.,,',
       winminheight: 1,
       winheight: 1,

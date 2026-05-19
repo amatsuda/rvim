@@ -58,6 +58,105 @@ module Rvim
       editor.config.editing_mode = :vi_insert
     end
 
+    # Toggle line-comments across the selection, NeoVim 0.10-style.
+    #
+    # Reads &commentstring (default "# %s"), splits on %s for prefix
+    # and suffix. Direction is decided over the whole range: if every
+    # non-blank line is already commented, uncomment all; otherwise
+    # comment all. Indent is preserved.
+    def toggle_comment(editor, sel)
+      buffer = editor.buffer_of_lines
+      cms = editor.settings.get(:commentstring).to_s
+      cms = '# %s' if cms.empty? || !cms.include?('%s')
+      prefix, suffix = cms.split('%s', 2)
+      prefix = prefix.to_s
+      suffix = suffix.to_s
+
+      start_line, end_line = comment_line_range(sel, buffer)
+      return if start_line.nil?
+
+      lines = buffer[start_line..end_line] || []
+      indices = (start_line..end_line).to_a
+
+      # Find common indent of non-blank lines — used both as the
+      # insertion point for the prefix and the lookup point when
+      # detecting "already commented".
+      common_indent = common_leading_indent(lines)
+
+      # Direction: uncomment when *every* non-blank line matches.
+      non_blank = lines.each_with_index.reject { |l, _| l.to_s.strip.empty? }
+      all_commented = !non_blank.empty? && non_blank.all? { |l, _| commented?(l, common_indent, prefix, suffix) }
+
+      indices.each_with_index do |buf_idx, i|
+        line = lines[i].to_s
+        next if line.strip.empty? && !all_commented
+
+        buffer[buf_idx] = if all_commented
+                            uncomment_line(line, common_indent, prefix, suffix, editor.encoding)
+                          else
+                            comment_line(line, common_indent, prefix, suffix, editor.encoding)
+                          end
+      end
+
+      editor.move_cursor_to(start_line, 0)
+    end
+
+    def comment_line_range(sel, buffer)
+      case sel.mode
+      when :line, :char, :block
+        [sel.start_line.clamp(0, [buffer.size - 1, 0].max),
+         sel.end_line.clamp(0, [buffer.size - 1, 0].max)]
+      end
+    end
+
+    def common_leading_indent(lines)
+      indents = lines.reject { |l| l.to_s.strip.empty? }.map { |l| l.to_s[/\A[ \t]*/].length }
+      indents.min || 0
+    end
+
+    def commented?(line, indent, prefix, suffix)
+      body = line.to_s[indent..] || ''
+      return false unless body.start_with?(prefix.rstrip) || body.start_with?(prefix)
+
+      # Match the prefix loosely (with or without its trailing space),
+      # so `#foo` and `# foo` both count as commented under `# %s`.
+      stripped_prefix = prefix.rstrip
+      head = body.start_with?(prefix) ? prefix : stripped_prefix
+      remainder = body[head.length..]
+      return true if suffix.empty?
+
+      remainder.to_s.rstrip.end_with?(suffix.rstrip)
+    end
+
+    def comment_line(line, indent, prefix, suffix, encoding)
+      str = line.to_s
+      head = str[0, indent].to_s
+      tail = str[indent..].to_s
+      out = head + prefix + tail
+      out = out + suffix unless suffix.empty?
+      String.new(out, encoding: encoding)
+    end
+
+    def uncomment_line(line, indent, prefix, suffix, encoding)
+      str = line.to_s
+      head = str[0, indent].to_s
+      body = str[indent..].to_s
+      stripped_prefix = prefix.rstrip
+      body = if body.start_with?(prefix)
+               body[prefix.length..]
+             elsif body.start_with?(stripped_prefix)
+               body[stripped_prefix.length..]
+             else
+               body
+             end
+      unless suffix.empty?
+        stripped_suffix = suffix.rstrip
+        tail_re = /(?<lead>\s*)(?:#{Regexp.escape(suffix)}|#{Regexp.escape(stripped_suffix)})\z/
+        body = body.sub(tail_re, '')
+      end
+      String.new(head + body, encoding: encoding)
+    end
+
     def delete_lines(editor, sel)
       buffer = editor.buffer_of_lines
       buffer.slice!(sel.start_line, sel.end_line - sel.start_line + 1)

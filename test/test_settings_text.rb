@@ -210,7 +210,10 @@ class TestCommentstringStorage < Test::Unit::TestCase
   end
 
   def test_default_block
-    assert_equal '/*%s*/', @editor.settings.get(:commentstring)
+    # Switched from "/*%s*/" to "# %s" so the built-in gc/gcc
+    # operators have a reasonable default before any filetype
+    # plugin overrides it.
+    assert_equal '# %s', @editor.settings.get(:commentstring)
   end
 
   def test_cms_alias

@@ -40,6 +40,7 @@ module Rvim
       @last_visual = nil
       @rvim_text_object_pending = nil
       @rvim_visual_textobj_pending = nil
+      @rvim_visual_g_pending = false
       @search_pattern = nil
       @search_direction = :forward
       @search_matches = []
@@ -4916,6 +4917,9 @@ module Rvim
         Rvim::Operations.change(self, sel)
       when :vi_yank_confirm
         Rvim::Operations.yank(self, sel)
+      when :vi_comment_confirm
+        Rvim::Operations.toggle_comment(self, sel)
+        @modified = true
       end
     end
 
@@ -4964,7 +4968,23 @@ module Rvim
         return true
       end
 
+      if @rvim_visual_g_pending
+        @rvim_visual_g_pending = false
+        if ch == 'c'
+          sel = selection
+          if sel
+            Rvim::Operations.toggle_comment(self, sel)
+            @modified = true
+          end
+          exit_visual
+        end
+        return true
+      end
+
       case ch
+      when 'g'
+        @rvim_visual_g_pending = true
+        return true
       when ':'
         exit_visual
         @prompt_mode = :ex
@@ -5936,6 +5956,10 @@ module Rvim
           display_line_motion(:up)
         when 'q', 'q'.ord
           start_format_op
+        when 'c', 'c'.ord
+          # gc<motion> toggles comments over the motion's range; gcc
+          # is the linewise shortcut (handled via pending_op_doubled_key?).
+          enter_pending_op(:comment, saved_arg)
         end
       end
     end
@@ -6394,6 +6418,7 @@ module Rvim
                                when :delete then :vi_delete_meta_confirm
                                when :change then :vi_change_meta_confirm
                                when :yank then :vi_yank_confirm
+                               when :comment then :vi_comment_confirm
                                end
         @rvim_text_object_pending = ch_str == 'a' ? :around : :inner
         @rvim_pending_op = nil
@@ -6434,6 +6459,7 @@ module Rvim
       when :delete then ch_str == 'd'
       when :change then ch_str == 'c'
       when :yank then ch_str == 'y'
+      when :comment then ch_str == 'c'
       else false
       end
     end
@@ -6491,6 +6517,9 @@ module Rvim
         @modified = true
       when :yank
         Rvim::Operations.yank(self, sel)
+      when :comment
+        Rvim::Operations.toggle_comment(self, sel)
+        @modified = true
       end
     end
 
