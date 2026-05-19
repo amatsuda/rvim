@@ -192,6 +192,15 @@ module Rvim
             vim.defer_fn(fn, 0)
           end
 
+          function vim.schedule_wrap(fn)
+            return function(...)
+              local args = {...}
+              local n = select("#", ...)
+              local _unpack = table.unpack or unpack
+              vim.schedule(function() fn(_unpack(args, 1, n)) end)
+            end
+          end
+
           -- vim.uv.new_fs_event() — handle:start(path, opts, cb), :stop(), :close()
           local function make_fs_event()
             local self = { _id = nil }

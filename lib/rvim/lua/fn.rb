@@ -58,6 +58,38 @@ module Rvim
         state.function('vim.fn.reltimefloat') { |t| reltime_to_float(t) }
         state.function('vim.fn.localtime')    { Time.now.to_i }
         state.function('vim.fn.strftime')     { |fmt, time| Time.at((time || Time.now.to_i).to_i).strftime(fmt.to_s) }
+        state.function('vim.fn.getcompletion'){ |pat, type, _filt| getcompletion(editor, pat.to_s, type.to_s) }
+      end
+
+      # vim.fn.getcompletion(pat, type) — return matches for the given
+      # completion type. Plugins probe a small handful: "color",
+      # "command", "filetype", "buffer", "function". Anything we
+      # don't recognize returns []; the caller's job is to fall
+      # through to the no-match path.
+      def getcompletion(editor, pat, type)
+        case type
+        when 'color'
+          rtp_glob(editor, 'colors/*.vim') + rtp_glob(editor, 'colors/*.lua')
+        when 'command'
+          editor.user_commands.keys.select { |n| n.start_with?(pat) }
+        when 'filetype'
+          rtp_glob(editor, 'ftplugin/*.vim').map { |p| File.basename(p, '.vim') }.uniq
+        when 'buffer'
+          (editor.buffers&.values || []).map { |b| b.filepath.to_s }.reject(&:empty?)
+        when 'function'
+          # We can't introspect Lua-defined functions; return [] so
+          # callers fall through.
+          []
+        else
+          []
+        end
+      end
+
+      def rtp_glob(editor, pat)
+        editor.settings.get(:runtimepath).to_s.split(',').flat_map do |dir|
+          dir = File.expand_path(dir.strip)
+          Dir.glob(File.join(dir, pat)).map { |p| File.basename(p).sub(/\.(vim|lua)\z/, '') }
+        end.uniq
       end
 
       def mkdir(path, flags, mode)
@@ -142,16 +174,43 @@ module Rvim
         result
       end
 
+      # The version of NeoVim we present ourselves as. Lazy.nvim and
+      # many plugins gate features on has("nvim-X.Y.Z"); claiming 0.10
+      # unlocks the modern plugin path (autocmds API, vim.system,
+      # vim.loop→vim.uv, vim.loader) without forcing us to also
+      # implement every 0.11+ surface.
+      CLAIMED_NVIM_VERSION = [0, 10, 0].freeze
+
       def has?(feat)
+        # nvim-X[.Y[.Z]] version gate.
+        if (m = feat.match(/\Anvim-(\d+)(?:\.(\d+))?(?:\.(\d+))?\z/))
+          asked = [m[1].to_i, m[2].to_i, m[3].to_i]
+          return version_at_least?(CLAIMED_NVIM_VERSION, asked)
+        end
+
         case feat
-        when 'nvim' then false
+        when 'nvim' then true
         when 'mac', 'macunix' then RUBY_PLATFORM.include?('darwin')
         when 'unix' then !RUBY_PLATFORM.include?('mswin')
         when 'win32', 'win64' then RUBY_PLATFORM.include?('mswin')
         when 'linux' then RUBY_PLATFORM.include?('linux')
         when 'lua' then true
+        # ffi exists as a stub but real cdef calls would fail; plugins
+        # that *only* check presence pass, plugins that exercise C
+        # bindings fall through to their fallback path.
+        when 'ffi' then true
+        when 'jit' then true
+        when 'vim_starting' then false
         else false
         end
+      end
+
+      def version_at_least?(have, want)
+        [0, 1, 2].each do |i|
+          return true  if have[i] > want[i]
+          return false if have[i] < want[i]
+        end
+        true
       end
 
       def exists?(editor, name)

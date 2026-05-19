@@ -116,4 +116,62 @@ class TestLuaLazyShims < Test::Unit::TestCase
     b = @editor.lua.eval('return vim.fn.tempname()')
     refute_equal a, b
   end
+
+  def test_jit_table_present
+    # rufus-lua ships LuaJIT here, but in case it doesn't, our shim
+    # provides jit.version. Either way the probe lazy.nvim makes
+    # (`jit and jit.version`) succeeds.
+    refute_nil @editor.lua.eval('return jit and jit.version'),
+               'expected jit.version to be set'
+  end
+
+  def test_ffi_available_via_pcall_require
+    ok = @editor.lua.eval(<<~LUA)
+      local r, mod = pcall(require, "ffi")
+      return (r and type(mod) == "table") and "ok" or "fail"
+    LUA
+    assert_equal 'ok', ok
+  end
+
+  def test_vim_cmd_dotted_form
+    seen = []
+    @editor.define_singleton_method(:open) { |path| seen << path }
+    @editor.lua.eval('vim.cmd.edit("/tmp/dotted")')
+    assert_equal ['/tmp/dotted'], seen
+  end
+
+  def test_vim_cmd_call_form_still_works
+    seen = []
+    @editor.define_singleton_method(:open) { |path| seen << path }
+    @editor.lua.eval('vim.cmd("edit /tmp/calling")')
+    assert_equal ['/tmp/calling'], seen
+  end
+
+  def test_vim_cmd_structured_form
+    seen = []
+    @editor.define_singleton_method(:open) { |path| seen << path }
+    @editor.lua.eval('vim.cmd({ cmd = "edit", args = { "/tmp/struct" } })')
+    assert_equal ['/tmp/struct'], seen
+  end
+
+  def test_vim_schedule_wrap_defers_to_main_thread
+    @editor.lua.eval(<<~LUA)
+      hit = 0
+      cb = vim.schedule_wrap(function(v) hit = v end)
+      cb(42)
+    LUA
+    # Before pump, the wrapped callback hasn't fired.
+    assert_equal 0, @editor.lua.eval('return hit').to_i
+    @editor.pump_lua_loop
+    assert_equal 42, @editor.lua.eval('return hit').to_i
+  end
+
+  def test_fn_getcompletion_color_finds_bundled
+    Rvim::Editor.ensure_bundled_runtime(@editor)
+    list = @editor.lua.eval(<<~LUA)
+      local r = vim.fn.getcompletion("", "color")
+      return table.concat(r, ",")
+    LUA
+    assert_includes list.split(','), 'default'
+  end
 end

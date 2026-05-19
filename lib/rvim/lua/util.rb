@@ -8,6 +8,66 @@ module Rvim
     module Util
       module_function
 
+      # Plugins (lazy.nvim is the obvious case) hard-check `jit and
+      # jit.version` and `pcall(require, "ffi")` as a "are we on
+      # LuaJIT?" probe. Real NeoVim ships LuaJIT; rvim's rufus-lua
+      # binding is standard Lua 5.x. We present the probe-surface so
+      # version gates pass; plugins that actually call ffi.cdef et al
+      # fail at use-time, which is the right place to fail (their
+      # capability check would have returned true anyway on stock
+      # rvim without us doing this).
+      JIT_FFI_SHIM = <<~LUA.freeze
+        if jit == nil then
+          jit = {
+            version    = "LuaJIT 2.1.0 (rvim shim)",
+            version_num = 20100,
+            os         = (function()
+              local uv = vim.uv or vim.loop
+              if uv and uv.os_uname then
+                local u = uv.os_uname()
+                return u and u.sysname or "Unknown"
+              end
+              return "Unknown"
+            end)(),
+            arch       = "x64",
+            status     = function() return false end,
+            on         = function() end,
+            off        = function() end,
+            flush      = function() end,
+            opt        = setmetatable({}, { __index = function() return function() end end }),
+          }
+        end
+
+        if package.preload["ffi"] == nil and package.loaded["ffi"] == nil then
+          package.preload["ffi"] = function()
+            local ffi = {
+              os   = jit.os,
+              arch = jit.arch,
+              C    = setmetatable({}, {
+                __index = function(_, name)
+                  error("ffi.C." .. tostring(name) .. " unavailable in rvim (no LuaJIT)", 2)
+                end,
+              }),
+            }
+            local function nope(name)
+              return function() error("ffi." .. name .. " unavailable in rvim (no LuaJIT)", 2) end
+            end
+            ffi.cdef    = nope("cdef")
+            ffi.load    = nope("load")
+            ffi.new     = nope("new")
+            ffi.cast    = nope("cast")
+            ffi.string  = nope("string")
+            ffi.sizeof  = nope("sizeof")
+            ffi.typeof  = nope("typeof")
+            ffi.gc      = function(p) return p end
+            ffi.copy    = nope("copy")
+            ffi.fill    = nope("fill")
+            ffi.errno   = function() return 0 end
+            return ffi
+          end
+        end
+      LUA
+
       LUA_HELPERS = <<~LUA.freeze
         function vim.tbl_isempty(t)
           if type(t) ~= "table" then return true end
@@ -202,7 +262,8 @@ module Rvim
           return { n = select("#", ...), ... }
         end
         function vim.F.unpack_len(t)
-          return table.unpack(t, 1, t.n)
+          local _unpack = table.unpack or unpack
+          return _unpack(t, 1, t.n)
         end
         function vim.F.if_nil(v, default) if v == nil then return default else return v end end
 
@@ -235,6 +296,7 @@ module Rvim
 
       def install(state, _editor, _runtime)
         state.eval(LUA_HELPERS)
+        state.eval(JIT_FFI_SHIM)
       end
     end
   end
