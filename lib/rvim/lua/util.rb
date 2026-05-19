@@ -65,6 +65,17 @@ module Rvim
           return out
         end
 
+        function vim.tbl_get(t, ...)
+          local cur = t
+          local keys = {...}
+          for i = 1, #keys do
+            if type(cur) ~= "table" then return nil end
+            cur = cur[keys[i]]
+            if cur == nil then return nil end
+          end
+          return cur
+        end
+
         function vim.tbl_extend(behavior, ...)
           local out = {}
           local args = {...}
@@ -167,6 +178,58 @@ module Rvim
             args[i] = vim.inspect(args[i])
           end
           vim.notify(table.concat(args, "\\t"))
+        end
+
+        -- vim.health — :checkhealth dispatch surface. Plugins capture
+        -- vim.health.start/ok/warn/error/info at module-load time and
+        -- call them later when the user runs :checkhealth. We're not
+        -- wiring up :checkhealth yet, so these stay as no-ops.
+        vim.health = vim.health or {}
+        vim.health.start = vim.health.start or function(_) end
+        vim.health.ok    = vim.health.ok    or function(_) end
+        vim.health.warn  = vim.health.warn  or function(_, _) end
+        vim.health.error = vim.health.error or function(_, _) end
+        vim.health.info  = vim.health.info  or function(_) end
+        vim.health.report_start = vim.health.start
+        vim.health.report_ok    = vim.health.ok
+        vim.health.report_warn  = vim.health.warn
+        vim.health.report_error = vim.health.error
+        vim.health.report_info  = vim.health.info
+
+        -- vim.F — function helpers; lazy uses vim.F.pack_len/unpack_len.
+        vim.F = vim.F or {}
+        function vim.F.pack_len(...)
+          return { n = select("#", ...), ... }
+        end
+        function vim.F.unpack_len(t)
+          return table.unpack(t, 1, t.n)
+        end
+        function vim.F.if_nil(v, default) if v == nil then return default else return v end end
+
+        -- vim.in_fast_event — true while running inside a libuv fast
+        -- callback (where most vim.* calls are forbidden). rvim has
+        -- no real libuv loop, so we're never in one.
+        function vim.in_fast_event() return false end
+
+        -- vim.is_callable — type-check helper.
+        function vim.is_callable(f)
+          if type(f) == "function" then return true end
+          if type(f) == "table" then
+            local mt = getmetatable(f)
+            return mt ~= nil and type(mt.__call) == "function"
+          end
+          return false
+        end
+
+        -- vim.regex — compile a vim pattern. We don't translate vim
+        -- regex to Lua patterns; return a stub that match_str returns
+        -- nil. Plugins that depend on actual matching will need a
+        -- real impl later, but most just check for presence.
+        function vim.regex(_pattern)
+          return {
+            match_str = function(_, _) return nil end,
+            match_line = function(_, _, _) return nil end,
+          }
         end
       LUA
 

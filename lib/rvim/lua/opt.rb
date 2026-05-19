@@ -69,6 +69,29 @@ module Rvim
             return table.concat(parts, ",")
           end
 
+          -- List-style options whose :get() should yield string[].
+          -- vim.opt.rtp:get() returns paths; many plugins iterate it.
+          local LIST_OPTS = {
+            runtimepath = ",", rtp = ",",
+            packpath = ",",
+            path = ",",
+            tags = ",",
+            wildignore = ",",
+            backupdir = ",",
+            directory = ",",
+            undodir = ",",
+            cdpath = ",",
+          }
+
+          local function split_csv(s, sep)
+            local out = {}
+            if s == nil or s == "" then return out end
+            for v in string.gmatch(s, "([^" .. sep .. "]+)") do
+              table.insert(out, v)
+            end
+            return out
+          end
+
           local function make_opt(setter, getter)
             return setmetatable({}, {
               __index = function(_, name)
@@ -77,7 +100,14 @@ module Rvim
                 return setmetatable(self, {
                   __index = function(_, key)
                     if key == "get" then
-                      return function() return refresh() end
+                      return function()
+                        local v = refresh()
+                        local sep = LIST_OPTS[name]
+                        if sep and type(v) == "string" then
+                          return split_csv(v, sep)
+                        end
+                        return v
+                      end
                     elseif key == "append" then
                       return function(_, v) setter(name, merge_csv(refresh(), v, "append")) end
                     elseif key == "prepend" then

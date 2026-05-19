@@ -156,6 +156,7 @@ module Rvim
           -- Runtimepath, exec, autocmd dispatch, global keymap.
           vim.api.nvim_get_runtime_file     = _rvim_api_get_runtime_file
           vim.api.nvim_list_runtime_paths   = _rvim_api_list_runtime_paths
+          vim.api.nvim_list_uis             = _rvim_api_list_uis
           vim.api.nvim_set_keymap           = _rvim_api_set_keymap
           vim.api.nvim_del_keymap           = _rvim_api_del_keymap
           vim.api.nvim_exec                 = _rvim_api_exec
@@ -310,6 +311,19 @@ module Rvim
       def self.install_runtime_api(state, editor)
         state.function '_rvim_api_list_runtime_paths' do
           runtime_paths(editor)
+        end
+
+        state.function '_rvim_api_list_uis' do
+          # Plugins use #vim.api.nvim_list_uis() == 0 to detect
+          # headless / batch mode. We're a TTY UI, so return one.
+          rows, cols = begin
+            Reline::IOGate.get_screen_size
+          rescue StandardError
+            [24, 80]
+          end
+          [{ 'width' => cols, 'height' => rows, 'rgb' => true,
+             'chan' => 1, 'ext_cmdline' => false, 'ext_popupmenu' => false,
+             'ext_tabline' => false, 'ext_wildmenu' => false }]
         end
 
         state.function '_rvim_api_get_runtime_file' do |name, all|

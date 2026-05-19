@@ -92,8 +92,12 @@ module Rvim
         end
         state.function('_rvim_loop_timer_stop')  { |id| scheduler.stop(id.to_i) }
         state.function('_rvim_loop_timer_close') { |id| scheduler.close(id.to_i) }
-        state.function('_rvim_loop_now')         { (Process.clock_gettime(Process::CLOCK_MONOTONIC) * 1000).to_i }
-        state.function('_rvim_loop_hrtime')      { (Process.clock_gettime(Process::CLOCK_MONOTONIC) * 1_000_000_000).to_i }
+        # Return as Float — Lua numbers are 64-bit doubles, but
+        # rufus-lua converts Ruby Integers via a C int and overflows
+        # past ~2³¹ (`integer too big to convert to 'int'`). Doubles
+        # round-trip cleanly out to 2⁵³ which covers ~104 days of ns.
+        state.function('_rvim_loop_now')         { Process.clock_gettime(Process::CLOCK_MONOTONIC) * 1000.0 }
+        state.function('_rvim_loop_hrtime')      { Process.clock_gettime(Process::CLOCK_MONOTONIC) * 1_000_000_000.0 }
 
         # fs_event handle API.
         state.function '_rvim_fs_event_start' do |path, opts, cb|
@@ -142,6 +146,37 @@ module Rvim
           vim.loop.new_timer = make_timer
           vim.loop.now    = _rvim_loop_now
           vim.loop.hrtime = _rvim_loop_hrtime
+
+          -- libuv check / idle / prepare handles: phases of the event
+          -- loop. We don't model phases distinctly — each becomes a
+          -- 0-delay repeating timer that fires once per pump tick.
+          -- lazy.nvim uses new_check to drain its async coroutine
+          -- queue every iteration; a timer-as-check is functionally
+          -- equivalent for our purposes.
+          local function make_phase_handle()
+            local self = { _id = nil, _cb = nil, _stopped = false }
+            function self:start(cb)
+              self._cb = cb
+              self._stopped = false
+              -- repeat every 0ms => fires every pump_lua_loop tick
+              self._id = _rvim_loop_timer_start(0, 1, function()
+                if not self._stopped and self._cb then self._cb() end
+              end)
+            end
+            function self:stop()
+              self._stopped = true
+              if self._id then _rvim_loop_timer_stop(self._id) end
+            end
+            function self:close()
+              if self._id then _rvim_loop_timer_close(self._id); self._id = nil end
+            end
+            function self:is_active() return self._id ~= nil and not self._stopped end
+            return self
+          end
+
+          vim.loop.new_check   = make_phase_handle
+          vim.loop.new_idle    = make_phase_handle
+          vim.loop.new_prepare = make_phase_handle
 
           vim.uv = vim.loop  -- modern alias
 

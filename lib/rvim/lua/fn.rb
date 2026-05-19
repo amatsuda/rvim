@@ -1,5 +1,8 @@
 # frozen_string_literal: true
 
+require 'fileutils'
+require 'tmpdir'
+
 module Rvim
   module Lua
     # vim.fn — shims for vim's builtin functions. v3.6 ships a curated
@@ -41,6 +44,66 @@ module Rvim
         state.function('vim.fn.stdpath')      { |what| stdpath(what.to_s) }
         state.function('vim.fn.executable')   { |name| ENV['PATH'].to_s.split(':').any? { |d| File.executable?(File.join(d, name.to_s)) } ? 1 : 0 }
         state.function('vim.fn.exepath')      { |name| exepath(name.to_s) }
+        state.function('vim.fn.mkdir')        { |path, flags, mode| mkdir(path.to_s, flags.to_s, mode) }
+        state.function('vim.fn.delete')       { |path, flags| delete(path.to_s, flags.to_s) }
+        state.function('vim.fn.glob')         { |pat, _nosuf, list, _alllinks| glob(pat.to_s, list == 1 || list == true) }
+        state.function('vim.fn.globpath')     { |dirs, pat, _nosuf, list| globpath(dirs.to_s, pat.to_s, list == 1 || list == true) }
+        state.function('vim.fn.tempname')     { File.join(Dir.tmpdir, "rvim_#{Process.pid}_#{rand(1 << 30).to_s(36)}") }
+        state.function('vim.fn.simplify')     { |path| File.expand_path(path.to_s).gsub(%r{/+}, '/') }
+        state.function('vim.fn.resolve')      { |path| File.exist?(path.to_s) ? File.realpath(path.to_s) : path.to_s }
+        state.function('vim.fn.getfsize')     { |path| File.exist?(path.to_s) ? File.size(path.to_s) : -1 }
+        state.function('vim.fn.getftime')     { |path| File.exist?(path.to_s) ? File.mtime(path.to_s).to_i : -1 }
+        state.function('vim.fn.reltime')      { [Time.now.to_i, Time.now.usec] }
+        state.function('vim.fn.reltimestr')   { |t| format_reltime(t) }
+        state.function('vim.fn.reltimefloat') { |t| reltime_to_float(t) }
+        state.function('vim.fn.localtime')    { Time.now.to_i }
+        state.function('vim.fn.strftime')     { |fmt, time| Time.at((time || Time.now.to_i).to_i).strftime(fmt.to_s) }
+      end
+
+      def mkdir(path, flags, mode)
+        recursive = flags.include?('p')
+        if recursive
+          FileUtils.mkdir_p(path)
+        elsif !File.directory?(path)
+          Dir.mkdir(path)
+        end
+        mode_int = mode.respond_to?(:to_i) ? mode.to_i : nil
+        File.chmod(mode_int, path) if mode_int && mode_int.positive?
+        1
+      rescue StandardError
+        0
+      end
+
+      def delete(path, flags)
+        recursive = flags.include?('d') || flags.include?('rf')
+        if recursive && File.directory?(path)
+          FileUtils.rm_rf(path)
+        elsif File.exist?(path)
+          File.delete(path)
+        end
+        0
+      rescue StandardError
+        -1
+      end
+
+      def glob(pat, list)
+        results = Dir.glob(File.expand_path(pat))
+        list ? results : results.join("\n")
+      end
+
+      def globpath(dirs, pat, list)
+        results = dirs.split(',').flat_map { |d| Dir.glob(File.join(File.expand_path(d.strip), pat)) }
+        list ? results : results.join("\n")
+      end
+
+      def reltime_to_float(t)
+        arr = t.respond_to?(:to_h) ? t.to_h.values : Array(t)
+        arr[0].to_f + arr[1].to_f / 1_000_000.0
+      end
+
+      def format_reltime(t)
+        f = reltime_to_float(t)
+        format('%.6f', f)
       end
 
       def expand(editor, arg)
