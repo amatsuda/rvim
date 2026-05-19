@@ -69,6 +69,20 @@ module Rvim
       !@keymap.nil?
     end
 
+    # Extmarks: namespaced annotations attached to byte ranges of
+    # buffer lines. Stored as { ns_id => { mark_id => Hash } } where
+    # each mark Hash has line, col, end_row, end_col, hl_group,
+    # priority, plus any opts the caller passed. Mark ids are
+    # monotonic per buffer.
+    def extmarks
+      @extmarks ||= Hash.new { |h, ns| h[ns] = {} }
+    end
+
+    def next_extmark_id!
+      @next_extmark_id ||= 0
+      @next_extmark_id += 1
+    end
+
     def display_name
       @filepath || '[No Name]'
     end

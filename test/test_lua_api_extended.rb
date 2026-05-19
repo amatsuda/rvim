@@ -88,10 +88,9 @@ class TestLuaApiExtended < Test::Unit::TestCase
     assert_equal "\r", res
   end
 
-  def test_set_hl_remembers_name
+  def test_set_hl_registers_group_in_hl_groups
     @editor.lua.eval('vim.api.nvim_set_hl(0, "MyHL", { fg = "red" })')
-    refute_nil @editor.instance_variable_get(:@lua_highlights)
-    assert @editor.instance_variable_get(:@lua_highlights)['MyHL']
+    assert @editor.hl_groups.defined?('MyHL')
   end
 
   def test_list_wins_returns_array

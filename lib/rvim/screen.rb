@@ -301,6 +301,14 @@ module Rvim
           if line_tokens && !line_tokens.empty? && byte_off.zero?
             rendered = apply_semantic_tokens_overlay(rendered, line_tokens, buffer.lines[line_idx].to_s)
           end
+          # Extmarks: plugin-driven highlight spans. Sit between
+          # semantic-token coloring and doc-highlight/diagnostic
+          # overlays so plugin colors compose with both. Sorted by
+          # priority ascending (later spans cover earlier ones).
+          if byte_off.zero?
+            marks = extmarks_intersecting(buffer, line_idx)
+            rendered = apply_extmark_overlay(rendered, marks, buffer.lines[line_idx].to_s) unless marks.empty?
+          end
           line_dhl = lsp_dhl[line_idx]
           if line_dhl && !line_dhl.empty? && byte_off.zero?
             rendered = apply_document_highlight_overlay(rendered, line_dhl, buffer.lines[line_idx].to_s)
@@ -1359,6 +1367,98 @@ module Rvim
     # (not bytes); we convert via the original line's char-to-byte
     # offsets, then walk the rendered line SGR-aware (same approach as
     # apply_diagnostic_overlay).
+    # Collect every extmark across every namespace whose [line, ...]
+    # range covers `line_idx`. Single-line marks count when their
+    # `line == line_idx`; multi-line marks count when line_idx is
+    # within [line, end_row]. Returned as Array<{ start_byte:,
+    # end_byte:, hl_group:, priority: }>.
+    def extmarks_intersecting(buffer, line_idx)
+      hits = []
+      return hits unless buffer.instance_variable_get(:@extmarks)
+
+      buffer.extmarks.each_value do |marks|
+        marks.each_value do |m|
+          ml = m[:line] || 0
+          el = m[:end_row] || m[:line] || 0
+          next if line_idx < ml || line_idx > el
+          next if m[:hl_group].nil? || m[:hl_group].to_s.empty?
+
+          # Compute the byte range to span on THIS line.
+          start_byte = (line_idx == ml) ? m[:col].to_i : 0
+          end_byte = if line_idx == el
+                       m[:end_col] ? m[:end_col].to_i : (buffer.lines[line_idx] || '').bytesize
+                     else
+                       (buffer.lines[line_idx] || '').bytesize
+                     end
+          next if end_byte <= start_byte
+
+          hits << {
+            start_byte: start_byte,
+            end_byte: end_byte,
+            hl_group: m[:hl_group].to_s,
+            priority: (m[:priority] || 100).to_i,
+          }
+        end
+      end
+      hits.sort_by! { |h| h[:priority] }
+      hits
+    end
+
+    # Splice extmark SGR around each span. Like apply_diagnostic_overlay
+    # but the open/close pair comes from HighlightGroups; SGR-aware walk
+    # so embedded syntax-highlight escapes pass through intact.
+    def apply_extmark_overlay(rendered, marks, _raw_line)
+      return rendered if marks.empty?
+
+      # Resolve hl_group -> SGR open/close lazily; skip groups
+      # without a registered definition (no visible effect).
+      typed = marks.filter_map do |m|
+        pair = @editor.hl_groups.lookup(m[:hl_group])
+        next unless pair
+
+        [m[:start_byte], m[:end_byte], pair.open, pair.close, m[:priority]]
+      end.sort_by { |s, _e, _o, _c, p| [p, s] }
+      return rendered if typed.empty?
+
+      out = +''
+      pos = 0
+      orig = 0
+      idx = 0
+      active = nil # [end_byte, close_seq]
+      total = rendered.bytesize
+      while pos < total
+        if rendered.getbyte(pos) == 0x1b && (m = rendered.byteslice(pos..-1)&.match(DIAG_SGR_RE))
+          out << m[0]
+          pos += m[0].bytesize
+          next
+        end
+
+        if active && orig >= active[0]
+          out << active[1]
+          active = nil
+          idx += 1
+        end
+
+        if active.nil? && idx < typed.size && orig >= typed[idx][0]
+          active = [typed[idx][1], typed[idx][3]]
+          out << typed[idx][2]
+        end
+
+        cb = rendered.getbyte(pos)
+        char_bytes = if cb.nil? || cb < 0x80 then 1
+                     elsif cb < 0xc0 then 1
+                     elsif cb < 0xe0 then 2
+                     elsif cb < 0xf0 then 3
+                     else 4
+                     end
+        out << rendered.byteslice(pos, char_bytes)
+        pos += char_bytes
+        orig += char_bytes
+      end
+      out << active[1] if active
+      out
+    end
+
     def apply_document_highlight_overlay(rendered, highlights, raw_line)
       return rendered if highlights.nil? || highlights.empty?
 

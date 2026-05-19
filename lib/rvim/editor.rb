@@ -73,6 +73,9 @@ module Rvim
       @current_buffer = nil
       @windows = []
       @floating_windows = [] # detached, user-positioned floats
+      @namespaces = {} # name -> id  (vim.api.nvim_create_namespace)
+      @next_namespace_id = 0
+      @hl_groups = Rvim::HighlightGroups.new
       @current_window = nil
       @split_orientation = nil
       @tabs = []
@@ -668,6 +671,21 @@ module Rvim
         swap_to_buffer(@current_window.buffer) if @current_window
       end
       true
+    end
+
+    attr_reader :namespaces, :hl_groups
+
+    # Allocate (or look up by name) an extmark namespace. Returns
+    # the integer id. Matching NeoVim, empty / nil names get a
+    # fresh anonymous id each call.
+    def create_namespace(name = nil)
+      key = name.to_s
+      return @namespaces[key] if !key.empty? && @namespaces.key?(key)
+
+      @next_namespace_id += 1
+      id = @next_namespace_id
+      @namespaces[key] = id unless key.empty?
+      id
     end
 
     # Activate any window (tiled or float). Updates @current_window

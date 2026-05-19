@@ -131,6 +131,14 @@ module Rvim
           -- Buffer-local keymaps.
           vim.api.nvim_buf_set_keymap       = _rvim_api_buf_set_keymap
           vim.api.nvim_buf_del_keymap       = _rvim_api_buf_del_keymap
+
+          -- Extmarks + namespaces.
+          vim.api.nvim_create_namespace     = _rvim_api_create_namespace
+          vim.api.nvim_buf_set_extmark      = _rvim_api_buf_set_extmark
+          vim.api.nvim_buf_get_extmarks     = _rvim_api_buf_get_extmarks
+          vim.api.nvim_buf_del_extmark      = _rvim_api_buf_del_extmark
+          vim.api.nvim_buf_clear_namespace  = _rvim_api_buf_clear_namespace
+          vim.api.nvim_buf_add_highlight    = _rvim_api_buf_add_highlight
         LUA
       end
 
@@ -213,15 +221,100 @@ module Rvim
           Rvim::Keymap.expand(s.to_s, leader: editor.mapleader)
         end
 
-        state.function '_rvim_api_set_hl' do |_ns_id, name, _val|
-          # Highlight registry is mostly visual; for v1 stash the name so
-          # plugins probing for highlights see them as defined.
-          editor.instance_variable_get(:@lua_highlights) || editor.instance_variable_set(:@lua_highlights, {})
-          editor.instance_variable_get(:@lua_highlights)[name.to_s] = true
-        end
+        # The functional _rvim_api_set_hl lives in install_extmark_api
+        # below; without that real impl, plugin colors silently no-op'd.
 
         install_float_api(state, editor)
         install_keymap_api(state, editor)
+        install_extmark_api(state, editor)
+      end
+
+      def self.install_extmark_api(state, editor)
+        state.function('_rvim_api_create_namespace') { |name| editor.create_namespace(name.to_s) }
+
+        # nvim_set_hl(ns_id, name, val) — ns_id is ignored for now
+        # (one global registry). val is a table of fg/bg/bold/etc.
+        state.function '_rvim_api_set_hl' do |_ns_id, name, val|
+          spec = val.respond_to?(:to_h) ? val.to_h : {}
+          editor.hl_groups.define(name.to_s, spec)
+        end
+
+        # nvim_buf_set_extmark(bufnr, ns_id, line, col, opts) -> id
+        state.function '_rvim_api_buf_set_extmark' do |bufnr, ns_id, line, col, opts|
+          buf = resolve_buffer(editor, bufnr)
+          next 0 unless buf
+
+          opts_h = opts.respond_to?(:to_h) ? opts.to_h : {}
+          # If the caller passed an explicit id (re-positioning an
+          # existing mark), reuse it; else allocate a fresh id.
+          mark_id = opts_h['id']&.to_i
+          mark_id = buf.next_extmark_id! if mark_id.nil? || mark_id <= 0
+          buf.extmarks[ns_id.to_i][mark_id] = {
+            line: line.to_i,
+            col: col.to_i,
+            end_row: opts_h['end_row']&.to_i,
+            end_col: opts_h['end_col']&.to_i,
+            hl_group: opts_h['hl_group']&.to_s,
+            priority: (opts_h['priority'] || 100).to_i,
+          }
+          mark_id
+        end
+
+        # nvim_buf_get_extmarks(bufnr, ns_id, start, end_, opts) -> [[id, line, col], ...]
+        state.function '_rvim_api_buf_get_extmarks' do |bufnr, ns_id, _start, _end_, _opts|
+          buf = resolve_buffer(editor, bufnr)
+          next [] unless buf
+
+          (buf.extmarks[ns_id.to_i] || {}).map { |mid, m| [mid, m[:line], m[:col]] }
+        end
+
+        # nvim_buf_del_extmark(bufnr, ns_id, id) -> bool
+        state.function '_rvim_api_buf_del_extmark' do |bufnr, ns_id, id|
+          buf = resolve_buffer(editor, bufnr)
+          next false unless buf
+
+          !(buf.extmarks[ns_id.to_i] || {}).delete(id.to_i).nil?
+        end
+
+        # nvim_buf_clear_namespace(bufnr, ns_id, start, end_)
+        state.function '_rvim_api_buf_clear_namespace' do |bufnr, ns_id, line_start, line_end|
+          buf = resolve_buffer(editor, bufnr)
+          next unless buf
+
+          ns = ns_id.to_i
+          ls = line_start.to_i
+          le = line_end.to_i
+          marks = buf.extmarks[ns] || {}
+          if ls <= 0 && le == -1
+            marks.clear
+          else
+            marks.delete_if { |_, m| (m[:line] || 0).between?(ls, le == -1 ? (1 << 30) : le) }
+          end
+        end
+
+        # nvim_buf_add_highlight(bufnr, ns_id, hl_group, line, col_start, col_end) -> int
+        # Sugar over set_extmark — the legacy NeoVim signature most
+        # older plugins still call.
+        state.function '_rvim_api_buf_add_highlight' do |bufnr, ns_id, hl_group, line, col_start, col_end|
+          buf = resolve_buffer(editor, bufnr)
+          next 0 unless buf
+
+          ns = ns_id.to_i
+          ns = editor.create_namespace('') if ns.zero?
+          mark_id = buf.next_extmark_id!
+          line_text = buf.lines[line.to_i] || ''
+          ec = col_end.to_i
+          ec = line_text.bytesize if ec < 0
+          buf.extmarks[ns][mark_id] = {
+            line: line.to_i,
+            col: col_start.to_i,
+            end_row: line.to_i,
+            end_col: ec,
+            hl_group: hl_group.to_s,
+            priority: 100,
+          }
+          mark_id
+        end
       end
 
       def self.install_keymap_api(state, editor)
