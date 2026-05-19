@@ -26,7 +26,8 @@ module Rvim
         state.function('vim.fn.fnamemodify')  { |path, mods| fnamemodify(path.to_s, mods.to_s) }
         state.function('vim.fn.filereadable') { |path| File.file?(File.expand_path(path.to_s)) ? 1 : 0 }
         state.function('vim.fn.isdirectory')  { |path| File.directory?(File.expand_path(path.to_s)) ? 1 : 0 }
-        state.function('vim.fn.system')       { |cmd| Rvim::Filter.run(cmd.to_s).stdout }
+        state.function('vim.fn.system')       { |cmd, input| run_system(editor, cmd, input) }
+        state.function('vim.fn.systemlist')   { |cmd, input| run_system(editor, cmd, input).split("\n") }
         state.function('vim.fn.shellescape')  { |s| shellescape(s.to_s) }
         state.function('vim.fn.getenv')       { |name| ENV[name.to_s] }
         state.function('vim.fn.setenv')       { |name, val| ENV[name.to_s] = val.to_s }
@@ -90,6 +91,44 @@ module Rvim
           dir = File.expand_path(dir.strip)
           Dir.glob(File.join(dir, pat)).map { |p| File.basename(p).sub(/\.(vim|lua)\z/, '') }
         end.uniq
+      end
+
+      # vim.fn.system(cmd[, input])
+      #   cmd can be a string (run via shell) OR a list (argv form, no
+      #   shell). NeoVim distinguishes: lazy.nvim's bootstrap uses the
+      #   list form to git-clone safely. We mirror that and set
+      #   v:shell_error to the exit status.
+      def run_system(editor, cmd, input)
+        argv = lua_to_argv(cmd)
+        in_str = input.respond_to?(:to_s) ? input.to_s : ''
+        out, err, status = if argv.is_a?(Array)
+                             require 'open3'
+                             Open3.capture3(*argv, stdin_data: in_str)
+                           else
+                             require 'open3'
+                             Open3.capture3('/bin/sh', '-c', argv.to_s, stdin_data: in_str)
+                           end
+        v = editor.instance_variable_get(:@lua_v_vars)
+        v['shell_error'] = status.exitstatus if v
+        out + err
+      rescue StandardError => e
+        v = editor.instance_variable_get(:@lua_v_vars)
+        v['shell_error'] = 1 if v
+        e.message.to_s
+      end
+
+      def lua_to_argv(cmd)
+        if cmd.respond_to?(:to_h)
+          # rufus-lua hands back Lua tables with Float keys (1.0, 2.0).
+          h = cmd.to_h
+          return '' if h.empty?
+
+          (1..h.size).map { |i| (h[i] || h[i.to_f]).to_s }
+        elsif cmd.is_a?(Array)
+          cmd
+        else
+          cmd.to_s
+        end
       end
 
       def mkdir(path, flags, mode)

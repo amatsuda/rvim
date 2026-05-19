@@ -12,8 +12,10 @@ module Rvim
 
       def install(state, editor, _runtime)
         # vim.v — vim "v:" predefined vars. Plugins read v:progpath /
-        # v:argv / v:version; rare to write. We expose a fixed set.
-        v_vars = {
+        # v:argv / v:version; rare to write. We expose a fixed set,
+        # stashed on the editor so other modules (e.g. vim.fn.system
+        # setting v:shell_error) can mutate it.
+        editor.instance_variable_set(:@lua_v_vars, {
           'progpath' => $PROGRAM_NAME,
           'argv'     => ARGV.dup,
           'version'  => 802,
@@ -24,7 +26,8 @@ module Rvim
           'null'     => nil,
           't_number' => 0, 't_string' => 1, 't_func' => 2, 't_list' => 3,
           't_dict'   => 4, 't_float'  => 5, 't_bool' => 6, 't_none' => 7,
-        }
+        }) unless editor.instance_variable_defined?(:@lua_v_vars)
+        v_vars = editor.instance_variable_get(:@lua_v_vars)
         state.function '_rvim_v_set'  do |name, value| v_vars[name.to_s] = value end
         state.function '_rvim_v_get'  do |name| v_vars[name.to_s] end
 

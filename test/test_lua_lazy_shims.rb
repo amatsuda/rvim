@@ -174,4 +174,26 @@ class TestLuaLazyShims < Test::Unit::TestCase
     LUA
     assert_includes list.split(','), 'default'
   end
+
+  def test_fn_system_argv_list_form
+    # lazy.nvim's bootstrap calls vim.fn.system({...}) with a list to
+    # avoid shell quoting. Both forms must work.
+    out = @editor.lua.eval('return vim.fn.system({"echo", "hello world"})')
+    assert_equal "hello world\n", out
+  end
+
+  def test_fn_system_sets_v_shell_error_on_success
+    @editor.lua.eval('vim.fn.system({"true"})')
+    assert_equal 0, @editor.lua.eval('return vim.v.shell_error').to_i
+  end
+
+  def test_fn_system_sets_v_shell_error_on_failure
+    @editor.lua.eval('vim.fn.system({"false"})')
+    assert_equal 1, @editor.lua.eval('return vim.v.shell_error').to_i
+  end
+
+  def test_fn_system_string_form_still_works
+    out = @editor.lua.eval(%(return vim.fn.system("echo hi")))
+    assert_match(/hi/, out.to_s)
+  end
 end
