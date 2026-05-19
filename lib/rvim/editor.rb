@@ -107,6 +107,7 @@ module Rvim
       @last_code_lenses = nil
       @async_commands = [] # [{job: AsyncCommand, buffer: Buffer, label: String}]
       @lsp_watch_buffers = [] # [{buffer:, last_index: Integer}]
+      @jobs = Rvim::JobRegistry.new(self)
       @last_code_actions = nil
       @cmdline_popup = nil
       @cmdline_completion_context = nil
@@ -1861,6 +1862,15 @@ module Rvim
 
     # Render-loop hook. Drains each active async command's queue into
     # its target buffer; finalizes (and removes) jobs that have exited.
+    # Render-loop hook for the Lua jobstart family. Drains every
+    # registered Rvim::Job's output queue and dispatches on_stdout /
+    # on_stderr / on_exit callbacks on the MAIN thread.
+    def pump_jobs
+      @jobs.drain_all
+    end
+
+    attr_reader :jobs
+
     def pump_async_commands
       return if @async_commands.empty?
 
@@ -3919,6 +3929,14 @@ module Rvim
     def quit!(exit_code: 0)
       @quit = true
       @exit_code = exit_code
+    end
+
+    # Reline declares finalize as a no-op; rvim uses it for our own
+    # teardown: send SIGTERM to any Lua-spawned jobs still running so
+    # the editor doesn't leak processes when the user :q's mid-build.
+    def finalize
+      @jobs.shutdown if @jobs
+      super if defined?(super)
     end
 
     # Ctrl-C in vim is a cancel, not a quit. Clear whatever input
@@ -6883,6 +6901,10 @@ module Rvim
             # test runs). Runs regardless of lsp_enabled so non-LSP
             # async jobs work too.
             editor.pump_async_commands
+            # Drain Lua-managed jobs (vim.fn.jobstart family). Fires
+            # on_stdout / on_stderr / on_exit callbacks on the main
+            # thread, where buffer / state mutations are safe.
+            editor.pump_jobs
             # Stream new window/log+showMessage entries into any open
             # :LspWatch buffers.
             editor.pump_lsp_watch_buffers

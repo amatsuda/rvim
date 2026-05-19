@@ -27,6 +27,7 @@ module Rvim
         Rvim::Lua::Util.install(state, editor, runtime)
         Rvim::Lua::Ui.install(state, editor, runtime)
         Rvim::Lua::Loop.install(state, editor, runtime)
+        Rvim::Lua::Job.install(state, editor, runtime)
         Rvim::Lua::LspStub.install(state, editor, runtime)
       end
     end

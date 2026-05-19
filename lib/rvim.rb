@@ -14,6 +14,8 @@ module Rvim
 end
 
 require_relative 'rvim/version'
+require_relative 'rvim/job'
+require_relative 'rvim/job_registry'
 require_relative 'rvim/async_command'
 require_relative 'rvim/selection'
 require_relative 'rvim/text_object'
@@ -74,6 +76,7 @@ require_relative 'rvim/lua/fn'
 require_relative 'rvim/lua/util'
 require_relative 'rvim/lua/ui'
 require_relative 'rvim/lua/loop'
+require_relative 'rvim/lua/job'
 require_relative 'rvim/lua/lsp_stub'
 require_relative 'rvim/command'
 require_relative 'rvim/screen'
