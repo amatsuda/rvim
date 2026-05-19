@@ -8,11 +8,16 @@ norc = false
 i = 0
 while i < argv.size
   case argv[i]
-  when '--norc'
+  when '--norc', '--clean'
+    # --clean matches NeoVim's flag of the same name: skip user
+    # config (init.lua/init.vim) and don't wire plugins on the
+    # runtimepath. Equivalent to `nvim --clean` / `nvim -u NORC
+    # --noplugin -i NONE`; rvim has no shada or i: flag so a single
+    # toggle covers it.
     norc = true
     argv.delete_at(i)
   when '-u'
-    if argv[i + 1] == 'NONE'
+    if argv[i + 1] == 'NONE' || argv[i + 1] == 'NORC'
       norc = true
       argv.delete_at(i + 1)
       argv.delete_at(i)

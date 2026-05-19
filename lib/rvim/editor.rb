@@ -6997,7 +6997,9 @@ module Rvim
       # Source the user's config BEFORE opening files, matching vim/nvim:
       # settings, autocmds, and feature flags (e.g. :lsp_enabled) need to
       # be in effect by the time BufRead fires for the first buffer.
-      ensure_bundled_runtime(editor) unless norc
+      # --clean / --norc still wires the bundled $VIMRUNTIME (matches
+      # NeoVim — only the user's config and rtp entries get skipped).
+      ensure_bundled_runtime(editor)
       ensure_user_runtimepath(editor) unless norc
       unless norc
         [File.expand_path(RVIMRC_PATH), init_vim_path, init_lua_path].each do |rc|
