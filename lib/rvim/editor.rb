@@ -4530,6 +4530,11 @@ module Rvim
     private def capture_special_marks(pre_buffer, pre_mode)
       if pre_buffer != @buffer_of_lines
         @last_change_pos = [@line_index, @byte_pointer]
+        # Notify buffer listeners (nvim_buf_attach's on_lines). The
+        # range covered is a coarse "everything from line 0 to the
+        # new buffer size" — fine for the refilter-on-keystroke
+        # pattern telescope-class plugins use.
+        @current_buffer&.fire_lines_event(0, pre_buffer.size, @buffer_of_lines.size)
       end
       cur_mode = editing_mode_label
       if pre_mode == :vi_insert && cur_mode == :vi_command

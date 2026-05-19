@@ -139,6 +139,10 @@ module Rvim
           vim.api.nvim_buf_del_extmark      = _rvim_api_buf_del_extmark
           vim.api.nvim_buf_clear_namespace  = _rvim_api_buf_clear_namespace
           vim.api.nvim_buf_add_highlight    = _rvim_api_buf_add_highlight
+
+          -- Buffer change listeners + key synthesis.
+          vim.api.nvim_buf_attach           = _rvim_api_buf_attach
+          vim.api.nvim_feedkeys             = _rvim_api_feedkeys
         LUA
       end
 
@@ -227,6 +231,40 @@ module Rvim
         install_float_api(state, editor)
         install_keymap_api(state, editor)
         install_extmark_api(state, editor)
+        install_attach_feedkeys_api(state, editor)
+      end
+
+      def self.install_attach_feedkeys_api(state, editor)
+        # nvim_buf_attach(bufnr, send_buffer, opts) -> bool
+        # opts.on_lines = function(event, bufnr, tick, first, last, new_last, byte_count)
+        state.function '_rvim_api_buf_attach' do |bufnr, _send_buffer, opts|
+          buf = resolve_buffer(editor, bufnr)
+          next false unless buf
+
+          opts_h = opts.respond_to?(:to_h) ? opts.to_h : {}
+          on_lines = opts_h['on_lines']
+          if on_lines.is_a?(Rufus::Lua::Function)
+            cb = ->(*args) { on_lines.call(*args) }
+            buf.attach_listener(cb)
+            true
+          else
+            false
+          end
+        end
+
+        # nvim_feedkeys(keys, mode, escape_ks)
+        # mode is a string of flags; 'n' = no remap, 'i' = insert,
+        # 'm' = remap (we just always remap, vim's default), 't' = typed.
+        # escape_ks is irrelevant (no K_SPECIAL on rvim).
+        state.function '_rvim_api_feedkeys' do |keys, _mode, _escape_ks|
+          str = keys.to_s
+          # Walk byte-by-byte so multi-byte UTF-8 keys are preserved
+          # as their constituent bytes (matches what Reline delivers
+          # for real typed input).
+          str.each_char do |ch|
+            editor.update(Reline::Key.new(ch, nil, false))
+          end
+        end
       end
 
       def self.install_extmark_api(state, editor)

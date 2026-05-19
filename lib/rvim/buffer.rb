@@ -83,6 +83,33 @@ module Rvim
       @next_extmark_id += 1
     end
 
+    # Buffer change listeners. nvim_buf_attach(bufnr, _,
+    # { on_lines = fn }) registers fn here; Editor fires it whenever
+    # `lines` mutates as part of the edit loop. Each listener is
+    # `Proc(event, bufnr, changedtick, first_line, last_line,
+    # new_last_line, byte_count)` — close enough to NeoVim's
+    # signature that telescope-style "refilter on every keystroke"
+    # plugins work.
+    def attach_listener(callback)
+      (@listeners ||= []) << callback
+    end
+
+    def detach_listener(callback)
+      @listeners&.delete(callback)
+    end
+
+    def fire_lines_event(first_line, old_last_line, new_last_line, byte_count = 0)
+      return if @listeners.nil? || @listeners.empty?
+
+      tick = @undo_redo_index.to_i
+      @listeners.each do |cb|
+        cb.call('lines', @id, tick, first_line, old_last_line, new_last_line, byte_count)
+      rescue StandardError
+        # Listener errors must never take the editor down.
+        nil
+      end
+    end
+
     def display_name
       @filepath || '[No Name]'
     end
