@@ -69,6 +69,10 @@ module Rvim
         install_window_api(state, editor)
         install_extended_api(state, editor)
         install_user_command_api(state, editor)
+        install_runtime_api(state, editor)
+        install_global_keymap_api(state, editor)
+        install_exec_api(state, editor)
+        install_exec_autocmds_api(state, editor)
 
         # Build vim.api as a Lua table mapping nvim_* names to the bridges.
         state.eval(<<~LUA)
@@ -148,6 +152,15 @@ module Rvim
           -- User-defined ex commands (lazy.nvim's :Lazy, plugin :Foo).
           vim.api.nvim_create_user_command  = _rvim_api_create_user_command
           vim.api.nvim_del_user_command     = _rvim_api_del_user_command
+
+          -- Runtimepath, exec, autocmd dispatch, global keymap.
+          vim.api.nvim_get_runtime_file     = _rvim_api_get_runtime_file
+          vim.api.nvim_list_runtime_paths   = _rvim_api_list_runtime_paths
+          vim.api.nvim_set_keymap           = _rvim_api_set_keymap
+          vim.api.nvim_del_keymap           = _rvim_api_del_keymap
+          vim.api.nvim_exec                 = _rvim_api_exec
+          vim.api.nvim_exec2                = _rvim_api_exec2
+          vim.api.nvim_exec_autocmds        = _rvim_api_exec_autocmds
         LUA
       end
 
@@ -282,6 +295,165 @@ module Rvim
 
         state.function '_rvim_api_del_user_command' do |name|
           editor.user_commands.delete(name.to_s)
+        end
+      end
+
+      # nvim_get_runtime_file(name, all) — walk &runtimepath looking
+      # for `name` (a relative path or simple glob like
+      # "colors/*.lua"). Returns the first match, or all matches when
+      # `all` is true. lazy.nvim uses this to discover plugin
+      # entrypoints and colorschemes.
+      #
+      # nvim_list_runtime_paths — sibling that just returns the
+      # expanded runtimepath array; cheap and lazy.nvim calls it on
+      # every startup to seed its package index.
+      def self.install_runtime_api(state, editor)
+        state.function '_rvim_api_list_runtime_paths' do
+          runtime_paths(editor)
+        end
+
+        state.function '_rvim_api_get_runtime_file' do |name, all|
+          glob_runtime(editor, name.to_s, all == true)
+        end
+      end
+
+      def self.runtime_paths(editor)
+        editor.settings.get(:runtimepath).to_s.split(',').filter_map do |p|
+          stripped = p.strip
+          stripped.empty? ? nil : File.expand_path(stripped)
+        end
+      end
+
+      def self.glob_runtime(editor, name, all)
+        results = []
+        runtime_paths(editor).each do |dir|
+          # Dir.glob already handles `*` / `?` / `**`; bare names
+          # match a single literal file path.
+          Dir.glob(File.join(dir, name)).each do |match|
+            results << match
+            return results unless all
+          end
+        end
+        results
+      end
+
+      # nvim_set_keymap(mode, lhs, rhs, opts) — global counterpart of
+      # nvim_buf_set_keymap. lazy.nvim's lazy-loading shims use this
+      # to install <Plug> mappings before the real plugin loads.
+      def self.install_global_keymap_api(state, editor)
+        state.function '_rvim_api_set_keymap' do |mode_arg, lhs, rhs, opts|
+          modes = Rvim::Lua::Keymap.resolve_modes(mode_arg)
+          expanded_lhs = Rvim::Keymap.expand(lhs.to_s, leader: editor.mapleader)
+          opts_h = opts.respond_to?(:to_h) ? opts.to_h : {}
+          recursive = opts_h['noremap'] != true
+          silent    = opts_h['silent'] == true
+          callback  = opts_h['callback']
+          if callback.is_a?(Rufus::Lua::Function)
+            cb = -> { callback.call }
+            editor.keymap.add(modes, expanded_lhs, '', recursive: recursive, silent: silent, callback: cb)
+          else
+            expanded_rhs = Rvim::Keymap.expand(rhs.to_s, leader: editor.mapleader)
+            editor.keymap.add(modes, expanded_lhs, expanded_rhs, recursive: recursive, silent: silent)
+          end
+        end
+
+        state.function '_rvim_api_del_keymap' do |mode_arg, lhs|
+          modes = Rvim::Lua::Keymap.resolve_modes(mode_arg)
+          expanded_lhs = Rvim::Keymap.expand(lhs.to_s, leader: editor.mapleader)
+          editor.keymap.remove(modes, expanded_lhs)
+        end
+      end
+
+      # nvim_exec(src, output) -> string
+      # nvim_exec2(src, opts)  -> { output = string? }
+      #
+      # Multiline vimscript-ish blocks. We split on \n and run each
+      # non-empty line through Rvim::Command. When output capture is
+      # requested we swap in a temporary sink so :echo / :messages /
+      # status writes are collected. (Real NeoVim captures everything
+      # the command writes to the message stream; we approximate by
+      # capturing status_message writes, which already cover most
+      # plugin probes like `vim.api.nvim_exec("set runtimepath?",
+      # true)`.)
+      def self.install_exec_api(state, editor)
+        state.function '_rvim_api_exec' do |src, output|
+          exec_multiline(editor, src.to_s, capture: output == true)
+        end
+
+        state.function '_rvim_api_exec2' do |src, opts|
+          opts_h = opts.respond_to?(:to_h) ? opts.to_h : {}
+          captured = exec_multiline(editor, src.to_s, capture: opts_h['output'] == true)
+          { 'output' => captured }
+        end
+      end
+
+      class CaptureSink
+        def initialize
+          @buf = +''
+        end
+
+        def <<(msg)
+          @buf << msg.to_s << "\n"
+        end
+
+        def close; end
+
+        attr_reader :buf
+      end
+
+      def self.exec_multiline(editor, src, capture:)
+        sink = capture ? CaptureSink.new : nil
+        prev_sink = editor.instance_variable_get(:@redir_sink)
+        editor.instance_variable_set(:@redir_sink, sink) if sink
+
+        begin
+          src.each_line do |line|
+            line = line.chomp.strip
+            next if line.empty? || line.start_with?('"')
+
+            parsed = Rvim::Command.parse(line)
+            Rvim::Command.execute(editor, parsed) if parsed
+          end
+        ensure
+          editor.instance_variable_set(:@redir_sink, prev_sink) if sink
+        end
+
+        sink ? sink.buf : ''
+      end
+
+      # nvim_exec_autocmds(event, opts) — fire an event by name.
+      # opts.pattern (string|array) and opts.data (anything) shape the
+      # value passed to listeners. lazy.nvim emits its own User events
+      # ("LazyLoad", "VeryLazy", "LazyDone") through this; nothing
+      # would fire those without it.
+      def self.install_exec_autocmds_api(state, editor)
+        state.function '_rvim_api_exec_autocmds' do |events, opts|
+          events_arr = if events.respond_to?(:to_h)
+                         events.to_h.values.map(&:to_s)
+                       else
+                         [events.to_s]
+                       end
+          opts_h = opts.respond_to?(:to_h) ? opts.to_h : {}
+          patterns = case (raw = opts_h['pattern'])
+                     when nil, '' then [nil]
+                     when Array then raw.map(&:to_s)
+                     else
+                       if raw.respond_to?(:to_h)
+                         raw.to_h.values.map(&:to_s)
+                       else
+                         [raw.to_s]
+                       end
+                     end
+
+          events_arr.each do |ev|
+            patterns.each do |pat|
+              # Autocommands#fire matches by glob; pass the pattern
+              # itself as the "value" for User events so a listener
+              # with pattern: "Lazy*" fires for "LazyLoad" et al.
+              value = pat || ev
+              editor.autocommands.fire(ev, value, editor)
+            end
+          end
         end
       end
 
