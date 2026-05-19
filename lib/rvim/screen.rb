@@ -106,6 +106,11 @@ module Rvim
       out << render_tabline if reserved_top.positive?
       @editor.windows.each { |win| out << render_window(win) }
       out << render_vertical_dividers
+      # Floating windows render AFTER tiled ones so they overlay on
+      # top. Sorted by zindex (low → high) so higher-z floats end up
+      # last and appear topmost.
+      sorted_floats = @editor.floating_windows.reject(&:hide).sort_by(&:zindex)
+      sorted_floats.each { |fw| out << render_floating_window(fw) }
       if @editor.prompt_mode == :listing
         out << render_listing_overlay
       end
@@ -117,6 +122,15 @@ module Rvim
       cw = @editor.current_window
       if @editor.prompt_mode
         out << move_to(@rows, @editor.prompt_buffer.length + 2)
+      elsif cw && cw.floating?
+        # Floating windows have no gutter; cursor offsets are relative
+        # to the inside of the border (if any).
+        pad = (cw.border && cw.border != :none) ? 1 : 0
+        line = @editor.buffer_of_lines[@editor.line_index] || ''
+        col = display_column(line, @editor.byte_pointer)
+        cursor_row = cw.row + pad + (@editor.line_index - (cw.scroll_top || 0)) + 1
+        cursor_col = cw.col + pad + col + 1
+        out << move_to(cursor_row, cursor_col)
       elsif cw
         gw = gutter_width(cw.buffer)
         content_width = cw.width - gw
@@ -431,6 +445,91 @@ module Rvim
           out << DIM_ON << line_with_bar << DIM_OFF
         end
       end
+      out
+    end
+
+    # Box-drawing glyphs per border style. `chars` is
+    # [top_left, top, top_right, right, bottom_right, bottom,
+    #  bottom_left, left]. :solid uses the same glyph for every
+    # corner+edge so any monospace font shows a filled rectangle;
+    # :rounded uses the curved corners.
+    FLOAT_BORDER_GLYPHS = {
+      single: %w[┌ ─ ┐ │ ┘ ─ └ │].freeze,
+      double: %w[╔ ═ ╗ ║ ╝ ═ ╚ ║].freeze,
+      rounded: %w[╭ ─ ╮ │ ╯ ─ ╰ │].freeze,
+      solid: ['▛', '▀', '▜', '▐', '▟', '▄', '▙', '▌'].freeze,
+    }.freeze
+
+    # Render one floating window: border + content. The window's
+    # `row`/`col` are absolute screen coords. With a border the
+    # content area shrinks by 2 in each dim; without a border the
+    # content fills the entire frame.
+    def render_floating_window(win)
+      buf = win.buffer
+      return '' if buf.nil?
+
+      has_border = !win.border.nil? && win.border != :none
+      pad = has_border ? 1 : 0
+      content_top  = win.row + pad
+      content_left = win.col + pad
+      content_rows = [win.height - (pad * 2), 0].max
+      content_width = [win.width - (pad * 2), 0].max
+
+      out = +''
+      out << render_float_border(win) if has_border
+      content_rows.times do |i|
+        line_idx = (win.scroll_top || 0) + i
+        raw = buf.lines[line_idx]
+        text = raw.nil? ? '' : raw.to_s
+        # Reuse the syntax highlighter for file-backed buffers; for
+        # scratch buffers (no syntax detected) it falls through to
+        # plain text via the truncate fast-path.
+        highlighted = apply_syntax_highlight(text, content_width)
+        rendered = pad_render_to_width(highlighted, content_width)
+        out << move_to(content_top + i + 1, content_left + 1)
+        out << rendered
+      end
+      out
+    end
+
+    private def render_float_border(win)
+      glyphs = FLOAT_BORDER_GLYPHS[win.border] || FLOAT_BORDER_GLYPHS[:single]
+      tl, t, tr, r, br, b, bl, l = glyphs
+      out = +''
+      inner_w = [win.width - 2, 0].max
+      # Top edge — splice in title centred if present.
+      top = +(tl) << t * inner_w << tr
+      if win.title && !win.title.empty?
+        label = " #{win.title} "
+        max = inner_w
+        label = truncate_to_width(label, max)
+        start = 1 + ((inner_w - visible_width(label)) / 2)
+        top = top.dup
+        # Walk char-by-char; replace inside the top-edge segment.
+        rebuilt = +(tl)
+        rebuilt << label
+        rebuilt << t * [inner_w - visible_width(label), 0].max
+        rebuilt << tr
+        top = rebuilt
+      end
+      out << move_to(win.row + 1, win.col + 1) << top
+      # Side edges row-by-row.
+      (win.height - 2).times do |i|
+        out << move_to(win.row + 1 + i + 1, win.col + 1) << l
+        out << move_to(win.row + 1 + i + 1, win.col + win.width) << r
+      end
+      # Bottom edge — footer centred if present.
+      bottom = +(bl) << b * inner_w << br
+      if win.footer && !win.footer.empty?
+        label = " #{win.footer} "
+        label = truncate_to_width(label, inner_w)
+        rebuilt = +(bl)
+        rebuilt << label
+        rebuilt << b * [inner_w - visible_width(label), 0].max
+        rebuilt << br
+        bottom = rebuilt
+      end
+      out << move_to(win.row + win.height, win.col + 1) << bottom
       out
     end
 

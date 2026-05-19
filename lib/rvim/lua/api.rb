@@ -120,6 +120,13 @@ module Rvim
           vim.api.nvim_strwidth             = _rvim_api_strwidth
           vim.api.nvim_replace_termcodes    = _rvim_api_replace_termcodes
           vim.api.nvim_set_hl               = _rvim_api_set_hl
+
+          -- Floating windows + scratch buffers.
+          vim.api.nvim_create_buf           = _rvim_api_create_buf
+          vim.api.nvim_open_win             = _rvim_api_open_win
+          vim.api.nvim_win_close            = _rvim_api_win_close
+          vim.api.nvim_win_get_config       = _rvim_api_win_get_config
+          vim.api.nvim_win_set_config       = _rvim_api_win_set_config
         LUA
       end
 
@@ -146,7 +153,10 @@ module Rvim
           buf&.undo_redo_index.to_i
         end
 
-        state.function('_rvim_api_list_wins') { (editor.windows || []).each_with_index.map { |_, i| i + 1 } }
+        state.function('_rvim_api_list_wins') do
+          all = (editor.windows || []) + (editor.respond_to?(:floating_windows) ? editor.floating_windows : [])
+          all.map(&:id)
+        end
         state.function('_rvim_api_win_is_valid') { |winid| !resolve_window(editor, winid).nil? }
 
         state.function('_rvim_api_get_var') { |name| editor.let_vars[name.to_s] }
@@ -205,6 +215,64 @@ module Rvim
           editor.instance_variable_get(:@lua_highlights) || editor.instance_variable_set(:@lua_highlights, {})
           editor.instance_variable_get(:@lua_highlights)[name.to_s] = true
         end
+
+        install_float_api(state, editor)
+      end
+
+      def self.install_float_api(state, editor)
+        # nvim_create_buf(listed, scratch) -> bufnr
+        state.function '_rvim_api_create_buf' do |listed, scratch|
+          buf = Rvim::Buffer.new(editor.next_buffer_id_bump!, nil,
+                                  encoding: editor.encoding,
+                                  scratch: scratch == true,
+                                  listed: listed == true)
+          editor.register_buffer(buf)
+          buf.id
+        end
+
+        # nvim_open_win(bufnr, enter, config) -> winid
+        state.function '_rvim_api_open_win' do |bufnr, enter, config|
+          buf = resolve_buffer(editor, bufnr)
+          cfg = config.respond_to?(:to_h) ? config.to_h : {}
+          win = editor.open_floating_window(buf, enter: enter == true, config: cfg)
+          win.id
+        end
+
+        # nvim_win_close(winid, force)
+        state.function '_rvim_api_win_close' do |winid, _force|
+          win = resolve_window(editor, winid)
+          if win&.floating?
+            editor.close_floating_window(win)
+          end
+        end
+
+        # nvim_win_get_config(winid) -> config table
+        state.function '_rvim_api_win_get_config' do |winid|
+          win = resolve_window(editor, winid)
+          next {} unless win
+
+          {
+            'relative' => (win.floating? ? (win.relative || 'editor') : ''),
+            'row'      => win.row,
+            'col'      => win.col,
+            'width'    => win.width,
+            'height'   => win.height,
+            'border'   => (win.border || :none).to_s,
+            'focusable' => win.focusable,
+            'zindex'   => win.zindex,
+            'anchor'   => win.anchor,
+            'title'    => win.title.to_s,
+            'footer'   => win.footer.to_s,
+            'hide'     => win.hide == true,
+          }
+        end
+
+        # nvim_win_set_config(winid, config)
+        state.function '_rvim_api_win_set_config' do |winid, config|
+          win = resolve_window(editor, winid)
+          cfg = config.respond_to?(:to_h) ? config.to_h : {}
+          editor.apply_floating_config(win, cfg) if win
+        end
       end
 
       def self.install_window_api(state, editor)
@@ -233,15 +301,17 @@ module Rvim
         state.function('_rvim_api_win_set_height') { |winid, h| w = resolve.call(winid); w.height = h.to_i if w }
         state.function('_rvim_api_win_get_width')  { |winid| (resolve.call(winid)&.width) || 80 }
         state.function('_rvim_api_win_get_buf')    { |winid| resolve.call(winid)&.buffer&.id || 0 }
-        state.function('_rvim_api_get_current_win') { (editor.windows || []).index(editor.current_window).to_i + 1 }
+        state.function('_rvim_api_get_current_win') { editor.current_window&.id || 0 }
       end
 
       def self.resolve_window(editor, winid)
         n = winid.to_i
         return editor.current_window if n.zero?
 
-        idx = n - 1
-        (editor.windows || [])[idx] || editor.current_window
+        # Each Window now carries a stable id (Window#id) so floats
+        # and tiled windows live in the same namespace.
+        all = (editor.windows || []) + (editor.respond_to?(:floating_windows) ? editor.floating_windows : [])
+        all.find { |w| w.id == n } || editor.current_window
       end
 
       def self.install_buffer_api(state, editor)

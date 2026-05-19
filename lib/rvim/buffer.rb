@@ -9,14 +9,24 @@ module Rvim
     attr_accessor :diff_active, :diff_status
     attr_accessor :fileformat, :fileencoding, :mtime
     attr_accessor :vars
+    # Scratch buffer (no file backing, buftype='nofile') and listed
+    # flag — exposed by vim.api.nvim_create_buf(listed, scratch).
+    # `bufhidden` controls cleanup-on-close behaviour (telescope sets
+    # 'wipe' so its prompt/results/preview buffers vanish after the
+    # picker closes).
+    attr_accessor :scratch, :listed, :bufhidden, :buftype
 
-    def initialize(id, filepath = nil, encoding: Encoding::UTF_8)
+    def initialize(id, filepath = nil, encoding: Encoding::UTF_8, scratch: false, listed: true)
       @id = id
       @filepath = filepath
       @fileformat = 'unix'
       @fileencoding = encoding.to_s.downcase
       @mtime = nil
-      if filepath && File.exist?(filepath)
+      @scratch = scratch
+      @listed = listed
+      @bufhidden = scratch ? 'hide' : ''
+      @buftype = scratch ? 'nofile' : ''
+      if filepath && File.exist?(filepath) && !scratch
         raw = File.binread(filepath)
         @mtime = File.mtime(filepath)
         @fileformat = detect_fileformat(raw)
@@ -41,6 +51,10 @@ module Rvim
       @diff_active = false
       @diff_status = nil
       @vars = {}
+    end
+
+    def scratch?
+      @scratch == true
     end
 
     def display_name

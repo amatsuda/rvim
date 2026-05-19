@@ -72,6 +72,7 @@ module Rvim
       @next_buffer_id = 1
       @current_buffer = nil
       @windows = []
+      @floating_windows = [] # detached, user-positioned floats
       @current_window = nil
       @split_orientation = nil
       @tabs = []
@@ -342,6 +343,24 @@ module Rvim
       find_or_create_buffer(path)
     end
 
+    # Allocate the next buffer id without creating the buffer.
+    # vim.api.nvim_create_buf calls this — the buffer object is
+    # built on the Lua side, then registered via register_buffer.
+    def next_buffer_id_bump!
+      id = @next_buffer_id
+      @next_buffer_id += 1
+      id
+    end
+
+    # Insert a freshly-built buffer into the editor's registries.
+    # Used by vim.api.nvim_create_buf and any other path that
+    # constructs a Buffer outside of swap_to_buffer.
+    def register_buffer(buf)
+      @buffers[buf.id] = buf
+      @buffer_order << buf.id unless @buffer_order.include?(buf.id)
+      buf
+    end
+
     def open_terminal_buffer(name, lines, status: 0)
       buf = Rvim::Buffer.new(@next_buffer_id, name, encoding: encoding)
       @next_buffer_id += 1
@@ -529,12 +548,19 @@ module Rvim
     end
 
     private def ensure_current_window(buf)
-      if @windows.empty?
-        win = Rvim::Window.new(buf)
-        @windows << win
-        @current_window = win
+      if @current_window.nil?
+        # No window of any kind yet — fall back to a tiled one.
+        if @windows.empty?
+          win = Rvim::Window.new(buf)
+          @windows << win
+          @current_window = win
+        else
+          @current_window = @windows.first
+        end
       else
-        @current_window.buffer = buf if @current_window
+        # Already have a current window (tiled or float); just point
+        # it at the new buffer.
+        @current_window.buffer = buf
       end
       ensure_current_tab
     end
@@ -584,6 +610,78 @@ module Rvim
     end
 
     attr_reader :windows, :current_window, :split_orientation, :list_view
+    attr_reader :floating_windows
+
+    # vim.api.nvim_open_win equivalent. `buf` is a Rvim::Buffer, `enter`
+    # focuses the new float, `config` is a Hash:
+    #   { relative: 'editor', row:, col:, width:, height:,
+    #     border: :none / :single / :double / :rounded / :solid,
+    #     focusable: true, zindex: 50, title:, footer: }
+    def open_floating_window(buf, enter: true, config: {})
+      win = Rvim::Window.new(buf)
+      win.floating = true
+      apply_floating_config(win, config)
+      @floating_windows << win
+      enter_window(win) if enter && win.focusable
+      win
+    end
+
+    def apply_floating_config(win, config)
+      h = config.transform_keys(&:to_s)
+      win.relative  = h['relative']  || win.relative
+      win.row       = h['row'].to_i       if h.key?('row')
+      win.col       = h['col'].to_i       if h.key?('col')
+      win.width     = h['width'].to_i     if h.key?('width')
+      win.height    = h['height'].to_i    if h.key?('height')
+      win.border    = normalize_border(h['border']) if h.key?('border')
+      win.focusable = h['focusable'] != false
+      win.zindex    = h['zindex'].to_i if h.key?('zindex')
+      win.anchor    = h['anchor']    || win.anchor
+      win.title     = h['title']     if h.key?('title')
+      win.footer    = h['footer']    if h.key?('footer')
+      win.hide      = h['hide'] == true if h.key?('hide')
+    end
+
+    private def normalize_border(b)
+      case b
+      when nil, false, 'none', :none then :none
+      when true, 'single', :single then :single
+      when 'double', :double then :double
+      when 'rounded', :rounded then :rounded
+      when 'solid', :solid then :solid
+      when 'shadow', :shadow then :single # treated as single for V1
+      else :single
+      end
+    end
+
+    # Close a window (regular or floating). For floats this removes
+    # them from @floating_windows. If the closed window was focused,
+    # refocus the previous current_window (last tiled window).
+    def close_floating_window(win)
+      return false unless win&.floating?
+      return false unless @floating_windows.include?(win)
+
+      @floating_windows.delete(win)
+      if @current_window.equal?(win)
+        # Prefer the most-recently-active tiled window.
+        @current_window = @windows.first if @current_window.equal?(win)
+        swap_to_buffer(@current_window.buffer) if @current_window
+      end
+      true
+    end
+
+    # Activate any window (tiled or float). Updates @current_window
+    # and swaps cursor/byte state to that window's buffer. The other
+    # `focus_window(:l/:h/:k/:j)` takes a direction symbol for window
+    # navigation; this one takes the window object directly.
+    def enter_window(win)
+      return unless win
+
+      save_current_buffer if @current_buffer && !@current_buffer.equal?(win.buffer)
+      @current_window = win
+      @filepath = win.buffer.filepath if win.buffer.respond_to?(:filepath)
+      swap_to_buffer(win.buffer) if win.buffer && !@current_buffer.equal?(win.buffer)
+    end
 
     def show_list(lines)
       @list_view = Rvim::ListView.new(lines.compact)

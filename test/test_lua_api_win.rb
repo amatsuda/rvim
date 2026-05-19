@@ -54,8 +54,11 @@ class TestLuaApiWin < Test::Unit::TestCase
     assert_equal (@editor.current_buffer&.id || 0), bufid
   end
 
-  def test_get_current_win_returns_one_based
+  def test_get_current_win_returns_a_stable_id
+    # NeoVim's win-ids aren't 1-based indices — they're stable
+    # handles. We allocate one per Window via Window.allocate_id;
+    # the only invariant for an existing window is that it's > 0.
     n = @editor.lua.eval('return vim.api.nvim_get_current_win()').to_i
-    assert_equal 1, n
+    assert_operator n, :>, 0
   end
 end
