@@ -51,9 +51,22 @@ module Rvim
     # White, Black, Gray, plus 'Nvim*' aliases). Unknown names fall
     # back to default fg/bg.
     def define(name, spec)
+      spec = stringify(spec)
+
+      # nvim_set_hl(... { link = "OtherGroup" }) — alias by copying
+      # the target's current pair. If the link target is later
+      # redefined we don't follow; that's fine for our usage since
+      # plugins apply colorschemes in one pass.
+      if spec['link']
+        target = @groups[spec['link'].to_s]
+        if target
+          @groups[name.to_s] = Pair.new(target.open.dup, target.close.dup)
+        end
+        return
+      end
+
       open = +''
       close = +''
-      spec = stringify(spec)
       apply_color(spec['fg'], open, close, fg: true)
       apply_color(spec['bg'], open, close, fg: false)
       apply_attr(BOLD_ON, BOLD_OFF, open, close) if spec['bold']
@@ -93,6 +106,14 @@ module Rvim
     private def apply_color(val, open, close, fg:)
       return if val.nil? || val == 'NONE' || val == false || val == ''
 
+      # 24-bit hex ("#rrggbb"): emit SGR 38;2;R;G;B / 48;2;R;G;B.
+      if (rgb = parse_hex_color(val))
+        r, g, b = rgb
+        open  << "\e[#{fg ? 38 : 48};2;#{r};#{g};#{b}m"
+        close << (fg ? FG_RESET : BG_RESET)
+        return
+      end
+
       idx = resolve_color(val)
       return if idx.nil?
 
@@ -103,6 +124,16 @@ module Rvim
         open  << "\e[#{fg ? 38 : 48};5;#{idx}m"
         close << (fg ? FG_RESET : BG_RESET)
       end
+    end
+
+    private def parse_hex_color(val)
+      return nil unless val.is_a?(String) || val.respond_to?(:to_str)
+
+      m = val.to_s.match(/\A#?([0-9a-fA-F]{6})\z/)
+      return nil unless m
+
+      hex = m[1]
+      [hex[0, 2].to_i(16), hex[2, 2].to_i(16), hex[4, 2].to_i(16)]
     end
 
     private def resolve_color(val)

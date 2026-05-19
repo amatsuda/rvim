@@ -142,4 +142,29 @@ class TestHighlightCommands < Test::Unit::TestCase
       ENV['HOME'] = saved
     end
   end
+
+  def test_colorscheme_walks_runtimepath
+    Dir.mktmpdir do |dir|
+      colors = File.join(dir, 'colors')
+      FileUtils.mkdir_p(colors)
+      File.write(File.join(colors, 'plugin_scheme.lua'), '-- placeholder')
+      @editor.settings.set(:runtimepath, dir)
+      Rvim::Command.execute(@editor, Rvim::Command.parse(':colorscheme plugin_scheme'))
+      assert_equal 'plugin_scheme', @editor.let_vars['colors_name']
+    end
+  end
+
+  def test_hl_groups_accepts_hex_truecolor
+    @editor.hl_groups.define('TestHex', 'fg' => '#ff8800', 'bg' => '#001020')
+    pair = @editor.hl_groups.lookup('TestHex')
+    assert_match(/38;2;255;136;0/, pair.open)
+    assert_match(/48;2;0;16;32/, pair.open)
+  end
+
+  def test_hl_groups_link_aliases_to_target
+    @editor.hl_groups.define('SourceGroup', 'fg' => '#aabbcc')
+    @editor.hl_groups.define('AliasGroup',  'link' => 'SourceGroup')
+    assert_equal @editor.hl_groups.lookup('SourceGroup').open,
+                 @editor.hl_groups.lookup('AliasGroup').open
+  end
 end

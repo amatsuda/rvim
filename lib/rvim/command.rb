@@ -1115,20 +1115,31 @@ module Rvim
         return
       end
 
-      paths = colorscheme_search_paths(name)
-      target = paths.find { |p| File.exist?(p) }
+      target = find_colorscheme(editor, name)
       if target
         editor.source(target)
+        editor.let_vars['colors_name'] = name
       else
         editor.status_message = "E185: Cannot find color scheme '#{name}'"
       end
     end
 
-    def self.colorscheme_search_paths(name)
-      [
+    # Walk &runtimepath (matches NeoVim) plus our legacy ~/.config
+    # fallbacks. Lua plugins live under runtime/colors/*.lua; the
+    # historical ones were .vim.
+    def self.find_colorscheme(editor, name)
+      rtp = editor.settings.get(:runtimepath).to_s.split(',').map { |p| File.expand_path(p.strip) }.reject(&:empty?)
+      candidates = rtp.flat_map do |dir|
+        [
+          File.join(dir, "colors/#{name}.lua"),
+          File.join(dir, "colors/#{name}.vim"),
+        ]
+      end
+      candidates += [
         File.expand_path("~/.config/rvim/colors/#{name}.vim"),
         File.expand_path("~/.rvim/colors/#{name}.vim"),
       ]
+      candidates.find { |p| File.exist?(p) }
     end
 
     def self.execute_diffthis(editor, _parsed)
