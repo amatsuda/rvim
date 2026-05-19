@@ -4227,7 +4227,7 @@ module Rvim
           # so the trailing char is consumed too.
           inclusive = true if @rvim_word_motion_eol
           @rvim_word_motion_eol = false
-          kind = (hint_linewise || lines_only_motion?(pre, post, hint_linewise)) ? :line : :char
+          kind = hint_linewise ? :line : :char
           apply_op_to_range(op, pre, post, kind: kind, inclusive: inclusive)
           # We bypass Reline's input_key, so push undo manually when the
           # operator mutated the buffer. Yank doesn't change the buffer
@@ -6500,12 +6500,6 @@ module Rvim
       end
     end
 
-    # If the motion only changed line index (or the motion was hinted as
-    # linewise), treat the op linewise. Charwise otherwise.
-    private def lines_only_motion?(pre, post, hint_linewise)
-      return true if hint_linewise
-      pre[0] != post[0] && pre[1].zero? && post[1].zero?
-    end
 
     private def apply_op_to_range(op, pre, post, kind:, inclusive: false)
       if pre == post && kind == :char

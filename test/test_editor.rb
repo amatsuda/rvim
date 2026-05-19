@@ -273,4 +273,31 @@ class TestEditor < Test::Unit::TestCase
     feed('w', :vi_next_word)
     assert_equal 'b', @editor.buffer_of_lines[0]
   end
+
+  def test_dw_across_lines_stays_charwise
+    # Regression: the old lines_only_motion? heuristic upgraded any
+    # operator-motion that started at col 0 and ended at col 0 to
+    # linewise, so `dw` from "foo\nbar" deleted BOTH lines. `w` is
+    # a charwise motion — the result should leave "bar" intact.
+    @editor.instance_variable_set(:@buffer_of_lines, [+'foo', +'bar'])
+    @editor.instance_variable_set(:@line_index, 0)
+    @editor.instance_variable_set(:@byte_pointer, 0)
+    feed('d', :rvim_delete_op)
+    feed('w', :vi_next_word)
+    # Vim's "exclusive motion ending at col 0" rule pulls the end
+    # back to end-of-previous-line, deleting "foo" only. The newline
+    # boundary stays, so the line below remains addressable.
+    assert_equal ['', 'bar'], @editor.buffer_of_lines
+  end
+
+  def test_dj_stays_linewise
+    # Regression guard: linewise motions (j/k/G/H/M/L/{/}/()) still
+    # take the linewise path, deleting both lines.
+    @editor.instance_variable_set(:@buffer_of_lines, [+'foo', +'bar', +'baz'])
+    @editor.instance_variable_set(:@line_index, 0)
+    @editor.instance_variable_set(:@byte_pointer, 0)
+    feed('d', :rvim_delete_op)
+    feed('j', :ed_next_history)
+    assert_equal ['baz'], @editor.buffer_of_lines
+  end
 end
