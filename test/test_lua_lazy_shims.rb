@@ -1,6 +1,8 @@
 # frozen_string_literal: true
 
 require_relative 'test_helper'
+require 'tmpdir'
+require 'fileutils'
 
 # Shims discovered while making lazy.nvim's setup() complete.
 # Each one corresponds to a real blocker we hit walking lazy's
@@ -195,5 +197,56 @@ class TestLuaLazyShims < Test::Unit::TestCase
   def test_fn_system_string_form_still_works
     out = @editor.lua.eval(%(return vim.fn.system("echo hi")))
     assert_match(/hi/, out.to_s)
+  end
+
+  def test_vim_g_table_value_round_trips
+    # Storing a Lua table in vim.g and reading it back used to crash
+    # with "don't know how to pass Ruby instance of Rufus::Lua::Table"
+    # because the stored Rufus::Lua::Table couldn't be re-pushed.
+    n = @editor.lua.eval(<<~LUA)
+      vim.g.my_arr = { 10, 20, 30 }
+      local got = vim.g.my_arr
+      return got[1] + got[2] + got[3]
+    LUA
+    assert_equal 60, n.to_i
+  end
+
+  def test_vim_opt_rtp_assignment_from_array_joins_to_comma_string
+    @editor.lua.eval('vim.opt.rtp = { "/a", "/b", "/c" }')
+    assert_equal '/a,/b,/c', @editor.settings.get(:runtimepath)
+  end
+
+  def test_vim_opt_rtp_round_trips_through_get_set_get
+    @editor.lua.eval(<<~LUA)
+      local r = vim.opt.rtp:get()
+      table.insert(r, "/extra")
+      vim.opt.rtp = r
+    LUA
+    assert_includes @editor.settings.get(:runtimepath).to_s.split(','), '/extra'
+  end
+
+  def test_vim_loader_find_locates_module_under_lua_dir
+    Dir.mktmpdir('rvim-loader-') do |dir|
+      FileUtils.mkdir_p(File.join(dir, 'lua', 'pkg'))
+      File.write(File.join(dir, 'lua', 'pkg.lua'), '-- top-level')
+      File.write(File.join(dir, 'lua', 'pkg', 'sub.lua'), '-- nested')
+      result = @editor.lua.eval(<<~LUA)
+        local r = vim.loader.find("pkg.sub", { rtp = false, paths = { "#{dir}" } })
+        return r[1] and r[1].modpath
+      LUA
+      assert_equal File.join(dir, 'lua', 'pkg', 'sub.lua'), result
+    end
+  end
+
+  def test_vim_loader_find_wildcard_returns_all_modules
+    Dir.mktmpdir('rvim-loader-') do |dir|
+      FileUtils.mkdir_p(File.join(dir, 'lua', 'pkg'))
+      File.write(File.join(dir, 'lua', 'pkg', 'a.lua'), '')
+      File.write(File.join(dir, 'lua', 'pkg', 'b.lua'), '')
+      count = @editor.lua.eval(<<~LUA)
+        return #vim.loader.find("*", { all = true, rtp = false, paths = { "#{dir}" } })
+      LUA
+      assert_equal 2, count.to_i
+    end
   end
 end

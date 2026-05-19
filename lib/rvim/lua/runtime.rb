@@ -48,12 +48,50 @@ module Rvim
 
           begin
             require 'rufus-lua'
+            patch_stack_push!
             @available = true
           rescue LoadError => e
             @unavailable_reason = "rufus-lua gem not loadable: #{e.message}"
           rescue => e
             @unavailable_reason = "Lua initialization failed: #{e.message}"
           end
+        end
+
+        # Rufus::Lua::StateMixin#stack_push errors on Rufus::Lua::Table
+        # ("don't know how to pass Ruby instance of Rufus::Lua::Table
+        # to Lua"). That hits whenever a Ruby callback stored a Lua
+        # table (e.g. vim.g.foo = {1,2}) and a later getter returns
+        # it. Wrap stack_push once at load time to walk the value and
+        # demote any Rufus::Lua::Table to a plain Ruby Hash/Array
+        # before pushing.
+        def patch_stack_push!
+          return if Rufus::Lua::StateMixin.private_method_defined?(:_rvim_orig_stack_push)
+
+          mod = Module.new do
+            def _rvim_demote(v)
+              if defined?(Rufus::Lua::Table) && v.is_a?(Rufus::Lua::Table)
+                h = v.to_h
+                keys = h.keys
+                if !keys.empty? && keys.all? { |k| k.is_a?(Numeric) }
+                  (1..h.size).map { |i| _rvim_demote(h[i] || h[i.to_f]) }
+                else
+                  h.each_with_object({}) { |(k, val), acc| acc[k.to_s] = _rvim_demote(val) }
+                end
+              elsif v.is_a?(Hash)
+                v.each_with_object({}) { |(k, val), acc| acc[k] = _rvim_demote(val) }
+              elsif v.is_a?(Array)
+                v.map { |val| _rvim_demote(val) }
+              else
+                v
+              end
+            end
+
+            def stack_push(o)
+              super(_rvim_demote(o))
+            end
+          end
+          Rufus::Lua::StateMixin.prepend(mod)
+          Rufus::Lua::StateMixin.alias_method(:_rvim_orig_stack_push, :stack_push)
         end
       end
 

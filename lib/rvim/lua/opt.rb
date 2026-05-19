@@ -17,10 +17,18 @@ module Rvim
     module Opt
       module_function
 
+      # Comma-separated options whose Lua value is an array of paths.
+      # Setting `vim.opt.rtp = { "/a", "/b" }` must store the joined
+      # form so subsequent string consumers (Loader.refresh,
+      # vim.opt.rtp:prepend, the editor's own runtimepath split) see
+      # what they expect.
+      LIST_OPTS = %w[runtimepath rtp packpath path tags wildignore
+                     backupdir directory undodir cdpath].freeze
+
       def install(state, editor, _runtime)
         # Global setter/getter — used by both vim.opt and vim.go.
         state.function '_rvim_opt_set' do |name, value|
-          coerced = coerce_to_setting(value)
+          coerced = coerce_to_setting(name.to_s, value)
           editor.settings.set(name.to_s, coerced)
         end
 
@@ -30,7 +38,7 @@ module Rvim
 
         # Buffer-local setter/getter.
         state.function '_rvim_bo_set' do |name, value|
-          coerced = coerce_to_setting(value)
+          coerced = coerce_to_setting(name.to_s, value)
           editor.settings.set(name.to_s, coerced, buffer: editor.current_buffer)
         end
 
@@ -136,11 +144,31 @@ module Rvim
         LUA
       end
 
-      def coerce_to_setting(value)
+      def coerce_to_setting(name, value)
+        # List-style options arrive as Rufus::Lua::Table (incoming
+        # Lua-side tables aren't auto-demoted; only outgoing ones
+        # are). Convert to Ruby Array, then join. Existing
+        # string-based readers (Loader.refresh, the editor's rtp
+        # split) keep working.
+        if LIST_OPTS.include?(name)
+          arr = lua_table_to_array(value)
+          return arr.compact.join(',') if arr
+        end
+
         case value
         when Float then value == value.to_i ? value.to_i : value
         else value
         end
+      end
+
+      def lua_table_to_array(value)
+        return value if value.is_a?(Array)
+        return nil unless value.respond_to?(:to_h)
+
+        h = value.to_h
+        return [] if h.empty?
+
+        (1..h.size).map { |i| (h[i] || h[i.to_f])&.to_s }
       end
     end
   end

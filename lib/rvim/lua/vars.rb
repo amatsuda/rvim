@@ -27,8 +27,28 @@ module Rvim
           't_number' => 0, 't_string' => 1, 't_func' => 2, 't_list' => 3,
           't_dict'   => 4, 't_float'  => 5, 't_bool' => 6, 't_none' => 7,
         }) unless editor.instance_variable_defined?(:@lua_v_vars)
+        # Rufus::Lua::Table can't be pushed back to Lua across the
+        # function boundary; once the Lua state cleans up its refs we
+        # also can't safely read it. Convert tables to plain Ruby
+        # values on the way in so vim.g.foo = {...} ; vim.g.foo
+        # round-trips.
+        rufus_table_class = defined?(Rufus::Lua::Table) ? Rufus::Lua::Table : nil
+        convert = lambda do |v|
+          if rufus_table_class && v.is_a?(rufus_table_class)
+            h = v.to_h
+            keys = h.keys
+            if !keys.empty? && keys.all? { |k| k.is_a?(Numeric) }
+              (1..h.size).map { |i| convert.call(h[i] || h[i.to_f]) }
+            else
+              h.each_with_object({}) { |(k, val), acc| acc[k.to_s] = convert.call(val) }
+            end
+          else
+            v
+          end
+        end
+
         v_vars = editor.instance_variable_get(:@lua_v_vars)
-        state.function '_rvim_v_set'  do |name, value| v_vars[name.to_s] = value end
+        state.function '_rvim_v_set'  do |name, value| v_vars[name.to_s] = convert.call(value) end
         state.function '_rvim_v_get'  do |name| v_vars[name.to_s] end
 
         # vim.env — process environment as a magic table.
@@ -41,13 +61,13 @@ module Rvim
         end
         state.function '_rvim_env_get' do |name| ENV[name.to_s] end
 
-        state.function '_rvim_g_set'  do |name, value| editor.let_vars[name.to_s] = value end
+        state.function '_rvim_g_set'  do |name, value| editor.let_vars[name.to_s] = convert.call(value) end
         state.function '_rvim_g_get'  do |name| editor.let_vars[name.to_s] end
-        state.function '_rvim_b_set'  do |name, value| (editor.current_buffer&.vars || {})[name.to_s] = value end
+        state.function '_rvim_b_set'  do |name, value| (editor.current_buffer&.vars || {})[name.to_s] = convert.call(value) end
         state.function '_rvim_b_get'  do |name| editor.current_buffer&.vars&.[](name.to_s) end
-        state.function '_rvim_w_set'  do |name, value| (editor.current_window&.vars ||= {})[name.to_s] = value end
+        state.function '_rvim_w_set'  do |name, value| (editor.current_window&.vars ||= {})[name.to_s] = convert.call(value) end
         state.function '_rvim_w_get'  do |name| editor.current_window&.vars&.[](name.to_s) end
-        state.function '_rvim_t_set'  do |name, value| (editor.current_tab&.vars ||= {})[name.to_s] = value end
+        state.function '_rvim_t_set'  do |name, value| (editor.current_tab&.vars ||= {})[name.to_s] = convert.call(value) end
         state.function '_rvim_t_get'  do |name| editor.current_tab&.vars&.[](name.to_s) end
 
         state.eval(<<~LUA)
