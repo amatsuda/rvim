@@ -194,16 +194,24 @@ module Rvim
         end
       end
 
+      # Matches NeoVim's stdpath() with XDG fallbacks. We use 'rvim'
+      # rather than 'nvim' so plugin managers like lazy.nvim cache
+      # under ~/.local/share/rvim/lazy/, leaving any nvim install
+      # untouched.
       def stdpath(what)
-        cache = ENV['XDG_CACHE_HOME'] || File.expand_path('~/.cache')
+        cache  = ENV['XDG_CACHE_HOME']  || File.expand_path('~/.cache')
         config = ENV['XDG_CONFIG_HOME'] || File.expand_path('~/.config')
-        data = ENV['XDG_DATA_HOME'] || File.expand_path('~/.local/share')
+        data   = ENV['XDG_DATA_HOME']   || File.expand_path('~/.local/share')
+        state  = ENV['XDG_STATE_HOME']  || File.expand_path('~/.local/state')
         case what
-        when 'config' then File.join(config, 'rvim')
-        when 'data' then File.join(data, 'rvim')
-        when 'cache' then File.join(cache, 'rvim')
-        when 'state' then File.join(cache, 'rvim', 'state')
-        when 'log' then File.join(cache, 'rvim', 'log')
+        when 'config'      then File.join(config, 'rvim')
+        when 'data'        then File.join(data,   'rvim')
+        when 'cache'       then File.join(cache,  'rvim')
+        when 'state'       then File.join(state,  'rvim')
+        when 'log'         then File.join(state,  'rvim', 'log')
+        when 'run'         then File.join('/tmp', "rvim.#{Process.uid}")
+        when 'config_dirs' then [File.join(config, 'rvim')]
+        when 'data_dirs'   then [File.join(data, 'rvim')]
         else ''
         end
       end

@@ -68,6 +68,7 @@ module Rvim
         install_buffer_api(state, editor)
         install_window_api(state, editor)
         install_extended_api(state, editor)
+        install_user_command_api(state, editor)
 
         # Build vim.api as a Lua table mapping nvim_* names to the bridges.
         state.eval(<<~LUA)
@@ -143,6 +144,10 @@ module Rvim
           -- Buffer change listeners + key synthesis.
           vim.api.nvim_buf_attach           = _rvim_api_buf_attach
           vim.api.nvim_feedkeys             = _rvim_api_feedkeys
+
+          -- User-defined ex commands (lazy.nvim's :Lazy, plugin :Foo).
+          vim.api.nvim_create_user_command  = _rvim_api_create_user_command
+          vim.api.nvim_del_user_command     = _rvim_api_del_user_command
         LUA
       end
 
@@ -232,6 +237,52 @@ module Rvim
         install_keymap_api(state, editor)
         install_extmark_api(state, editor)
         install_attach_feedkeys_api(state, editor)
+      end
+
+      # nvim_create_user_command(name, command, opts):
+      #   - name: PascalCase command name (e.g. "Lazy")
+      #   - command: string body OR a Lua function (callback) receiving
+      #     an opts table with args/fargs/bang/name/etc.
+      #   - opts: { nargs = "?"/"*"/"+"/0/1, bang = bool, range = bool,
+      #     desc = string } — only nargs/bang are enforced here; the
+      #     rest are accepted-and-ignored for plugin compatibility.
+      def self.install_user_command_api(state, editor)
+        state.function '_rvim_api_create_user_command' do |name, command, opts|
+          n = name.to_s
+          opts_h = opts.respond_to?(:to_h) ? opts.to_h : {}
+          nargs = opts_h['nargs']
+          nargs_str = case nargs
+                      when nil then '0'
+                      when Numeric then nargs.to_i.to_s
+                      else nargs.to_s
+                      end
+
+          callback = nil
+          body = ''
+          if command.is_a?(Rufus::Lua::Function)
+            cb_lua = command
+            callback = lambda do |o|
+              cb_lua.call(o)
+            rescue StandardError, ScriptError => e
+              editor.status_message = "E:#{n}: #{e.message}"
+            end
+          else
+            body = command.to_s
+          end
+
+          editor.user_commands[n] = Rvim::Command::UserCommand.new(
+            name: n,
+            nargs: nargs_str,
+            body: body,
+            callback: callback,
+            bang_allowed: opts_h['bang'] == true,
+            range_allowed: opts_h['range'] == true,
+          )
+        end
+
+        state.function '_rvim_api_del_user_command' do |name|
+          editor.user_commands.delete(name.to_s)
+        end
       end
 
       def self.install_attach_feedkeys_api(state, editor)

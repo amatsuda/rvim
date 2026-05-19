@@ -112,6 +112,26 @@ class TestLuaFn < Test::Unit::TestCase
     assert_match(/rvim/, config)
   end
 
+  def test_fn_stdpath_all_known_what
+    %w[config data cache state log run].each do |what|
+      path = @editor.lua.eval(%(return vim.fn.stdpath("#{what}")))
+      refute_empty path, "#{what} should be non-empty"
+      assert_match(%r{rvim|tmp/rvim}, path, "#{what} should reference rvim")
+    end
+  end
+
+  def test_fn_stdpath_respects_xdg_env
+    prev = ENV['XDG_CONFIG_HOME']
+    ENV['XDG_CONFIG_HOME'] = '/tmp/xdg-test'
+    assert_equal '/tmp/xdg-test/rvim', @editor.lua.eval('return vim.fn.stdpath("config")')
+  ensure
+    ENV['XDG_CONFIG_HOME'] = prev
+  end
+
+  def test_fn_stdpath_unknown_returns_empty
+    assert_equal '', @editor.lua.eval('return vim.fn.stdpath("nope")')
+  end
+
   def test_fn_executable_yes_no
     assert_equal 1, @editor.lua.eval('return vim.fn.executable("ls")').to_i
     assert_equal 0, @editor.lua.eval('return vim.fn.executable("nonexistent_xyz_12345")').to_i

@@ -1750,7 +1750,7 @@ module Rvim
       editor.settings.set(:verbose, saved) if saved
     end
 
-    UserCommand = Struct.new(:name, :nargs, :body, keyword_init: true)
+    UserCommand = Struct.new(:name, :nargs, :body, :callback, :bang_allowed, :range_allowed, keyword_init: true)
 
     USER_COMMAND_RE = /\A(?:-nargs=(?<nargs>[01*+?])\s+)?(?<name>[A-Z][A-Za-z0-9_]*)\s+(?<body>.+)\z/m.freeze
 
@@ -2169,7 +2169,25 @@ module Rvim
 
     def self.execute_user_command(editor, uc, parsed)
       args = parsed.arg.to_s
-      body = uc.body.gsub('<args>', args).gsub('<bang>', parsed.bang ? '!' : '')
+      if uc.callback
+        fargs = args.split(/\s+/).reject(&:empty?)
+        opts = {
+          'name'  => uc.name,
+          'args'  => args,
+          'fargs' => fargs,
+          'bang'  => parsed.bang ? true : false,
+          'line1' => parsed.range&.first || 0,
+          'line2' => parsed.range&.last  || 0,
+          'range' => parsed.range ? 2 : 0,
+          'count' => -1,
+          'mods'  => '',
+          'smods' => {},
+        }
+        uc.callback.call(opts)
+        return
+      end
+
+      body = uc.body.to_s.gsub('<args>', args).gsub('<bang>', parsed.bang ? '!' : '')
       cmd = body.start_with?(':') ? body : ":#{body}"
       sub = parse(cmd)
       execute(editor, sub) if sub
