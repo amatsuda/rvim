@@ -205,17 +205,47 @@ class TestEditor < Test::Unit::TestCase
     @editor.instance_variable_set(:@buffer_of_lines, [+'foo', +'bar'])
     @editor.instance_variable_set(:@line_index, 0)
     @editor.instance_variable_set(:@byte_pointer, 0)
-    # `x` deletes one char; well-tested simple change.
     feed('x', :ed_delete_next_char)
     assert_equal 'oo', @editor.buffer_of_lines[0]
 
-    # Three dots should each delete one more char without recursing.
     assert_nothing_raised do
       3.times { feed('.', :rvim_dot) }
     end
-    # After x . . . we should have eaten 4 chars off "foo"+"bar" line 0.
     assert_equal '', @editor.buffer_of_lines[0]
     refute @editor.last_change_keys.any? { |k| k.method_symbol == :rvim_dot },
            'expected rvim_dot to stay out of last_change_keys'
+  end
+
+  def test_dot_repeats_dd_operator
+    # Regression: `dd` (doubled-key operator) wasn't being frozen
+    # into last_change_keys because the pending-op early-return path
+    # in update skipped freeze_change_if_settled. As a result `.`
+    # after `dd` did nothing — last_change_keys was empty.
+    @editor.instance_variable_set(:@buffer_of_lines, [+'a', +'b', +'c', +'d'])
+    @editor.instance_variable_set(:@line_index, 0)
+    @editor.instance_variable_set(:@byte_pointer, 0)
+    feed('d', :rvim_delete_op)
+    feed('d', :rvim_delete_op)
+    assert_equal ['b', 'c', 'd'], @editor.buffer_of_lines
+    assert_equal %w[d d], @editor.last_change_keys.map(&:char)
+
+    feed('.', :rvim_dot)
+    assert_equal ['c', 'd'], @editor.buffer_of_lines
+    feed('.', :rvim_dot)
+    assert_equal ['d'], @editor.buffer_of_lines
+  end
+
+  def test_dot_repeats_dw_operator
+    # The :dispatch_motion path also early-returned without freezing.
+    @editor.instance_variable_set(:@buffer_of_lines, [+'foo bar baz qux'])
+    @editor.instance_variable_set(:@line_index, 0)
+    @editor.instance_variable_set(:@byte_pointer, 0)
+    feed('d', :rvim_delete_op)
+    feed('w', :vi_next_word)
+    assert_equal 'bar baz qux', @editor.buffer_of_lines[0]
+    assert_equal %w[d w], @editor.last_change_keys.map(&:char)
+
+    feed('.', :rvim_dot)
+    assert_equal 'baz qux', @editor.buffer_of_lines[0]
   end
 end

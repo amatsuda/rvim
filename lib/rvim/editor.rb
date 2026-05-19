@@ -4190,9 +4190,21 @@ module Rvim
       end
 
       if @rvim_pending_op
+        # The second key of an operator (the `d` in `dd`, the `w` in
+        # `dw`) is part of the change too. Record it BEFORE applying
+        # so `.` can replay the full sequence.
+        op_pre_buffer = @buffer_of_lines.map(&:dup)
+        op_pre_mode = editing_mode_label
+        record_change_key(key, false) unless @replaying || dot_replay_key?(key)
+        record_macro_key(key) unless @replaying
+
         action = preprocess_pending_op_key(key)
         case action
-        when :handled then return
+        when :handled
+          sync_current_buffer_lines
+          capture_special_marks(op_pre_buffer, op_pre_mode)
+          freeze_change_if_settled(op_pre_buffer) unless @replaying || dot_replay_key?(key)
+          return
         when :handed_off then return
         when :digit_count
           # Accumulate count for the motion (e.g. d3w). Forward the digit to
@@ -4201,7 +4213,6 @@ module Rvim
           return
         when :dispatch_motion
           pre = [@line_index, @byte_pointer]
-          pre_buffer = @buffer_of_lines.map(&:dup)
           op = @rvim_pending_op
           @rvim_pending_op = nil
           inclusive = inclusive_motion_key?(key)
@@ -4213,10 +4224,12 @@ module Rvim
           # We bypass Reline's input_key, so push undo manually when the
           # operator mutated the buffer. Yank doesn't change the buffer
           # but the snapshot still gets compared, so this is uniform.
-          if pre_buffer != @buffer_of_lines
+          if op_pre_buffer != @buffer_of_lines
             push_undo_redo(true)
           end
           sync_current_buffer_lines
+          capture_special_marks(op_pre_buffer, op_pre_mode)
+          freeze_change_if_settled(op_pre_buffer) unless @replaying || dot_replay_key?(key)
           return
         end
       end
