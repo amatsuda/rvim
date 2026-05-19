@@ -248,4 +248,29 @@ class TestEditor < Test::Unit::TestCase
     feed('.', :rvim_dot)
     assert_equal 'baz qux', @editor.buffer_of_lines[0]
   end
+
+  def test_dw_on_last_word_deletes_to_eol
+    # Vim docs: when "dw" is on a word at the end of a line and there's
+    # no next word, the operation extends through end-of-line. We used
+    # to leave the last char behind ("abc" → "c") because the `w`
+    # motion fell back to the last-char position and our exclusive
+    # trim then dropped the final char from the selection.
+    @editor.instance_variable_set(:@buffer_of_lines, [+'abc'])
+    @editor.instance_variable_set(:@line_index, 0)
+    @editor.instance_variable_set(:@byte_pointer, 0)
+    feed('d', :rvim_delete_op)
+    feed('w', :vi_next_word)
+    assert_equal '', @editor.buffer_of_lines[0]
+  end
+
+  def test_dw_with_following_word_still_excludes_endpoint
+    # Regression guard: the EOL-extension shouldn't trigger when
+    # there's a next word. `dw` on "a b" should delete "a " leaving "b".
+    @editor.instance_variable_set(:@buffer_of_lines, [+'a b'])
+    @editor.instance_variable_set(:@line_index, 0)
+    @editor.instance_variable_set(:@byte_pointer, 0)
+    feed('d', :rvim_delete_op)
+    feed('w', :vi_next_word)
+    assert_equal 'b', @editor.buffer_of_lines[0]
+  end
 end

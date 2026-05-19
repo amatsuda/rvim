@@ -4217,8 +4217,16 @@ module Rvim
           @rvim_pending_op = nil
           inclusive = inclusive_motion_key?(key)
           hint_linewise = linewise_motion?(key)
+          @rvim_word_motion_eol = false
           dispatch_motion_for_op(key)
           post = [@line_index, @byte_pointer]
+          # Vim special case: "dw" on the last word of the line
+          # deletes through end-of-line. advance_word_start sets
+          # @rvim_word_motion_eol when it falls back to the last-char
+          # position because no next word exists. Upgrade to inclusive
+          # so the trailing char is consumed too.
+          inclusive = true if @rvim_word_motion_eol
+          @rvim_word_motion_eol = false
           kind = (hint_linewise || lines_only_motion?(pre, post, hint_linewise)) ? :line : :char
           apply_op_to_range(op, pre, post, kind: kind, inclusive: inclusive)
           # We bypass Reline's input_key, so push undo manually when the
@@ -5875,8 +5883,13 @@ module Rvim
           @byte_pointer = 0
           return true if (@buffer_of_lines[@line_index] || '').empty?
         else
+          # Vim's "last word" special case: when used as a motion under
+          # an operator, `dw` on the last word of the last line should
+          # delete through end-of-line. Mark the fall-back so the op
+          # dispatch can upgrade the motion to inclusive-to-EOL.
           last = @buffer_of_lines[@line_index] || ''
           @byte_pointer = [last.bytesize - last_mbchar_size(last), 0].max
+          @rvim_word_motion_eol = true
           return false
         end
       end
