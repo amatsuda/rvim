@@ -4296,7 +4296,10 @@ module Rvim
       pre_idle = idle_for_recording?
       pre_buffer = @buffer_of_lines.map(&:dup)
       pre_mode = editing_mode_label
-      record_change_key(key, pre_idle) unless @replaying
+      # `.` itself isn't a change — it just replays the last one. If
+      # we recorded it, the next `.` would replay [`.`] which would
+      # recurse into rvim_dot indefinitely.
+      record_change_key(key, pre_idle) unless @replaying || dot_replay_key?(key)
       record_macro_key(key) unless @replaying
 
       if @prompt_mode
@@ -4328,7 +4331,10 @@ module Rvim
 
       sync_current_buffer_lines
       capture_special_marks(pre_buffer, pre_mode)
-      freeze_change_if_settled(pre_buffer) unless @replaying
+      # Same skip as above: a bare `.` keystroke shouldn't update
+      # last_change_keys — that would clobber the actual last change
+      # we're trying to replay.
+      freeze_change_if_settled(pre_buffer) unless @replaying || dot_replay_key?(key)
       update_signature_popup(key, pre_mode)
       maybe_auto_complete_on_trigger(key)
     end
@@ -4638,6 +4644,10 @@ module Rvim
         @rvim_text_object_pending.nil? &&
         @waiting_proc.nil? &&
         editing_mode_label == :vi_command
+    end
+
+    private def dot_replay_key?(key)
+      key && key.method_symbol == :rvim_dot && editing_mode_label == :vi_command
     end
 
     private def record_change_key(key, was_idle)

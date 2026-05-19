@@ -195,4 +195,27 @@ class TestEditor < Test::Unit::TestCase
     feed('w', :vi_next_word)
     assert_equal 2, @editor.last_change_keys.size
   end
+
+  def test_dot_repeats_last_change_without_recursing
+    # Regression for "stack level too deep" when pressing `.` multiple
+    # times: the dot key was getting recorded into last_change_keys,
+    # so the next `.` replayed `[.]` which called rvim_dot, which
+    # replayed `[.]`, ad infinitum. `.` should be transparent to the
+    # change recorder.
+    @editor.instance_variable_set(:@buffer_of_lines, [+'foo', +'bar'])
+    @editor.instance_variable_set(:@line_index, 0)
+    @editor.instance_variable_set(:@byte_pointer, 0)
+    # `x` deletes one char; well-tested simple change.
+    feed('x', :ed_delete_next_char)
+    assert_equal 'oo', @editor.buffer_of_lines[0]
+
+    # Three dots should each delete one more char without recursing.
+    assert_nothing_raised do
+      3.times { feed('.', :rvim_dot) }
+    end
+    # After x . . . we should have eaten 4 chars off "foo"+"bar" line 0.
+    assert_equal '', @editor.buffer_of_lines[0]
+    refute @editor.last_change_keys.any? { |k| k.method_symbol == :rvim_dot },
+           'expected rvim_dot to stay out of last_change_keys'
+  end
 end
