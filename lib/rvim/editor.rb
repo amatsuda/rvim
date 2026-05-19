@@ -4401,7 +4401,7 @@ module Rvim
       return :fall_through if mode.nil?
 
       candidate = @map_pending_keys + ch
-      result, mapping = @keymap.lookup(mode, candidate)
+      result, mapping = chained_keymap_lookup(mode, candidate)
 
       case result
       when :exact
@@ -4419,6 +4419,25 @@ module Rvim
           :consumed
         end
       end
+    end
+
+    # Try the current buffer's local keymap before the global one.
+    # An :exact in the buffer-local table wins over a possibly-still
+    # :prefix global; conversely if local says :none we fall back to
+    # global verbatim. When neither has an exact match but at least
+    # one says :prefix, we keep collecting keys.
+    private def chained_keymap_lookup(mode, candidate)
+      local = @current_buffer&.keymap? ? @current_buffer.keymap : nil
+      if local
+        l_result, l_mapping = local.lookup(mode, candidate)
+        return [l_result, l_mapping] if l_result == :exact
+      end
+      g_result, g_mapping = @keymap.lookup(mode, candidate)
+      return [g_result, g_mapping] if g_result == :exact
+      return [:prefix, nil] if g_result == :prefix
+      return [:prefix, nil] if local && l_result == :prefix
+
+      [:none, nil]
     end
 
     private def current_mapping_mode

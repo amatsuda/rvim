@@ -57,6 +57,18 @@ module Rvim
       @scratch == true
     end
 
+    # Per-buffer keymap, instantiated lazily. Buffer-local mappings
+    # (nvim_buf_set_keymap, vim.keymap.set({ buffer = N })) live
+    # here and take precedence over the editor's global keymap when
+    # this buffer is current.
+    def keymap
+      @keymap ||= Rvim::Keymap.new
+    end
+
+    def keymap?
+      !@keymap.nil?
+    end
+
     def display_name
       @filepath || '[No Name]'
     end

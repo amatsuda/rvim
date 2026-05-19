@@ -127,6 +127,10 @@ module Rvim
           vim.api.nvim_win_close            = _rvim_api_win_close
           vim.api.nvim_win_get_config       = _rvim_api_win_get_config
           vim.api.nvim_win_set_config       = _rvim_api_win_set_config
+
+          -- Buffer-local keymaps.
+          vim.api.nvim_buf_set_keymap       = _rvim_api_buf_set_keymap
+          vim.api.nvim_buf_del_keymap       = _rvim_api_buf_del_keymap
         LUA
       end
 
@@ -217,6 +221,39 @@ module Rvim
         end
 
         install_float_api(state, editor)
+        install_keymap_api(state, editor)
+      end
+
+      def self.install_keymap_api(state, editor)
+        # nvim_buf_set_keymap(bufnr, mode, lhs, rhs, opts)
+        state.function '_rvim_api_buf_set_keymap' do |bufnr, mode_arg, lhs, rhs, opts|
+          buf = resolve_buffer(editor, bufnr)
+          next unless buf
+
+          modes = Rvim::Lua::Keymap.resolve_modes(mode_arg)
+          expanded_lhs = Rvim::Keymap.expand(lhs.to_s, leader: editor.mapleader)
+          opts_h = opts.respond_to?(:to_h) ? opts.to_h : {}
+          recursive = opts_h['noremap'] != true
+          silent    = opts_h['silent'] == true
+          callback  = opts_h['callback']
+          if callback.is_a?(Rufus::Lua::Function)
+            cb = -> { callback.call }
+            buf.keymap.add(modes, expanded_lhs, '', recursive: recursive, silent: silent, callback: cb)
+          else
+            expanded_rhs = Rvim::Keymap.expand(rhs.to_s, leader: editor.mapleader)
+            buf.keymap.add(modes, expanded_lhs, expanded_rhs, recursive: recursive, silent: silent)
+          end
+        end
+
+        # nvim_buf_del_keymap(bufnr, mode, lhs)
+        state.function '_rvim_api_buf_del_keymap' do |bufnr, mode_arg, lhs|
+          buf = resolve_buffer(editor, bufnr)
+          next unless buf
+
+          modes = Rvim::Lua::Keymap.resolve_modes(mode_arg)
+          expanded_lhs = Rvim::Keymap.expand(lhs.to_s, leader: editor.mapleader)
+          buf.keymap.remove(modes, expanded_lhs) if buf.keymap?
+        end
       end
 
       def self.install_float_api(state, editor)

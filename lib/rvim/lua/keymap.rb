@@ -34,13 +34,17 @@ module Rvim
           recursive = opts_h['noremap'] == false || opts_h['remap'] == true
           expanded_lhs = Rvim::Keymap.expand(lhs.to_s, leader: editor.mapleader)
 
+          # opts.buffer routes to a buffer-local keymap. `0` means
+          # current buffer; a positive integer is a specific bufnr.
+          target_keymap = keymap_for(editor, opts_h['buffer'])
+
           if rhs.is_a?(Rufus::Lua::Function)
             cb_lua = rhs
             cb = -> { cb_lua.call }
-            editor.keymap.add(modes, expanded_lhs, '', recursive: recursive, silent: silent, callback: cb)
+            target_keymap.add(modes, expanded_lhs, '', recursive: recursive, silent: silent, callback: cb)
           else
             expanded_rhs = Rvim::Keymap.expand(rhs.to_s, leader: editor.mapleader)
-            editor.keymap.add(modes, expanded_lhs, expanded_rhs, recursive: recursive, silent: silent)
+            target_keymap.add(modes, expanded_lhs, expanded_rhs, recursive: recursive, silent: silent)
           end
         end
 
@@ -56,6 +60,26 @@ module Rvim
             del = function(mode, lhs) _rvim_keymap_del(mode, lhs) end,
           }
         LUA
+      end
+
+      # Resolve where a keymap entry should land based on `opts.buffer`.
+      # nil  → global editor.keymap.
+      # 0    → current buffer's local keymap.
+      # int  → buffer with that id's local keymap (falls back to global
+      #        when no buffer matches, mirroring NeoVim's "silent ignore").
+      def keymap_for(editor, buffer_opt)
+        return editor.keymap if buffer_opt.nil? || buffer_opt == false
+
+        bufnr = case buffer_opt
+                when true then 0
+                else buffer_opt.to_i
+                end
+        target = if bufnr.zero?
+                   editor.current_buffer
+                 else
+                   editor.buffers&.values&.find { |b| b.id == bufnr }
+                 end
+        target ? target.keymap : editor.keymap
       end
 
       def resolve_modes(arg)
