@@ -290,6 +290,40 @@ class TestEditor < Test::Unit::TestCase
     assert_equal ['', 'bar'], @editor.buffer_of_lines
   end
 
+  def test_modified_clears_when_undo_restores_disk_content
+    # User flow: open file, type `x` (delete a char), then `u` (undo).
+    # Buffer matches the on-disk content again, so :q shouldn't warn
+    # "No write since last change".
+    Tempfile.create('rvim_modified') do |tf|
+      tf.write("foo\nbar\n")
+      tf.flush
+      @editor.open(tf.path)
+      refute @editor.modified, 'fresh open should not be modified'
+
+      feed('x', :ed_delete_next_char)
+      assert @editor.modified, 'edit should mark modified'
+
+      feed('u', :undo)
+      assert_equal %w[foo bar], @editor.buffer_of_lines
+      refute @editor.modified,
+             'undo back to on-disk content should clear modified'
+    end
+  end
+
+  def test_modified_stays_true_when_buffer_still_differs
+    # Sanity check: if undo only partially restores (still differs from
+    # disk), modified must stay true.
+    Tempfile.create('rvim_modified') do |tf|
+      tf.write("foo\nbar\n")
+      tf.flush
+      @editor.open(tf.path)
+      feed('x', :ed_delete_next_char)
+      feed('x', :ed_delete_next_char)
+      feed('u', :undo) # only undo one of the two deletions
+      assert @editor.modified
+    end
+  end
+
   def test_dj_stays_linewise
     # Regression guard: linewise motions (j/k/G/H/M/L/{/}/()) still
     # take the linewise path, deleting both lines.

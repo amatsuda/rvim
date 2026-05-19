@@ -4038,6 +4038,9 @@ module Rvim
       File.binwrite(target, content)
       @filepath = target
       @modified = false
+      # New baseline — subsequent undos that land back here should
+      # keep @modified false rather than flip it true.
+      @current_buffer.clean_snapshot = @buffer_of_lines.map(&:dup) if @current_buffer
       # Successful write: remove the transient writebackup if backup setting
       # didn't ask us to keep it.
       if backup && !keep_backup
@@ -4356,8 +4359,20 @@ module Rvim
       # last_change_keys — that would clobber the actual last change
       # we're trying to replay.
       freeze_change_if_settled(pre_buffer) unless @replaying || dot_replay_key?(key)
+      reconcile_modified_with_snapshot
       update_signature_popup(key, pre_mode)
       maybe_auto_complete_on_trigger(key)
+    end
+
+    # After every update tick: if we've drifted back to the on-disk
+    # view (typically via undo), drop @modified so `:q` doesn't warn.
+    # Cheap: skip the full compare when @modified is already false.
+    private def reconcile_modified_with_snapshot
+      return unless @modified
+      return unless @current_buffer&.matches_clean_snapshot?
+
+      @modified = false
+      @current_buffer.modified = false
     end
 
     # Auto-trigger signatureHelp on `(` and `,`; dismiss on `)` or any

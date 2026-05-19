@@ -15,6 +15,13 @@ module Rvim
     # 'wipe' so its prompt/results/preview buffers vanish after the
     # picker closes).
     attr_accessor :scratch, :listed, :bufhidden, :buftype
+    attr_accessor :clean_snapshot
+
+    # True when the buffer content matches the on-disk view from the
+    # last read/save — even if the user has typed and then undone.
+    def matches_clean_snapshot?
+      @clean_snapshot && @lines == @clean_snapshot
+    end
 
     def initialize(id, filepath = nil, encoding: Encoding::UTF_8, scratch: false, listed: true)
       @id = id
@@ -37,6 +44,9 @@ module Rvim
       end
       @lines = [String.new('', encoding: encoding)] if @lines.empty?
       @modified = false
+      # The on-disk view — used to decide whether the buffer is still
+      # "clean" after undos. Refreshed on reload and save.
+      @clean_snapshot = @lines.map(&:dup)
       @marks = Rvim::Marks.new
       @line_index = 0
       @byte_pointer = 0
@@ -133,6 +143,7 @@ module Rvim
       @line_index = @line_index.clamp(0, [@lines.size - 1, 0].max)
       target = @lines[@line_index] || ''
       @byte_pointer = @byte_pointer.clamp(0, [target.bytesize - 1, 0].max)
+      @clean_snapshot = @lines.map(&:dup)
     end
 
     private def decode_with_encoding(raw, target_encoding)
