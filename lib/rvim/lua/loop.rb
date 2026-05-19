@@ -93,6 +93,24 @@ module Rvim
         state.function('_rvim_loop_now')         { (Process.clock_gettime(Process::CLOCK_MONOTONIC) * 1000).to_i }
         state.function('_rvim_loop_hrtime')      { (Process.clock_gettime(Process::CLOCK_MONOTONIC) * 1_000_000_000).to_i }
 
+        # fs_event handle API.
+        state.function '_rvim_fs_event_start' do |path, opts, cb|
+          opts_h = case opts
+                   when Hash then opts
+                   when nil then {}
+                   else (opts.respond_to?(:to_h) ? opts.to_h : {})
+                   end
+          watcher = Rvim::FsWatcher.new(path.to_s, opts: opts_h)
+          cb_lua = cb if cb.is_a?(Rufus::Lua::Function)
+          # libuv-shape callback: (err, filename, events_table).
+          wrapped = if cb_lua
+                      ->(err, filename, events) { cb_lua.call(err, filename, events) }
+                    end
+          editor.fs_events.register(watcher, wrapped)
+        end
+        state.function('_rvim_fs_event_stop')  { |id| editor.fs_events.stop(id.to_i) }
+        state.function('_rvim_fs_event_close') { |id| editor.fs_events.stop(id.to_i) }
+
         state.eval(<<~LUA)
           vim.loop = vim.loop or {}
 
@@ -127,6 +145,25 @@ module Rvim
           function vim.schedule(fn)
             vim.defer_fn(fn, 0)
           end
+
+          -- vim.uv.new_fs_event() — handle:start(path, opts, cb), :stop(), :close()
+          local function make_fs_event()
+            local self = { _id = nil }
+            function self:start(path, opts, cb)
+              self._id = _rvim_fs_event_start(path, opts or {}, cb)
+              return self._id
+            end
+            function self:stop()
+              if self._id then _rvim_fs_event_stop(self._id) end
+            end
+            function self:close()
+              if self._id then _rvim_fs_event_close(self._id); self._id = nil end
+            end
+            return self
+          end
+
+          vim.loop.new_fs_event = make_fs_event
+          -- vim.uv is the same table as vim.loop; new_fs_event reachable there too.
         LUA
       end
     end

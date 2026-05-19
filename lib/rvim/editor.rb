@@ -108,6 +108,7 @@ module Rvim
       @async_commands = [] # [{job: AsyncCommand, buffer: Buffer, label: String}]
       @lsp_watch_buffers = [] # [{buffer:, last_index: Integer}]
       @jobs = Rvim::JobRegistry.new(self)
+      @fs_events = Rvim::FsEventRegistry.new(self)
       @last_code_actions = nil
       @cmdline_popup = nil
       @cmdline_completion_context = nil
@@ -1869,7 +1870,14 @@ module Rvim
       @jobs.drain_all
     end
 
-    attr_reader :jobs
+    # Render-loop hook for vim.uv.new_fs_event. Drains every active
+    # FsWatcher's event queue and fires libuv-shape callbacks on the
+    # main thread.
+    def pump_fs_events
+      @fs_events.drain_all
+    end
+
+    attr_reader :jobs, :fs_events
 
     def pump_async_commands
       return if @async_commands.empty?
@@ -3936,6 +3944,7 @@ module Rvim
     # the editor doesn't leak processes when the user :q's mid-build.
     def finalize
       @jobs.shutdown if @jobs
+      @fs_events.shutdown if @fs_events
       super if defined?(super)
     end
 
@@ -6905,6 +6914,9 @@ module Rvim
             # on_stdout / on_stderr / on_exit callbacks on the main
             # thread, where buffer / state mutations are safe.
             editor.pump_jobs
+            # Drain filesystem watchers (vim.uv.new_fs_event). Polls
+            # paths on background threads; callbacks dispatch here.
+            editor.pump_fs_events
             # Stream new window/log+showMessage entries into any open
             # :LspWatch buffers.
             editor.pump_lsp_watch_buffers

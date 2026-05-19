@@ -16,6 +16,8 @@ end
 require_relative 'rvim/version'
 require_relative 'rvim/job'
 require_relative 'rvim/job_registry'
+require_relative 'rvim/fs_watcher'
+require_relative 'rvim/fs_event_registry'
 require_relative 'rvim/async_command'
 require_relative 'rvim/selection'
 require_relative 'rvim/text_object'
