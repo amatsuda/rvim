@@ -75,6 +75,26 @@ class TestScreenChromeHighlights < Test::Unit::TestCase
     assert_match(/38;2;80;96;112/, bar)
   end
 
+  def test_syntax_picks_up_colorscheme_overrides
+    # Regression: Ruby constants stayed dim/blue under tokyonight
+    # because the syntax painter only consulted the legacy
+    # Rvim::Highlights registry. Colorscheme plugins write to
+    # editor.hl_groups via nvim_set_hl — that needs to win.
+    @editor.hl_groups.define('Constant', 'fg' => '#ff9e64')
+    pre, suf = @screen.send(:syntax_sgr_for, 'Constant')
+    assert_match(/38;2;255;158;100/, pre)
+    refute pre.empty?
+    refute suf.empty?
+  end
+
+  def test_syntax_falls_back_to_legacy_when_group_unset
+    # An rvim-only group that the colorscheme didn't touch should
+    # still come from Rvim::Highlights so existing themes don't
+    # regress.
+    pre, _suf = @screen.send(:syntax_sgr_for, 'Symbol')
+    refute pre.empty?, 'expected legacy fallback for Symbol'
+  end
+
   def test_chrome_defaults_present
     %w[Normal LineNr CursorLineNr StatusLine StatusLineNC
        TabLine TabLineSel EndOfBuffer VertSplit WinSeparator

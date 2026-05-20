@@ -1094,12 +1094,29 @@ module Rvim
         head = out.byteslice(0, s) || +''
         mid = out.byteslice(s, e - s + 1) || +''
         tail = out.byteslice(e + 1, out.bytesize - e - 1) || +''
-        prefix = Rvim::Highlights.ansi_prefix(group)
-        suffix = Rvim::Highlights.ansi_suffix(group)
+        prefix, suffix = syntax_sgr_for(group)
         out = head + prefix + mid + suffix + tail
         added_bytes += prefix.bytesize + suffix.bytesize
       end
       truncate(out, width + added_bytes)
+    end
+
+    # Syntax categories ("Constant", "String", etc.) used to resolve
+    # only through Rvim::Highlights (the legacy 16-color registry).
+    # That left colorscheme plugins like tokyonight without any way
+    # to recolor syntax — nvim_set_hl writes to editor.hl_groups,
+    # which the syntax painter never consulted.
+    #
+    # Prefer the plugin-facing registry first; fall back to the
+    # legacy one for groups the colorscheme hasn't touched.
+    def syntax_sgr_for(group)
+      name = group.to_s
+      pair = @editor.hl_groups.lookup(name)
+      if pair && (!pair.open.empty? || !pair.close.empty?)
+        return [pair.open, pair.close]
+      end
+
+      [Rvim::Highlights.ansi_prefix(name), Rvim::Highlights.ansi_suffix(name)]
     end
 
     def current_language
