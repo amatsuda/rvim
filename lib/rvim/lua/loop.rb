@@ -117,6 +117,8 @@ module Rvim
         state.function('_rvim_fs_event_stop')  { |id| editor.fs_events.stop(id.to_i) }
         state.function('_rvim_fs_event_close') { |id| editor.fs_events.stop(id.to_i) }
 
+        install_uv_spawn(state, editor)
+
         # Synchronous libuv-style filesystem ops. lazy.nvim and many
         # plugins call these without callbacks, expecting a return
         # value or nil on error.
@@ -177,6 +179,76 @@ module Rvim
           vim.loop.new_check   = make_phase_handle
           vim.loop.new_idle    = make_phase_handle
           vim.loop.new_prepare = make_phase_handle
+
+          -- libuv-style spawn + pipes. Backed by Rvim::Job underneath;
+          -- the Ruby side drains stdout/stderr each pump tick and
+          -- routes lines to the registered pipe callbacks.
+          local function make_pipe()
+            local self = { _id = _rvim_uv_new_pipe(false), _closed = false }
+            function self:read_start(cb)
+              _rvim_uv_pipe_read_start(self._id, cb)
+            end
+            function self:read_stop()
+              _rvim_uv_pipe_read_stop(self._id)
+            end
+            function self:write(data)
+              _rvim_uv_pipe_write(self._id, data or "")
+            end
+            function self:close(_force)
+              if not self._closed then
+                self._closed = true
+                _rvim_uv_pipe_close(self._id)
+              end
+            end
+            function self:is_closing()
+              return self._closed or _rvim_uv_pipe_is_closing(self._id)
+            end
+            function self:is_active() return not self._closed end
+            return self
+          end
+
+          vim.loop.new_pipe = make_pipe
+
+          function vim.loop.spawn(cmd, opts, on_exit)
+            opts = opts or {}
+            -- stdio entries can be pipe handles (with _id) or nil; we
+            -- pass the underlying ids to Ruby. Lua tables only carry
+            -- 1-based indexes so unwrap explicitly.
+            local stdio_ids = {}
+            local stdio = opts.stdio or {}
+            for i = 1, 3 do
+              local s = stdio[i]
+              stdio_ids[i] = (type(s) == "table" and s._id) or s or false
+            end
+            local args = opts.args or {}
+            local ruby_opts = {
+              args = args, cwd = opts.cwd, env = opts.env,
+              stdio = stdio_ids,
+            }
+            local res = _rvim_uv_spawn(cmd, ruby_opts, on_exit)
+            -- res is { handle_id, pid }
+            local hid = res[1] or res[1.0]
+            local pid = res[2] or res[2.0]
+            if not hid then return nil, nil end
+
+            local handle = { _id = hid, _closed = false }
+            function handle:close()
+              if not self._closed then
+                self._closed = true
+                _rvim_uv_handle_close(self._id)
+              end
+            end
+            function handle:is_closing() return self._closed end
+            function handle:is_active()  return not self._closed end
+            function handle:kill(sig) _rvim_uv_process_kill(self._id, sig or "TERM") end
+            return handle, pid
+          end
+
+          function vim.loop.process_kill(handle, sig)
+            if handle and handle._id then
+              _rvim_uv_process_kill(handle._id, sig or "TERM")
+            end
+          end
 
           vim.uv = vim.loop  -- modern alias
 
@@ -253,6 +325,214 @@ module Rvim
           -- vim.uv is the modern alias; everything reachable there.
           vim.uv = vim.loop
         LUA
+      end
+
+      # vim.loop.spawn + vim.loop.new_pipe — libuv-style async process
+      # spawn. telescope and plenary's job module use this rather than
+      # the higher-level jobstart/vim.system. We implement the minimal
+      # surface that those plugins need: separate stdin/stdout/stderr
+      # pipes, a read_start callback per pipe, process_kill, and an
+      # on_exit callback. Backed by Rvim::Job (popen3 + thread-drained
+      # queue); we route per-stream data into the registered pipe
+      # callbacks every pump_lua_loop tick.
+      def self.install_uv_spawn(state, editor)
+        editor.instance_variable_set(:@lua_uv_pipes, {}) unless editor.instance_variable_defined?(:@lua_uv_pipes)
+        editor.instance_variable_set(:@lua_uv_jobs,  {}) unless editor.instance_variable_defined?(:@lua_uv_jobs)
+        editor.instance_variable_set(:@lua_uv_next_id, 0) unless editor.instance_variable_defined?(:@lua_uv_next_id)
+
+        pipes = editor.instance_variable_get(:@lua_uv_pipes)
+        jobs  = editor.instance_variable_get(:@lua_uv_jobs)
+        alloc_id = lambda do
+          n = editor.instance_variable_get(:@lua_uv_next_id) + 1
+          editor.instance_variable_set(:@lua_uv_next_id, n)
+          n
+        end
+
+        state.function('_rvim_uv_new_pipe') do |_ipc|
+          id = alloc_id.call
+          # `pending` holds bytes received from the job between
+          # read_stop / read_start cycles. Telescope's LinesPipe
+          # reads one chunk, calls read_stop, then read_start again —
+          # without buffering we'd drop everything after the first
+          # chunk.
+          pipes[id] = {
+            id: id, stream: nil, job_id: nil, cb: nil,
+            closed: false, reading: false, pending: [], eof: false,
+          }
+          id
+        end
+
+        state.function '_rvim_uv_spawn' do |cmd, opts, on_exit|
+          opts_h = opts.respond_to?(:to_h) ? opts.to_h : {}
+          args = lua_array_to_ruby(opts_h['args'])
+          stdio = lua_array_to_ruby(opts_h['stdio'])
+          # stdio is {stdin_pipe_id, stdout_pipe_id, stderr_pipe_id}.
+          # Lua nil entries arrive as nil OR false (the Lua wrapper
+          # substitutes false for nil because arrays can't hold nil).
+          pipe_id = ->(v) { v.is_a?(Numeric) ? v.to_i : nil }
+          stdin_pid  = pipe_id.call(stdio[0])
+          stdout_pid = pipe_id.call(stdio[1])
+          stderr_pid = pipe_id.call(stdio[2])
+
+          job = Rvim::Job.new([cmd.to_s, *args.map(&:to_s)],
+                              cwd: opts_h['cwd']&.to_s,
+                              env: lua_hash_to_ruby(opts_h['env']))
+          jobs[job.id] = {
+            job: job,
+            stdout_pid: stdout_pid,
+            stderr_pid: stderr_pid,
+            on_exit: on_exit.is_a?(Rufus::Lua::Function) ? on_exit : nil,
+            exited: false,
+          }
+          pipes[stdout_pid][:stream] = :stdout if stdout_pid && pipes[stdout_pid]
+          pipes[stdout_pid][:job_id] = job.id  if stdout_pid && pipes[stdout_pid]
+          pipes[stderr_pid][:stream] = :stderr if stderr_pid && pipes[stderr_pid]
+          pipes[stderr_pid][:job_id] = job.id  if stderr_pid && pipes[stderr_pid]
+          pipes[stdin_pid][:stream]  = :stdin  if stdin_pid && pipes[stdin_pid]
+          pipes[stdin_pid][:job_id]  = job.id  if stdin_pid && pipes[stdin_pid]
+          job.start
+
+          # Lua expects { handle_id, pid } — return as plain values; the
+          # wrapper turns the handle_id into a table with methods.
+          [job.id, job.pid || 0]
+        end
+
+        state.function '_rvim_uv_pipe_read_start' do |pid, cb|
+          p = pipes[pid.to_i]
+          if p
+            p[:cb] = cb.is_a?(Rufus::Lua::Function) ? cb : nil
+            p[:reading] = true
+            # Flush anything we buffered while read was stopped.
+            flush_pending_to_cb(p)
+          end
+          0
+        end
+
+        state.function('_rvim_uv_pipe_read_stop') { |pid| (pipes[pid.to_i] || {})[:reading] = false; 0 }
+        state.function '_rvim_uv_pipe_close' do |pid|
+          p = pipes[pid.to_i]
+          if p
+            p[:closed] = true
+            # Closing a stdin pipe must reach the underlying job so
+            # commands like `cat` get an EOF and exit. Stdout/stderr
+            # close is bookkeeping only — the reader threads will see
+            # EOF when the child closes its end.
+            if p[:stream] == :stdin && p[:job_id]
+              entry = jobs[p[:job_id]]
+              entry[:job].close_stdin if entry
+            end
+          end
+          0
+        end
+        state.function('_rvim_uv_pipe_is_closing'){ |pid| ((pipes[pid.to_i] || {})[:closed]) == true }
+
+        state.function '_rvim_uv_pipe_write' do |pid, data|
+          p = pipes[pid.to_i]
+          if p && p[:stream] == :stdin && p[:job_id]
+            entry = jobs[p[:job_id]]
+            entry[:job].write(data.to_s) if entry
+          end
+          0
+        end
+
+        state.function '_rvim_uv_process_kill' do |hid, signal|
+          entry = jobs[hid.to_i]
+          entry[:job].kill(signal.to_s.empty? ? 'TERM' : signal.to_s) if entry
+          0
+        end
+
+        state.function '_rvim_uv_handle_close' do |hid|
+          entry = jobs[hid.to_i]
+          entry[:job].kill('TERM') if entry && !entry[:exited]
+          0
+        end
+
+        # Register a drain hook the editor's main loop will call.
+        editor.instance_variable_set(:@lua_uv_drainer, lambda do
+          jobs.dup.each do |jid, entry|
+            job = entry[:job]
+            # Move job-queue lines into per-pipe pending buffers, then
+            # flush each pipe to its callback if it's currently
+            # reading. Buffering means read_stop/read_start cycles
+            # never drop data.
+            job.drain.each do |stream, line|
+              pid = stream == :stdout ? entry[:stdout_pid] : entry[:stderr_pid]
+              p = pid && pipes[pid]
+              next unless p && !p[:closed]
+
+              p[:pending] << (line + "\n")
+            end
+
+            [entry[:stdout_pid], entry[:stderr_pid]].compact.each do |epid|
+              p = pipes[epid]
+              flush_pending_to_cb(p) if p && !p[:closed]
+            end
+
+            next unless job.done? && !entry[:exited]
+
+            entry[:exited] = true
+            [entry[:stdout_pid], entry[:stderr_pid]].compact.each do |epid|
+              p = pipes[epid]
+              next unless p && !p[:closed]
+
+              p[:eof] = true
+              flush_pending_to_cb(p) # may deliver final nil
+            end
+            if (cb = entry[:on_exit])
+              code = job.exit_status || 0
+              begin
+                cb.call(code, 0)
+              rescue StandardError
+              end
+            end
+          end
+        end)
+      end
+
+      # Drain a pipe's pending buffer to its registered read_start
+      # callback. Stops when the pipe transitions out of reading (the
+      # callback may itself call read_stop). When the pipe has hit EOF
+      # AND the buffer is empty, deliver the final nil.
+      def self.flush_pending_to_cb(p)
+        return unless p[:cb] && p[:reading] && !p[:closed]
+
+        while p[:reading] && !p[:closed] && !p[:pending].empty?
+          chunk = p[:pending].shift
+          begin
+            p[:cb].call(nil, chunk)
+          rescue StandardError
+            # plugin-side bug — keep the loop alive
+          end
+        end
+
+        return unless p[:eof] && p[:pending].empty? && p[:cb] && p[:reading] && !p[:closed]
+
+        begin
+          p[:cb].call(nil, nil)
+        rescue StandardError
+        end
+        p[:eof] = false # delivered
+      end
+
+      def self.lua_array_to_ruby(v)
+        return [] if v.nil?
+        return v if v.is_a?(Array)
+
+        if v.respond_to?(:to_h)
+          h = v.to_h
+          return [] if h.empty?
+
+          (1..h.size).map { |i| h[i] || h[i.to_f] }
+        else
+          []
+        end
+      end
+
+      def self.lua_hash_to_ruby(v)
+        return nil if v.nil?
+        return v if v.is_a?(Hash)
+
+        v.respond_to?(:to_h) ? v.to_h : nil
       end
 
       def self.install_fs_sync(state)

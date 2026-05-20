@@ -176,7 +176,14 @@ module Rvim
 
     def pump_lua_loop
       sched = @lua_scheduler
-      sched&.pump || 0
+      n = sched&.pump || 0
+      # uv-spawn drain: pulls stdout/stderr lines from any libuv-style
+      # spawned process and dispatches them to the registered pipe
+      # callbacks. Telescope/plenary's async finders only produce
+      # output after this fires.
+      drainer = @lua_uv_drainer
+      drainer.call if drainer
+      n
     end
 
     # Re-sync Lua's package.path with the current &runtimepath. Called by
