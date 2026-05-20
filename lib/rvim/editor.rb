@@ -323,8 +323,21 @@ module Rvim
         return true
       end
 
-      File.foreach(expanded) do |line|
-        line = line.chomp
+      # Join vimscript line-continuation: a line whose first
+      # non-whitespace character is `\` is a continuation of the
+      # previous logical line. plenary's plugin/plenary.vim uses
+      # this pattern liberally.
+      logical_lines = []
+      File.foreach(expanded) do |raw|
+        line = raw.chomp
+        if line.lstrip.start_with?('\\') && !logical_lines.empty?
+          logical_lines[-1] << ' ' << line.lstrip.sub(/\A\\/, '').lstrip
+        else
+          logical_lines << line.dup
+        end
+      end
+
+      logical_lines.each do |line|
         next if line.strip.empty?
         next if line.lstrip.start_with?('"', '#')
 

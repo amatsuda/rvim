@@ -1763,7 +1763,12 @@ module Rvim
 
     UserCommand = Struct.new(:name, :nargs, :body, :callback, :bang_allowed, :range_allowed, keyword_init: true)
 
-    USER_COMMAND_RE = /\A(?:-nargs=(?<nargs>[01*+?])\s+)?(?<name>[A-Z][A-Za-z0-9_]*)\s+(?<body>.+)\z/m.freeze
+    # :command [-flag=val ...] Name body
+    # Tolerates any combination of dashed modifiers (-nargs, -complete,
+    # -range, -bang, -bar, -register, -buffer, -addr, -count). We only
+    # care about -nargs for argument-count enforcement; the rest get
+    # parsed-and-ignored so plugin-supplied commands don't 182.
+    USER_COMMAND_RE = /\A(?<flags>(?:-[A-Za-z]+(?:=\S+)?\s+)*)(?<name>[A-Z][A-Za-z0-9_]*)\s+(?<body>.+)\z/m.freeze
 
     def self.execute_user_command_def(editor, parsed)
       arg = parsed.arg.to_s.strip
@@ -1785,7 +1790,8 @@ module Rvim
         return
       end
 
-      editor.user_commands[name] = UserCommand.new(name: name, nargs: m[:nargs] || '0', body: m[:body])
+      nargs = m[:flags][/-nargs=(\S+)/, 1] || '0'
+      editor.user_commands[name] = UserCommand.new(name: name, nargs: nargs, body: m[:body])
     end
 
     def self.execute_user_command_del(editor, parsed)

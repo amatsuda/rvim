@@ -290,6 +290,31 @@ class TestEditor < Test::Unit::TestCase
     assert_equal ['', 'bar'], @editor.buffer_of_lines
   end
 
+  def test_source_joins_vimscript_line_continuations
+    # Regression: plenary's plugin/plenary.vim uses the standard
+    # vimscript pattern of starting follow-on lines with `\` to
+    # continue the previous logical line. Sourcing it produced
+    # spurious "E492: Not an editor command: \" because we parsed
+    # each line independently.
+    Tempfile.create(['rvim_source', '.vim']) do |tf|
+      tf.write(<<~VIM)
+        command! -nargs=1 -complete=file MyCmd
+              \\ echo "hello"
+      VIM
+      tf.flush
+      @editor.source(tf.path)
+      refute_match(/E492|E182/, @editor.status_message.to_s)
+      assert @editor.user_commands.key?('MyCmd'), 'continuation-joined :command should register'
+    end
+  end
+
+  def test_user_command_accepts_complete_and_other_modifiers
+    @editor.instance_variable_set(:@user_commands, {}) if @editor.respond_to?(:user_commands)
+    Rvim::Command.execute(@editor, Rvim::Command.parse(':command! -nargs=1 -complete=file MyFiles echo hi'))
+    assert @editor.user_commands.key?('MyFiles')
+    refute_match(/E182/, @editor.status_message.to_s)
+  end
+
   def test_modified_clears_when_undo_restores_disk_content
     # User flow: open file, type `x` (delete a char), then `u` (undo).
     # Buffer matches the on-disk content again, so :q shouldn't warn
