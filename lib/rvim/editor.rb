@@ -5362,6 +5362,11 @@ module Rvim
         cancel_prompt
         return
       end
+      # Reline can deliver a single byte as either a 1-char String
+      # ("\e") or an Integer (27); normalize so the case branches below
+      # match either shape. Without this, a bare Esc from the terminal
+      # appended literal "27" to the prompt buffer instead of cancelling.
+      ch = ch.chr if ch.is_a?(Integer) && ch >= 0 && ch <= 255
 
       # If we entered a CSI-consume state during a paste burst, keep
       # eating bytes until the sequence terminator — even after the
