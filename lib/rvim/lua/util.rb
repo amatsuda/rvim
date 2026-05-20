@@ -252,21 +252,63 @@ module Rvim
           vim.notify(table.concat(args, "\\t"))
         end
 
-        -- vim.health — :checkhealth dispatch surface. Plugins capture
-        -- vim.health.start/ok/warn/error/info at module-load time and
-        -- call them later when the user runs :checkhealth. We're not
-        -- wiring up :checkhealth yet, so these stay as no-ops.
+        -- vim.health — :checkhealth dispatch surface. Plugins call
+        -- vim.health.start/ok/warn/error/info from a health.check()
+        -- function; we accumulate into _collected so :checkhealth in
+        -- Ruby can read it back and render.
         vim.health = vim.health or {}
-        vim.health.start = vim.health.start or function(_) end
-        vim.health.ok    = vim.health.ok    or function(_) end
-        vim.health.warn  = vim.health.warn  or function(_, _) end
-        vim.health.error = vim.health.error or function(_, _) end
-        vim.health.info  = vim.health.info  or function(_) end
+        vim.health._collected = vim.health._collected or {}
+
+        local function _emit(kind, msg, advice)
+          table.insert(vim.health._collected, {
+            kind = kind,
+            msg  = tostring(msg or ""),
+            advice = advice,
+          })
+        end
+
+        vim.health.start = function(name) _emit("start", name) end
+        vim.health.ok    = function(msg)  _emit("ok",    msg) end
+        vim.health.warn  = function(msg, advice) _emit("warn",  msg, advice) end
+        vim.health.error = function(msg, advice) _emit("error", msg, advice) end
+        vim.health.info  = function(msg)  _emit("info",  msg) end
         vim.health.report_start = vim.health.start
         vim.health.report_ok    = vim.health.ok
         vim.health.report_warn  = vim.health.warn
         vim.health.report_error = vim.health.error
         vim.health.report_info  = vim.health.info
+
+        -- Run a single health module's check() and return a flat
+        -- array suitable for Ruby pushback. Each entry is
+        -- {kind, msg, advice_or_""}.
+        function vim.health._run(modname)
+          vim.health._collected = {}
+          local ok, mod = pcall(require, modname)
+          if not ok then
+            return { { kind = "error", msg = "failed to load " .. modname .. ": " .. tostring(mod), advice = "" } }
+          end
+          if type(mod) ~= "table" or type(mod.check) ~= "function" then
+            return { { kind = "error", msg = modname .. " has no check() function", advice = "" } }
+          end
+          local ok2, err = pcall(mod.check)
+          if not ok2 then
+            table.insert(vim.health._collected, { kind = "error", msg = "check() crashed: " .. tostring(err), advice = "" })
+          end
+          -- Return a copy with advice normalized — Rufus can't push
+          -- back nested tables of mixed types cleanly otherwise.
+          local out = {}
+          for i, e in ipairs(vim.health._collected) do
+            local advice_str = ""
+            if type(e.advice) == "table" then
+              advice_str = table.concat(e.advice, "\\n")
+            elseif e.advice ~= nil then
+              advice_str = tostring(e.advice)
+            end
+            out[i] = { kind = e.kind, msg = e.msg, advice = advice_str }
+          end
+          vim.health._collected = {}
+          return out
+        end
 
         -- vim.F — function helpers; lazy uses vim.F.pack_len/unpack_len.
         vim.F = vim.F or {}

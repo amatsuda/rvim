@@ -246,6 +246,7 @@ module Rvim
              when 'diffsplit', 'diffs' then :diffsplit
              when 'hi', 'highlight' then :hi
              when 'colorscheme', 'colo' then :colorscheme
+             when 'checkhealth', 'checkh' then :checkhealth
              when 'digraph', 'digraphs', 'dig' then :digraphs
              when 'tag', 'ta' then :tag
              when 'tags' then :tags_list
@@ -589,6 +590,8 @@ module Rvim
         execute_hi(editor, parsed)
       when :colorscheme
         execute_colorscheme(editor, parsed)
+      when :checkhealth
+        execute_checkhealth(editor, parsed)
       when :digraphs
         execute_digraphs(editor, parsed)
       when :tag
@@ -1127,6 +1130,104 @@ module Rvim
     # Walk &runtimepath (matches NeoVim) plus our legacy ~/.config
     # fallbacks. Lua plugins live under runtime/colors/*.lua; the
     # historical ones were .vim.
+    # :checkhealth [name1 name2 ...]
+    #
+    # Bare form discovers every `lua/<plugin>/health.lua` (or
+    # `lua/<plugin>/health/init.lua`) on runtimepath and runs each.
+    # Named form runs only the listed plugins' health.check().
+    # Output goes into a new scratch buffer named "[health]".
+    def self.execute_checkhealth(editor, parsed)
+      arg = parsed.arg.to_s.strip
+      runtime = editor.lua
+      unless runtime&.available?
+        editor.status_message = 'Lua unavailable: cannot run :checkhealth'
+        return
+      end
+
+      targets = if arg.empty?
+                  discover_health_modules(editor)
+                else
+                  arg.split(/\s+/).map { |n| n.include?('.') ? n : "#{n}.health" }
+                end
+
+      if targets.empty?
+        editor.status_message = 'No health checks found'
+        return
+      end
+
+      lines = []
+      targets.each do |modname|
+        lines << ('=' * 78)
+        lines << modname
+        lines << ''
+        entries = run_health_check(runtime, modname)
+        render_health_entries(entries).each { |l| lines << l }
+        lines << ''
+      end
+
+      open_health_buffer(editor, lines)
+    end
+
+    def self.discover_health_modules(editor)
+      rtp = editor.settings.get(:runtimepath).to_s.split(',').map { |p| File.expand_path(p.strip) }.reject(&:empty?)
+      seen = {}
+      rtp.each do |dir|
+        Dir.glob(File.join(dir, 'lua', '*', 'health.lua')).each do |path|
+          name = File.basename(File.dirname(path))
+          seen["#{name}.health"] ||= true
+        end
+        Dir.glob(File.join(dir, 'lua', '*', 'health', 'init.lua')).each do |path|
+          name = File.basename(File.dirname(File.dirname(path)))
+          seen["#{name}.health"] ||= true
+        end
+      end
+      seen.keys.sort
+    end
+
+    def self.run_health_check(runtime, modname)
+      # The Lua side returns an array of {kind, msg, advice} entries.
+      result = runtime.eval("return vim.health._run(#{modname.inspect})")
+      return [] unless result.respond_to?(:to_h)
+
+      h = result.to_h
+      (1..h.size).map { |i| (h[i] || h[i.to_f]) }.compact.map do |entry|
+        eh = entry.respond_to?(:to_h) ? entry.to_h : {}
+        { 'kind' => eh['kind'].to_s, 'msg' => eh['msg'].to_s, 'advice' => eh['advice'].to_s }
+      end
+    end
+
+    HEALTH_MARKS = {
+      'start' => '##',
+      'ok'    => 'OK',
+      'warn'  => 'WARNING',
+      'error' => 'ERROR',
+      'info'  => 'INFO',
+    }.freeze
+
+    def self.render_health_entries(entries)
+      out = []
+      entries.each do |e|
+        if e['kind'] == 'start'
+          out << "## #{e['msg']}"
+        else
+          mark = HEALTH_MARKS[e['kind']] || e['kind'].upcase
+          out << "- #{mark}: #{e['msg']}"
+          e['advice'].to_s.split("\n").each { |a| out << "    #{a}" } unless e['advice'].to_s.empty?
+        end
+      end
+      out
+    end
+
+    def self.open_health_buffer(editor, lines)
+      buf = Rvim::Buffer.new(editor.next_buffer_id_bump!, '[health]',
+                             encoding: editor.encoding, scratch: true, listed: false)
+      buf.lines = lines.map { |l| String.new(l.to_s, encoding: editor.encoding) }
+      buf.lines = [String.new('', encoding: editor.encoding)] if buf.lines.empty?
+      editor.register_buffer(buf)
+      editor.swap_to_buffer(buf)
+      editor.status_message = nil
+    end
+
     def self.find_colorscheme(editor, name)
       rtp = editor.settings.get(:runtimepath).to_s.split(',').map { |p| File.expand_path(p.strip) }.reject(&:empty?)
       candidates = rtp.flat_map do |dir|
