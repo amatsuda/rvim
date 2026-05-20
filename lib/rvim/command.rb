@@ -4,7 +4,11 @@ module Rvim
   class Command
     Parsed = Struct.new(:verb, :arg, :bang, :line_number, :sub, :range, :set_options, keyword_init: true)
 
-    SET_TOKEN_RE = /\A(no)?(\w+)(?:=(\S+))?\??\z/
+    # Value side allows anything that isn't an unescaped space — the
+    # tokenizer (split_set_args) already stops on those. So `\ ` and
+    # any other non-whitespace bytes (including '#', '%', '/') are
+    # valid value characters.
+    SET_TOKEN_RE = /\A(no)?(\w+)(?:=(.+))?\??\z/
 
     SUBSTITUTE_RE = %r{
       \A
@@ -272,7 +276,13 @@ module Rvim
     end
 
     def self.parse_set(args)
-      args.to_s.split(/\s+/).map do |tok|
+      # Tokenize on UNESCAPED whitespace so values can contain spaces
+      # via vim's standard "\ " escape:
+      #   :setlocal commentstring=#\ %s
+      # Without this, the space splits the value off ("commentstring=#"
+      # and "%s") and gcc loses the placeholder.
+      tokens = split_set_args(args.to_s)
+      tokens.map do |tok|
         m = tok.match(SET_TOKEN_RE)
         next unless m
 
@@ -280,12 +290,35 @@ module Rvim
         if m[1] == 'no'
           [name, false]
         elsif m[3]
-          val = m[3].match?(/\A\d+\z/) ? m[3].to_i : m[3]
+          raw = m[3].gsub(/\\(.)/, '\1') # collapse \X -> X (space, comma, etc.)
+          val = raw.match?(/\A\d+\z/) ? raw.to_i : raw
           [name, val]
         else
           [name, true]
         end
       end.compact
+    end
+
+    def self.split_set_args(str)
+      out = []
+      cur = +''
+      i = 0
+      while i < str.length
+        c = str[i]
+        if c == '\\' && i + 1 < str.length
+          cur << c << str[i + 1]
+          i += 2
+        elsif c =~ /\s/
+          out << cur unless cur.empty?
+          cur = +''
+          i += 1
+        else
+          cur << c
+          i += 1
+        end
+      end
+      out << cur unless cur.empty?
+      out
     end
 
     def self.parse_range(token)

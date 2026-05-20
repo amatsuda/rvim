@@ -31,8 +31,16 @@ class TestSyntaxJavascript < Test::Unit::TestCase
   end
 
   def test_detect_language
+    # ts / tsx now report :typescript (matching NeoVim) so LSP / plugin
+    # gating works; the painter aliases back to :javascript for
+    # tokenization via LANG_ALIASES.
     assert_equal :javascript, Rvim::Syntax.detect_language('foo.js')
-    assert_equal :javascript, Rvim::Syntax.detect_language('app.tsx')
+    assert_equal :typescript, Rvim::Syntax.detect_language('app.tsx')
     assert_equal :javascript, Rvim::Syntax.detect_language('mod.mjs')
+  end
+
+  def test_typescript_aliases_javascript_painter
+    segments = Rvim::Syntax.highlight('const x = "hi"', :typescript)
+    refute_empty segments
   end
 end

@@ -291,6 +291,14 @@ module Rvim
         load_persistent_undo(path) if path && @settings.get(:undofile)
         @autocommands&.fire(:bufread, path.to_s, self)
         ft = Rvim::Syntax.detect_language(path)
+        if ft
+          # ftplugin sourcing has to happen AFTER swap_to_buffer so
+          # `:setlocal commentstring=...` lands on the right buffer
+          # (find_or_create_buffer pre-swap leaves @current_buffer as
+          # whatever was current before).
+          Rvim::FileType.run(ft, buf, self)
+          load_filetype_scripts(ft)
+        end
         @autocommands&.fire(:filetype, ft.to_s, self) if ft
         lsp.did_open(buf) if path && @settings.get(:lsp_enabled)
       end
@@ -407,12 +415,8 @@ module Rvim
       @buffers[buf.id] = buf
       @buffer_order << buf.id
 
-      ft = Rvim::Syntax.detect_language(path)
-      if ft
-        Rvim::FileType.run(ft, buf, self)
-        load_filetype_scripts(ft)
-      end
-
+      # ft hooks + ftplugin scripts run in `open` after swap_to_buffer
+      # so `:setlocal` lands on the right buffer.
       buf
     end
 
