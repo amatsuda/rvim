@@ -299,6 +299,32 @@ class TestLuaLazyShims < Test::Unit::TestCase
     assert_equal 'false', @editor.lua.eval(%(return tostring(vim.list_contains({"a", "b", "c"}, "z"))))
   end
 
+  def test_io_popen_read_all_returns_full_output
+    # Regression: LuaJIT's embedded io.popen():read("*a") returned nil
+    # in our environment, which broke telescope.health's version probe
+    # (it does `local handle = io.popen(bin .. " --version"); local v
+    # = handle:read("*a")`). We now shim io.popen via vim.fn.system,
+    # so read("*a") returns the full output reliably.
+    out = @editor.lua.eval(<<~LUA)
+      local h = io.popen("echo hello world")
+      local s = h:read("*a")
+      h:close()
+      return s
+    LUA
+    assert_match(/hello world/, out.to_s)
+  end
+
+  def test_io_popen_read_line
+    out = @editor.lua.eval(<<~LUA)
+      local h = io.popen("printf 'first\\nsecond\\n'")
+      local first = h:read("*l")
+      local second = h:read("*l")
+      h:close()
+      return tostring(first) .. "|" .. tostring(second)
+    LUA
+    assert_equal 'first|second', out
+  end
+
   def test_vim_fn_expand_glob_list_form_returns_array
     Dir.mktmpdir('rvim-expand-') do |dir|
       File.write(File.join(dir, 'a.txt'), '')

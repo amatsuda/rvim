@@ -355,6 +355,55 @@ module Rvim
         function vim.hl.on_yank(_opts) end
         vim.highlight = vim.highlight or vim.hl
 
+        -- io.popen — LuaJIT's built-in popen is broken in rvim's
+        -- embedded environment: read("*a") returns nil because the
+        -- child's stdout never gets fully drained before close().
+        -- Replace with a handle backed by vim.fn.system, which runs
+        -- the command to completion and gives us the full output up
+        -- front. Plugins like telescope.health rely on read("*a").
+        if not io.popen or true then
+          local orig_popen = io.popen
+          io.popen = function(cmd, _mode)
+            local out = vim.fn.system(cmd)
+            local exit = vim.v.shell_error or 0
+            local h = { _data = out or "", _exit = exit, _closed = false }
+            function h:read(fmt)
+              if self._closed then return nil end
+              fmt = fmt or "*l"
+              if fmt == "*a" or fmt == "a" then
+                local rest = self._data
+                self._data = ""
+                return rest
+              elseif fmt == "*l" or fmt == "l" or fmt == "*L" or fmt == "L" then
+                if #self._data == 0 then return nil end
+                local nl = self._data:find("\\n", 1, true)
+                if nl then
+                  local line = self._data:sub(1, nl - (fmt == "*L" and 0 or 1))
+                  self._data = self._data:sub(nl + 1)
+                  return line
+                end
+                local rest = self._data
+                self._data = ""
+                return rest
+              elseif fmt == "*n" or fmt == "n" then
+                local m = self._data:match("^%s*(%-?%d+%.?%d*)")
+                if m then self._data = self._data:sub(#m + 1); return tonumber(m) end
+                return nil
+              elseif type(fmt) == "number" then
+                if #self._data == 0 then return nil end
+                local chunk = self._data:sub(1, fmt)
+                self._data = self._data:sub(fmt + 1)
+                return chunk
+              end
+              return nil
+            end
+            function h:lines() return function() return self:read("*l") end end
+            function h:close() self._closed = true; return true, "exit", self._exit end
+            function h:write(_) return nil end  -- read-only
+            return h
+          end
+        end
+
         -- vim.in_fast_event — true while running inside a libuv fast
         -- callback (where most vim.* calls are forbidden). rvim has
         -- no real libuv loop, so we're never in one.
