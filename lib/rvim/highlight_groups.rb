@@ -37,6 +37,36 @@ module Rvim
       'Type'               => [+"\e[38;5;178m", +"\e[39m"],
       'ErrorMsg'           => [+"\e[1;38;5;196m", +"\e[22;39m"],
       'WarningMsg'         => [+"\e[1;38;5;214m", +"\e[22;39m"],
+
+      # Chrome groups (line numbers, statusline, tabline, separators,
+      # empty-line markers). Defaults mirror the editor's pre-existing
+      # hardcoded look so unstyled rvim stays visually unchanged;
+      # colorscheme plugins (e.g. tokyonight) re-register these to
+      # paint the chrome with their palette.
+      'Normal'             => [+'',             +''],
+      'NormalNC'           => [+'',             +''],
+      'EndOfBuffer'        => [+"\e[2m",        +"\e[22m"],  # dim '~' marker
+      'NonText'            => [+"\e[2m",        +"\e[22m"],
+      'LineNr'             => [+"\e[2m",        +"\e[22m"],  # dim number
+      'LineNrAbove'        => [+"\e[2m",        +"\e[22m"],
+      'LineNrBelow'        => [+"\e[2m",        +"\e[22m"],
+      'CursorLineNr'       => [+'',             +''],
+      'SignColumn'         => [+'',             +''],
+      'StatusLine'         => [+"\e[7m",        +"\e[27m"],  # reverse video
+      'StatusLineNC'       => [+"\e[2;7m",      +"\e[22;27m"], # dim+reverse
+      'TabLine'            => [+"\e[2m",        +"\e[22m"],
+      'TabLineSel'         => [+"\e[7m",        +"\e[27m"],
+      'TabLineFill'        => [+'',             +''],
+      'VertSplit'          => [+'',             +''],
+      'WinSeparator'       => [+'',             +''],
+      'FoldColumn'         => [+'',             +''],
+      'Folded'             => [+"\e[2m",        +"\e[22m"],
+      'ColorColumn'        => [+"\e[48;5;236m", +"\e[49m"],
+      'CursorColumn'       => [+"\e[48;5;236m", +"\e[49m"],
+      'Title'              => [+"\e[1m",        +"\e[22m"],
+      'Directory'          => [+"\e[38;5;81m",  +"\e[39m"],
+      'Question'           => [+"\e[38;5;220m", +"\e[39m"],
+      'MoreMsg'            => [+"\e[38;5;81m",  +"\e[39m"],
     }.freeze
 
     def initialize

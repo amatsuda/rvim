@@ -30,6 +30,17 @@ module Rvim
       @cols = 80
     end
 
+    # Wrap `text` in the SGR open/close pair from the named highlight
+    # group. Falls back to the unstyled text when the group isn't
+    # registered (shouldn't happen for the chrome defaults, but
+    # keeps the renderer resilient if a plugin clears the registry).
+    def hl(name, text)
+      pair = @editor.hl_groups.lookup(name)
+      return text.to_s unless pair && (!pair.open.empty? || !pair.close.empty?)
+
+      "#{pair.open}#{text}#{pair.close}"
+    end
+
     def scroll_top
       @editor.current_window&.scroll_top || 0
     end
@@ -273,7 +284,7 @@ module Rvim
         line_idx, byte_off, segment, is_fold = row
         if line_idx.nil?
           gutter = ' ' * gw
-          rendered = '~'
+          rendered = hl('EndOfBuffer', '~')
         elsif is_fold
           gutter = gutter_text(line_idx, cursor_idx, buffer.lines.size, gw, true, sign_w: sign_w)
           rendered = truncate_to_width(segment, content_width)
@@ -349,12 +360,11 @@ module Rvim
       ls = @editor.settings.get(:laststatus).to_i
       show_status = ls >= 2 || (ls == 1 && @editor.windows.size > 1)
       if show_status
-        # Per-window status row at the bottom of the window.
+        # Per-window status row at the bottom of the window. Active
+        # window uses StatusLine; the others use StatusLineNC.
         out << move_to(win.row + win.height, win.col + 1)
-        out << (is_current ? REVERSE_ON : DIM_ON + REVERSE_ON)
-        out << pad_to_width(truncate_to_width(window_status(win, is_current), win.width), win.width)
-        out << REVERSE_OFF
-        out << DIM_OFF unless is_current
+        text = pad_to_width(truncate_to_width(window_status(win, is_current), win.width), win.width)
+        out << hl(is_current ? 'StatusLine' : 'StatusLineNC', text)
       end
 
       if is_current && @editor.completion_popup && !@editor.completion_popup.empty?
@@ -869,13 +879,10 @@ module Rvim
 
       parts = tabs.each_with_index.map do |tab, i|
         label = " #{i + 1}: #{tab.display_name} "
-        if i == @editor.current_tab_index
-          REVERSE_ON + label + REVERSE_OFF
-        else
-          DIM_ON + label + DIM_OFF
-        end
+        hl(i == @editor.current_tab_index ? 'TabLineSel' : 'TabLine', label)
       end
-      tabline = parts.join('|')
+      sep = hl('TabLine', '|')
+      tabline = parts.join(sep)
       move_to(1, 1) + ERASE_LINE + truncate(tabline, @cols + 200)
     end
 
@@ -902,10 +909,11 @@ module Rvim
       return '' if @editor.windows.size < 2
 
       out = +''
+      bar = hl('WinSeparator', '│')
       @editor.windows[0..-2].each do |win|
         col = win.col + win.width + 1
         win.height.times do |i|
-          out << move_to(win.row + i + 1, col) << '│'
+          out << move_to(win.row + i + 1, col) << bar
         end
       end
       out
@@ -1027,7 +1035,10 @@ module Rvim
       if number_w <= 0
         sign_cell
       else
-        DIM_ON + number.rjust(number_w - 1) + ' ' + DIM_OFF + sign_cell
+        # Colorscheme can customize LineNr / CursorLineNr; default
+        # mirrors the historical `DIM_ON ... DIM_OFF` look.
+        group = (idx == cursor_idx) ? 'CursorLineNr' : 'LineNr'
+        hl(group, number.rjust(number_w - 1) + ' ') + sign_cell
       end
     end
 
