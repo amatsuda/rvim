@@ -29,13 +29,13 @@ class TestLuaFn < Test::Unit::TestCase
   def test_fn_has_nvim_version_gate_accepts_versions_we_claim
     # lazy.nvim probes has("nvim-0.8.0"); we claim 0.10 so anything
     # at-or-below should return 1.
-    %w[nvim-0 nvim-0.7 nvim-0.8.0 nvim-0.9.5 nvim-0.10 nvim-0.10.0].each do |feat|
+    %w[nvim-0 nvim-0.7 nvim-0.8.0 nvim-0.9.5 nvim-0.10 nvim-0.11.0].each do |feat|
       assert_equal 1, @editor.lua.eval(%(return vim.fn.has("#{feat}"))).to_i, "expected has(#{feat}) == 1"
     end
   end
 
   def test_fn_has_nvim_version_gate_rejects_future_versions
-    %w[nvim-0.11 nvim-0.99 nvim-1.0 nvim-2].each do |feat|
+    %w[nvim-0.12 nvim-0.99 nvim-1.0 nvim-2].each do |feat|
       assert_equal 0, @editor.lua.eval(%(return vim.fn.has("#{feat}"))).to_i, "expected has(#{feat}) == 0"
     end
   end

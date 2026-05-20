@@ -33,7 +33,14 @@ module Rvim
         end
 
         state.function '_rvim_opt_get' do |name|
-          editor.settings.get(name.to_s)
+          # Screen-shape options aren't stored in settings — they're
+          # whatever the terminal reports right now. Same shape as
+          # vim's `&lines` / `&columns`.
+          case name.to_s
+          when 'lines'   then (Reline::IOGate.get_screen_size[0] rescue 24)
+          when 'columns' then (Reline::IOGate.get_screen_size[1] rescue 80)
+          else editor.settings.get(name.to_s)
+          end
         end
 
         # Buffer-local setter/getter.

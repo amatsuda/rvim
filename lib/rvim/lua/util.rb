@@ -279,10 +279,69 @@ module Rvim
         end
         function vim.F.if_nil(v, default) if v == nil then return default else return v end end
 
+        -- vim.hl — nvim 0.11+ namespace replacing vim.highlight.
+        -- range(bufnr, ns, hl_group, start, end[, opts]) lights up a
+        -- byte range with the given group. We forward to extmarks.
+        vim.hl = vim.hl or {}
+        function vim.hl.range(bufnr, ns, hl_group, start, finish, opts)
+          opts = opts or {}
+          if start and finish then
+            local ok = pcall(vim.api.nvim_buf_set_extmark, bufnr, ns, start[1], start[2], {
+              end_row = finish[1], end_col = finish[2],
+              hl_group = hl_group, priority = opts.priority or 100,
+            })
+            return ok
+          end
+        end
+        function vim.hl.on_yank(_opts) end
+        vim.highlight = vim.highlight or vim.hl
+
         -- vim.in_fast_event — true while running inside a libuv fast
         -- callback (where most vim.* calls are forbidden). rvim has
         -- no real libuv loop, so we're never in one.
         function vim.in_fast_event() return false end
+
+        -- vim.validate — type-check helper. Two signatures:
+        --   * Legacy (pre-0.11):  vim.validate({ name = {value, type[, optional]}, ... })
+        --   * Positional (0.11+): vim.validate(name, value, type[, message_or_optional])
+        local function _validate_one(name, value, expected, optional)
+          if value == nil then
+            if not optional then
+              error("validate: " .. tostring(name) .. " is required", 3)
+            end
+            return
+          end
+          if type(expected) == "string" then
+            if expected ~= "any" and type(value) ~= expected then
+              error("validate: " .. tostring(name) .. " expected " .. expected ..
+                    ", got " .. type(value), 3)
+            end
+          elseif type(expected) == "function" then
+            if not expected(value) then
+              error("validate: " .. tostring(name) .. " failed predicate", 3)
+            end
+          end
+        end
+
+        function vim.validate(a, b, c, d)
+          if type(a) == "string" then
+            -- Positional form. d is either a message (string) or
+            -- optional (bool) depending on caller; treat both safely.
+            local optional = (d == true)
+            _validate_one(a, b, c, optional)
+            return true
+          end
+
+          if type(a) == "table" then
+            for name, spec in pairs(a) do
+              if type(spec) == "table" then
+                _validate_one(name, spec[1], spec[2], spec[3])
+              end
+            end
+            return true
+          end
+          return true
+        end
 
         -- vim.is_callable — type-check helper.
         function vim.is_callable(f)

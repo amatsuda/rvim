@@ -60,6 +60,28 @@ module Rvim
         state.function('vim.fn.localtime')    { Time.now.to_i }
         state.function('vim.fn.strftime')     { |fmt, time| Time.at((time || Time.now.to_i).to_i).strftime(fmt.to_s) }
         state.function('vim.fn.getcompletion'){ |pat, type, _filt| getcompletion(editor, pat.to_s, type.to_s) }
+        # Window-type probes used by telescope to detect "are we in a
+        # quickfix/preview?". rvim only has normal and floating windows;
+        # return "" for both (NeoVim semantics for normal windows).
+        state.function('vim.fn.win_gettype') { |_winid| '' }
+        # Prompt-buffer ("buftype=prompt") helpers — used by telescope's
+        # input line. Real impl drives Enter-key callback semantics in
+        # the buffer; we stub the setters so plugin setup doesn't
+        # crash. Actual prompt-mode input still flows through rvim's
+        # normal ex-input path.
+        state.function('vim.fn.prompt_setprompt')   { |_bufnr, _str| 0 }
+        state.function('vim.fn.prompt_setcallback') { |_bufnr, _cb|  0 }
+        state.function('vim.fn.prompt_setinterrupt'){ |_bufnr, _cb|  0 }
+        state.function('vim.fn.prompt_getprompt')   { |_bufnr| '' }
+        state.function('vim.fn.win_getid')   { |_winnr, _tabnr| editor.current_window&.id || 0 }
+        state.function('vim.fn.win_id2win')  { |_winid| 1 }
+        state.function('vim.fn.winnr')       { |_arg| (editor.windows || []).index(editor.current_window).to_i + 1 }
+        state.function('vim.fn.winwidth')    { |_winid|
+          (Reline::IOGate.get_screen_size[1] rescue 80)
+        }
+        state.function('vim.fn.winheight')   { |_winid|
+          (Reline::IOGate.get_screen_size[0] rescue 24)
+        }
 
         # Character / byte utilities. keytrans is normally the inverse
         # of nvim_replace_termcodes — translates internal byte
@@ -232,7 +254,7 @@ module Rvim
       # unlocks the modern plugin path (autocmds API, vim.system,
       # vim.loop→vim.uv, vim.loader) without forcing us to also
       # implement every 0.11+ surface.
-      CLAIMED_NVIM_VERSION = [0, 10, 0].freeze
+      CLAIMED_NVIM_VERSION = [0, 11, 0].freeze
 
       def has?(feat)
         # nvim-X[.Y[.Z]] version gate.

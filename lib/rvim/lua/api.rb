@@ -97,8 +97,20 @@ module Rvim
           vim.api.nvim_win_get_height       = _rvim_api_win_get_height
           vim.api.nvim_win_set_height       = _rvim_api_win_set_height
           vim.api.nvim_win_get_width        = _rvim_api_win_get_width
+          vim.api.nvim_win_set_width        = _rvim_api_win_set_width
           vim.api.nvim_win_get_buf          = _rvim_api_win_get_buf
+          vim.api.nvim_win_set_buf          = _rvim_api_win_set_buf
+          vim.api.nvim_win_get_position     = _rvim_api_win_get_position
+          vim.api.nvim_win_get_tabpage      = _rvim_api_win_get_tabpage
+          vim.api.nvim_win_get_number       = _rvim_api_win_get_number
+          vim.api.nvim_win_call             = _rvim_api_win_call
           vim.api.nvim_get_current_win      = _rvim_api_get_current_win
+          vim.api.nvim_set_current_win      = _rvim_api_set_current_win
+          vim.api.nvim_get_current_tabpage  = _rvim_api_get_current_tabpage
+          vim.api.nvim_list_tabpages        = _rvim_api_list_tabpages
+          vim.api.nvim_tabpage_list_wins    = _rvim_api_tabpage_list_wins
+          vim.api.nvim_tabpage_get_number   = _rvim_api_tabpage_get_number
+          vim.api.nvim_tabpage_is_valid     = _rvim_api_tabpage_is_valid
 
           vim.api.nvim_list_bufs            = _rvim_api_list_bufs
           vim.api.nvim_buf_is_valid         = _rvim_api_buf_is_valid
@@ -118,8 +130,13 @@ module Rvim
           vim.api.nvim_set_option           = _rvim_api_set_option
           vim.api.nvim_get_option_value     = _rvim_api_get_option_value
           vim.api.nvim_set_option_value     = _rvim_api_set_option_value
+          -- Legacy per-scope option setters (deprecated in 0.7+ but
+          -- plenary/telescope still use them).
+          vim.api.nvim_win_get_option       = function(_w, n) return _rvim_api_get_option(n) end
+          vim.api.nvim_win_set_option       = function(_w, n, v) _rvim_api_set_option(n, v) end
           vim.api.nvim_get_mode             = _rvim_api_get_mode
           vim.api.nvim_command              = _rvim_api_command
+          vim.api.nvim_call_function        = _rvim_api_call_function
           vim.api.nvim_echo                 = _rvim_api_echo
           vim.api.nvim_err_writeln          = _rvim_api_err_writeln
           vim.api.nvim_out_write            = _rvim_api_out_write
@@ -238,6 +255,25 @@ module Rvim
         state.function '_rvim_api_command' do |cmd|
           parsed = Rvim::Command.parse(cmd.to_s)
           Rvim::Command.execute(editor, parsed) if parsed
+        end
+
+        # nvim_call_function(name, args) — invoke a vim function by
+        # name. Equivalent to vim.fn[name](unpack(args)). Plenary's
+        # log module and many telescope helpers use this rather than
+        # the dotted vim.fn.foo form.
+        state.function '_rvim_api_call_function' do |fname, fargs|
+          fn = state.eval("return vim.fn[#{fname.to_s.inspect}]")
+          next nil if fn.nil?
+
+          args = if fargs.respond_to?(:to_h)
+                   h = fargs.to_h
+                   (1..h.size).map { |i| h[i] || h[i.to_f] }
+                 elsif fargs.is_a?(Array)
+                   fargs
+                 else
+                   []
+                 end
+          fn.call(*args)
         end
 
         state.function('_rvim_api_echo') { |_chunks, history, _opts| editor.status_message = '' if history }
@@ -819,8 +855,57 @@ module Rvim
         state.function('_rvim_api_win_get_height') { |winid| (resolve.call(winid)&.height) || 24 }
         state.function('_rvim_api_win_set_height') { |winid, h| w = resolve.call(winid); w.height = h.to_i if w }
         state.function('_rvim_api_win_get_width')  { |winid| (resolve.call(winid)&.width) || 80 }
+        state.function('_rvim_api_win_set_width')  { |winid, w_| w = resolve.call(winid); w.width = w_.to_i if w }
         state.function('_rvim_api_win_get_buf')    { |winid| resolve.call(winid)&.buffer&.id || 0 }
+        state.function('_rvim_api_win_set_buf') do |winid, bufnr|
+          w = resolve.call(winid)
+          buf = resolve_buffer(editor, bufnr)
+          w.buffer = buf if w && buf
+        end
+        state.function('_rvim_api_win_get_position') do |winid|
+          w = resolve.call(winid)
+          # NeoVim returns {row, col}. Tiled wins live at the screen
+          # origin in our model; floats carry their own row/col.
+          if w && w.floating?
+            [w.row || 0, w.col || 0]
+          else
+            [0, 0]
+          end
+        end
+        state.function('_rvim_api_win_get_tabpage') { |_winid| 1 }
+        state.function('_rvim_api_win_get_number')  { |winid|
+          all = (editor.windows || []) + (editor.respond_to?(:floating_windows) ? editor.floating_windows : [])
+          idx = all.index { |w| w.id == winid.to_i }
+          (idx || 0) + 1
+        }
+        state.function('_rvim_api_win_call') do |winid, fn|
+          # Temporarily make `winid` current, run fn, restore. Plugins
+          # use this to set options in the context of a specific window.
+          prev = editor.current_window
+          win = resolve.call(winid)
+          editor.instance_variable_set(:@current_window, win) if win
+          begin
+            fn.call if fn.respond_to?(:call)
+          ensure
+            editor.instance_variable_set(:@current_window, prev)
+          end
+        end
         state.function('_rvim_api_get_current_win') { editor.current_window&.id || 0 }
+        state.function('_rvim_api_set_current_win') do |winid|
+          win = resolve_window(editor, winid)
+          editor.instance_variable_set(:@current_window, win) if win
+        end
+
+        # Tab page API — rvim doesn't have full tab semantics; surface
+        # a single fake "tab 1" so plugins that probe survive.
+        state.function('_rvim_api_get_current_tabpage') { 1 }
+        state.function('_rvim_api_list_tabpages') { [1] }
+        state.function('_rvim_api_tabpage_list_wins') do |_tabid|
+          all = (editor.windows || []) + (editor.respond_to?(:floating_windows) ? editor.floating_windows : [])
+          all.map(&:id)
+        end
+        state.function('_rvim_api_tabpage_get_number') { |_tabid| 1 }
+        state.function('_rvim_api_tabpage_is_valid')   { |tabid| tabid.to_i == 1 }
       end
 
       def self.resolve_window(editor, winid)
