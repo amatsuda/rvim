@@ -314,6 +314,32 @@ class TestLuaLazyShims < Test::Unit::TestCase
     assert_match(/hello world/, out.to_s)
   end
 
+  def test_nvim_buf_set_lines_tags_multibyte_as_utf8
+    # Regression: telescope draws floating-window borders with box-
+    # drawing chars (╭ │ ╰). Lua-side strings come back from rufus
+    # tagged ASCII-8BIT, and Reline's Unicode.calculate_width crashed
+    # with "\\xE2 from ASCII-8BIT to UTF-8" when the screen renderer
+    # tried to measure those lines.
+    bufnr = @editor.lua.eval('return vim.api.nvim_create_buf(false, true)').to_i
+    @editor.lua.eval(%[vim.api.nvim_buf_set_lines(#{bufnr}, 0, -1, false, { "╭───╮", "│   │", "╰───╯" })])
+    buf = @editor.buffers[bufnr]
+    refute_nil buf
+    buf.lines.each do |line|
+      assert_equal Encoding::UTF_8, line.encoding,
+                   'buffer line encoding must be UTF-8 to survive Reline width calcs'
+      assert line.valid_encoding?, "invalid encoding for: #{line.inspect}"
+    end
+  end
+
+  def test_screen_visible_width_handles_ascii8bit_input
+    # The renderer must not crash if a stray ASCII-8BIT string with
+    # UTF-8 bytes sneaks through (defensive layer below the
+    # buf_set_lines fix above).
+    scr = Rvim::Screen.new(@editor)
+    nasty = String.new("\xe2\x95\xad\xe2\x94\x80hello", encoding: Encoding::ASCII_8BIT)
+    assert_nothing_raised { scr.send(:visible_width, nasty) }
+  end
+
   def test_io_popen_read_line
     out = @editor.lua.eval(<<~LUA)
       local h = io.popen("printf 'first\\nsecond\\n'")

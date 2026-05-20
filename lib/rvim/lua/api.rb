@@ -942,10 +942,16 @@ module Rvim
           e = end_idx.to_i
           s = lines.size + s if s < 0
           e = lines.size + e + 1 if e < 0
+          # Strings coming back from rufus arrive tagged ASCII-8BIT
+          # even when their bytes are valid UTF-8 (e.g. telescope's
+          # box-drawing borders). Re-tag as UTF-8 so Reline's width
+          # calculator, the renderer, and downstream consumers don't
+          # explode on the first multibyte char.
+          coerce = ->(v) { String.new(v.to_s, encoding: editor.encoding) }
           new_lines = if replacement.respond_to?(:to_h)
-                        replacement.to_h.values.map(&:to_s)
+                        replacement.to_h.values.map(&coerce)
                       elsif replacement.is_a?(Array)
-                        replacement.map(&:to_s)
+                        replacement.map(&coerce)
                       else
                         []
                       end

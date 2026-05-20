@@ -1742,7 +1742,13 @@ module Rvim
 
     # Display width of a string ignoring ANSI escape sequences.
     def visible_width(str)
-      safe = str.valid_encoding? ? str : str.scrub('?')
+      # Strings can arrive tagged ASCII-8BIT (e.g. when a plugin pushed
+      # UTF-8 box-drawing bytes through rufus-lua, which doesn't carry
+      # the encoding label). force_encoding to UTF-8 first so the
+      # downstream `.encode` inside Reline's calculator doesn't error
+      # on the byte-by-byte ASCII→UTF-8 attempt.
+      utf = str.encoding == Encoding::UTF_8 ? str : String.new(str.b, encoding: Encoding::UTF_8)
+      safe = utf.valid_encoding? ? utf : utf.scrub('?')
       no_ansi = safe.gsub(/\e\[[\d;]*[a-zA-Z]/, '')
       Reline::Unicode.calculate_width(no_ansi)
     end
