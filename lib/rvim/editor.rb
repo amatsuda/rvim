@@ -5029,15 +5029,37 @@ module Rvim
 
       if @rvim_visual_g_pending
         @rvim_visual_g_pending = false
-        if ch == 'c'
+        case ch
+        when 'c'
           sel = selection
           if sel
             Rvim::Operations.toggle_comment(self, sel)
             @modified = true
           end
           exit_visual
+          return true
+        when 'j', 'k'
+          # gj / gk in visual mode: rvim doesn't track display lines
+          # vs buffer lines (no soft-wrap motion model yet), so collapse
+          # to the buffer-line equivalent and let super extend the
+          # selection through Reline's normal j/k handler.
+          return false
+        when 'v'
+          # gv — reselect last visual region. Already implemented for
+          # normal mode; in visual we re-use it (matches vim).
+          reselect_last_visual
+          return true
+        when 'g'
+          # gg in visual: jump to top, extend selection.
+          push_jump
+          @line_index = 0
+          @byte_pointer = sol_byte_for(0)
+          return true
         end
-        return true
+        # Unknown g{x} sequence: don't swallow the second key. Let
+        # the regular visual dispatch see it so e.g. `gG` falls
+        # through to whatever's bound.
+        return false
       end
 
       case ch

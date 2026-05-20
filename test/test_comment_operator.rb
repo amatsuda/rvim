@@ -139,4 +139,35 @@ class TestCommentOperatorVisual < Test::Unit::TestCase
     assert_equal 'b',     @editor.buffer_of_lines[1]
     assert_equal 'plain', @editor.buffer_of_lines[2]
   end
+
+  def test_visual_gj_falls_through_to_motion
+    # Regression: when keymap.lua remaps j -> gj globally, pressing j in
+    # visual mode triggers the mapping which feeds gj through. Our
+    # @rvim_visual_g_pending handler used to swallow every gX that
+    # wasn't gc, breaking j/k extension under that common keymap.
+    @editor.instance_variable_set(:@buffer_of_lines, [+'alpha', +'beta', +'gamma'])
+    @editor.instance_variable_set(:@line_index, 0)
+    @editor.instance_variable_set(:@byte_pointer, 0)
+    @editor.update(Reline::Key.new('v', :rvim_visual_char, false))
+    assert_equal 0, @editor.line_index
+
+    # Simulate `gj`: g sets g_pending, then j should fall through and
+    # move down via Reline's :ed_next_history binding.
+    @editor.update(Reline::Key.new('g', :ed_next_char, false))
+    assert @editor.instance_variable_get(:@rvim_visual_g_pending)
+    @editor.update(Reline::Key.new('j', :ed_next_history, false))
+    assert_equal 1, @editor.line_index
+    assert_equal :char, @editor.instance_variable_get(:@visual_mode)
+  end
+
+  def test_visual_gg_jumps_to_top_and_keeps_selection
+    @editor.instance_variable_set(:@buffer_of_lines, [+'a', +'b', +'c', +'d'])
+    @editor.instance_variable_set(:@line_index, 3)
+    @editor.instance_variable_set(:@byte_pointer, 0)
+    @editor.update(Reline::Key.new('v', :rvim_visual_char, false))
+    @editor.update(Reline::Key.new('g', :ed_next_char, false))
+    @editor.update(Reline::Key.new('g', :ed_next_char, false))
+    assert_equal 0, @editor.line_index
+    assert_equal :char, @editor.instance_variable_get(:@visual_mode)
+  end
 end
