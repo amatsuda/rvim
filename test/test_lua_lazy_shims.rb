@@ -278,6 +278,36 @@ class TestLuaLazyShims < Test::Unit::TestCase
     assert_equal nil, @editor.lua.eval('return vim.api.nvim_create_user_command("MyCmd2", "echo bye", {})')
   end
 
+  def test_vim_list_slice
+    r = @editor.lua.eval(<<~LUA)
+      local r = vim.list_slice({"a", "b", "c", "d", "e"}, 2, 4)
+      return table.concat(r, ",")
+    LUA
+    assert_equal 'b,c,d', r
+  end
+
+  def test_vim_list_slice_negative_indexes
+    r = @editor.lua.eval(<<~LUA)
+      local r = vim.list_slice({"a", "b", "c", "d"}, -2, -1)
+      return table.concat(r, ",")
+    LUA
+    assert_equal 'c,d', r
+  end
+
+  def test_vim_list_contains
+    assert_equal 'true',  @editor.lua.eval(%(return tostring(vim.list_contains({"a", "b", "c"}, "b"))))
+    assert_equal 'false', @editor.lua.eval(%(return tostring(vim.list_contains({"a", "b", "c"}, "z"))))
+  end
+
+  def test_vim_fn_expand_glob_list_form_returns_array
+    Dir.mktmpdir('rvim-expand-') do |dir|
+      File.write(File.join(dir, 'a.txt'), '')
+      File.write(File.join(dir, 'b.txt'), '')
+      n = @editor.lua.eval(%(return #vim.fn.expand("#{dir}/*.txt", false, true))).to_i
+      assert_equal 2, n
+    end
+  end
+
   def test_vim_loader_find_wildcard_returns_all_modules
     Dir.mktmpdir('rvim-loader-') do |dir|
       FileUtils.mkdir_p(File.join(dir, 'lua', 'pkg'))

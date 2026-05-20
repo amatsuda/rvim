@@ -179,6 +179,23 @@ module Rvim
           return dst
         end
 
+        function vim.list_slice(list, start, finish)
+          start = start or 1
+          finish = finish or #list
+          if start < 0 then start = #list + 1 + start end
+          if finish < 0 then finish = #list + 1 + finish end
+          local out = {}
+          for i = start, finish do out[#out + 1] = list[i] end
+          return out
+        end
+
+        function vim.list_contains(list, value)
+          for _, v in ipairs(list) do
+            if v == value then return true end
+          end
+          return false
+        end
+
         function vim.deepcopy(t)
           if type(t) ~= "table" then return t end
           local out = {}

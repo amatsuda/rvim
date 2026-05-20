@@ -14,7 +14,7 @@ module Rvim
       def install(state, editor, _runtime)
         state.eval('vim.fn = vim.fn or {}')
 
-        state.function('vim.fn.expand')       { |arg| expand(editor, arg.to_s) }
+        state.function('vim.fn.expand')       { |arg, _nosuf, list| expand(editor, arg.to_s, as_list: list == 1 || list == true) }
         state.function('vim.fn.getcwd')       { Dir.pwd }
         state.function('vim.fn.has')          { |feat| has?(feat.to_s) ? 1 : 0 }
         state.function('vim.fn.exists')       { |name| exists?(editor, name.to_s) ? 1 : 0 }
@@ -213,19 +213,33 @@ module Rvim
         format('%.6f', f)
       end
 
-      def expand(editor, arg)
-        case arg
-        when /\A%(:.+)?\z/
-          path = editor.filepath.to_s
-          mods = arg.sub(/\A%/, '')
-          fnamemodify(path, mods)
-        when /\A#(:.+)?\z/
-          alt = editor.instance_variable_get(:@alternate_filepath).to_s
-          mods = arg.sub(/\A#/, '')
-          fnamemodify(alt, mods)
-        when /\A<\w+>\z/ then ''
-        else File.expand_path(arg)
-        end
+      def expand(editor, arg, as_list: false)
+        result = case arg
+                 when /\A%(:.+)?\z/
+                   path = editor.filepath.to_s
+                   mods = arg.sub(/\A%/, '')
+                   fnamemodify(path, mods)
+                 when /\A#(:.+)?\z/
+                   alt = editor.instance_variable_get(:@alternate_filepath).to_s
+                   mods = arg.sub(/\A#/, '')
+                   fnamemodify(alt, mods)
+                 when /\A<\w+>\z/ then ''
+                 else
+                   path = File.expand_path(arg)
+                   # When the path contains a glob, expand to matches.
+                   # In list mode we always return an array (possibly empty);
+                   # in string mode vim returns matches joined by \n, or the
+                   # original pattern if nothing matched.
+                   if path.match?(/[\*\?\[]/) || arg.include?('**')
+                     matches = Dir.glob(path)
+                     return matches if as_list
+
+                     matches.empty? ? path : matches.join("\n")
+                   else
+                     path
+                   end
+                 end
+        as_list ? [result.to_s] : result
       end
 
       def fnamemodify(path, mods)
