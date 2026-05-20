@@ -402,8 +402,14 @@ module Rvim
           if p
             p[:cb] = cb.is_a?(Rufus::Lua::Function) ? cb : nil
             p[:reading] = true
-            # Flush anything we buffered while read was stopped.
-            flush_pending_to_cb(p)
+            # DON'T flush inline here. read_start can be called from
+            # within a coroutine that's already running (telescope's
+            # iter loop calls self:read() → read_start). If we delivered
+            # buffered chunks now, the cb would call read_tx → saved_
+            # callback → step → co.resume(thread) on a thread that's
+            # already running, giving "cannot resume running coroutine".
+            # Pending data gets delivered by the drainer on the next
+            # pump_lua_loop tick instead.
           end
           0
         end
@@ -489,20 +495,23 @@ module Rvim
         end)
       end
 
-      # Drain a pipe's pending buffer to its registered read_start
-      # callback. Stops when the pipe transitions out of reading (the
-      # callback may itself call read_stop). When the pipe has hit EOF
-      # AND the buffer is empty, deliver the final nil.
+      # Deliver at most ONE chunk per call. The callback can re-enter
+      # read_start (telescope's iter does this on every read), which
+      # would otherwise recursively try to resume the same Lua
+      # coroutine the callback is already executing inside. One chunk
+      # per pump tick avoids the recursion entirely; the next pump
+      # picks up where we left off.
       def self.flush_pending_to_cb(p)
         return unless p[:cb] && p[:reading] && !p[:closed]
 
-        while p[:reading] && !p[:closed] && !p[:pending].empty?
+        if !p[:pending].empty?
           chunk = p[:pending].shift
           begin
             p[:cb].call(nil, chunk)
           rescue StandardError
             # plugin-side bug — keep the loop alive
           end
+          return
         end
 
         return unless p[:eof] && p[:pending].empty? && p[:cb] && p[:reading] && !p[:closed]
@@ -511,7 +520,7 @@ module Rvim
           p[:cb].call(nil, nil)
         rescue StandardError
         end
-        p[:eof] = false # delivered
+        p[:eof] = false
       end
 
       def self.lua_array_to_ruby(v)
