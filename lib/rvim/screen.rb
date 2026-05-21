@@ -119,8 +119,13 @@ module Rvim
       out << render_vertical_dividers
       # Floating windows render AFTER tiled ones so they overlay on
       # top. Sorted by zindex (low → high) so higher-z floats end up
-      # last and appear topmost.
-      sorted_floats = @editor.floating_windows.reject(&:hide).sort_by(&:zindex)
+      # last and appear topmost. Within a zindex tier, larger floats
+      # render first — telescope creates a "border" float that
+      # geometrically contains a separate "content" float (both at the
+      # same zindex). The border's buffer holds `│ spaces │` interior
+      # rows that would otherwise blank out the content beneath if
+      # drawn second.
+      sorted_floats = @editor.floating_windows.reject(&:hide).sort_by { |fw| [fw.zindex, -(fw.width * fw.height)] }
       sorted_floats.each { |fw| out << render_floating_window(fw) }
       if @editor.prompt_mode == :listing
         out << render_listing_overlay
