@@ -65,14 +65,48 @@ module Rvim
         # return "" for both (NeoVim semantics for normal windows).
         state.function('vim.fn.win_gettype') { |_winid| '' }
         # Prompt-buffer ("buftype=prompt") helpers — used by telescope's
-        # input line. Real impl drives Enter-key callback semantics in
-        # the buffer; we stub the setters so plugin setup doesn't
-        # crash. Actual prompt-mode input still flows through rvim's
-        # normal ex-input path.
-        state.function('vim.fn.prompt_setprompt')   { |_bufnr, _str| 0 }
+        # input line. In NeoVim a prompt buffer renders the prefix as
+        # part of line 0 (the buffer text literally starts with the
+        # prefix); telescope's _get_prompt() reads the line and strips
+        # `#prompt_prefix` bytes off the front to recover what the
+        # user typed. Our editor doesn't model "prompt buffer" type
+        # semantics, so prepend the prefix into the buffer text up
+        # front and remember it so we can swap it on later calls.
+        state.function('vim.fn.prompt_setprompt') do |bufnr, str|
+          buf = Rvim::Lua::Api.resolve_buffer(editor, bufnr)
+          if buf
+            new_prefix = str.to_s
+            old_prefix = (buf.vars['_rvim_prompt_prefix'] || '').to_s
+            line0 = (buf.lines[0] || '').to_s
+            # Strip any previously-set prefix from the head of line 0
+            # before installing the new one — change_prompt_prefix
+            # may call this with a different prefix mid-session.
+            if !old_prefix.empty? && line0.start_with?(old_prefix)
+              line0 = line0[old_prefix.length..]
+            end
+            buf.lines[0] = String.new(new_prefix + line0, encoding: editor.encoding)
+            buf.vars['_rvim_prompt_prefix'] = new_prefix
+            # In NeoVim a prompt buffer parks the cursor at the end of
+            # the prompt — `i` then inserts after the prefix. Without
+            # this, our editor sits at col 0 and the user's first
+            # keystroke lands *before* the prefix, so _get_prompt
+            # strips the user's typing instead of the prefix.
+            buf.byte_pointer = new_prefix.bytesize
+            buf.line_index = 0
+            if buf == editor.current_buffer
+              editor.instance_variable_set(:@buffer_of_lines, buf.lines)
+              editor.instance_variable_set(:@byte_pointer, buf.byte_pointer)
+              editor.instance_variable_set(:@line_index, 0)
+            end
+          end
+          0
+        end
         state.function('vim.fn.prompt_setcallback') { |_bufnr, _cb|  0 }
         state.function('vim.fn.prompt_setinterrupt'){ |_bufnr, _cb|  0 }
-        state.function('vim.fn.prompt_getprompt')   { |_bufnr| '' }
+        state.function('vim.fn.prompt_getprompt') do |bufnr|
+          buf = Rvim::Lua::Api.resolve_buffer(editor, bufnr)
+          (buf && buf.vars['_rvim_prompt_prefix']) || ''
+        end
         state.function('vim.fn.win_getid')   { |_winnr, _tabnr| editor.current_window&.id || 0 }
         state.function('vim.fn.win_id2win')  { |_winid| 1 }
         state.function('vim.fn.winnr')       { |_arg| (editor.windows || []).index(editor.current_window).to_i + 1 }
