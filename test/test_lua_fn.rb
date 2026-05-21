@@ -127,6 +127,14 @@ class TestLuaFn < Test::Unit::TestCase
     assert_equal "'hello'", @editor.lua.eval('return vim.fn.shellescape("hello")')
   end
 
+  def test_fn_strcharpart
+    # Char-indexed substring (plenary.strings fallback when its FFI
+    # utf_ptr2len path is unavailable). start is 0-indexed.
+    assert_equal 'bcd', @editor.lua.eval('return vim.fn.strcharpart("abcde", 1, 3)')
+    assert_equal 'cde', @editor.lua.eval('return vim.fn.strcharpart("abcde", 2)')
+    assert_equal '',    @editor.lua.eval('return vim.fn.strcharpart("abc", 5, 3)')
+  end
+
   def test_fn_stdpath_config
     config = @editor.lua.eval('return vim.fn.stdpath("config")')
     assert_match(/rvim/, config)

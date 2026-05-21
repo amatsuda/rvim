@@ -96,6 +96,23 @@ module Rvim
         state.function('vim.fn.reg_executing') { '' }
         state.function('vim.fn.strchars')   { |s, _skip| s.to_s.length }
         state.function('vim.fn.strdisplaywidth') { |s, _col| s.to_s.length }
+        # strcharpart({src}, {start} [, {len} [, {skipcc}]]) — substring
+        # by character index/length (not byte). plenary.strings uses it
+        # as a fallback when its FFI utf_ptr2len path is unavailable.
+        state.function('vim.fn.strcharpart') do |s, start, len, _skipcc|
+          chars = s.to_s.chars
+          st = start.to_i
+          if st < 0
+            # Vim clamps negative start to 0 but shortens len by the deficit.
+            len = len.to_i + st if len
+            st = 0
+          end
+          if len.nil?
+            chars[st..].to_a.join
+          else
+            chars[st, [len.to_i, 0].max].to_a.join
+          end
+        end
       end
 
       # vim.fn.getcompletion(pat, type) — return matches for the given
