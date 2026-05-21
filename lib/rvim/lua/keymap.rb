@@ -40,7 +40,18 @@ module Rvim
 
           if rhs.is_a?(Rufus::Lua::Function)
             cb_lua = rhs
-            cb = -> { cb_lua.call }
+            # Plugin-side errors in a mapping callback (e.g. telescope's
+            # actions.close indexing a stale picker after the buffer is
+            # gone) shouldn't crash the editor — surface as a status
+            # message instead.
+            cb = lambda do
+              cb_lua.call
+            rescue Rufus::Lua::LuaError => e
+              msg = e.message.to_s
+              short = msg[/[^\/]+\.lua:\d+:[^']+/].to_s
+              editor.status_message = "E5108: keymap callback: #{short.empty? ? msg[0, 120] : short}"
+              nil
+            end
             target_keymap.add(modes, expanded_lhs, '', recursive: recursive, silent: silent, callback: cb)
           else
             expanded_rhs = Rvim::Keymap.expand(rhs.to_s, leader: editor.mapleader)
