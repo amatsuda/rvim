@@ -6,8 +6,9 @@ class TestLuaApiWin < Test::Unit::TestCase
   def setup
     @editor = Rvim::Editor.new(Reline.core.config)
     omit 'Lua not available on this system' unless Rvim::Lua::Runtime.available?
-    @editor.instance_variable_set(:@buffer_of_lines, [+'one', +'two', +'three'])
     buf = Rvim::Buffer.new(1)
+    buf.lines = [+'one', +'two', +'three']
+    @editor.instance_variable_set(:@buffer_of_lines, buf.lines)
     win = Rvim::Window.new(buf)
     @editor.instance_variable_set(:@current_window, win)
     @editor.instance_variable_set(:@windows, [win])
@@ -32,6 +33,34 @@ class TestLuaApiWin < Test::Unit::TestCase
   def test_win_set_cursor_clamps_to_buffer
     @editor.lua.eval('vim.api.nvim_win_set_cursor(0, {999, 0})')
     assert_equal 2, @editor.line_index # last line index
+  end
+
+  def test_win_set_cursor_on_non_current_window_does_not_touch_editor_state
+    # Regression: telescope opens a floating prompt window during
+    # setup and calls nvim_win_set_cursor on it. The shim used to
+    # write directly to the editor's @line_index / @byte_pointer,
+    # clobbering the cursor of the still-current buffer ([No Name]).
+    # A subsequent `i` + char then crashed in Reline's byteinsert
+    # because byte_pointer was past the line's end.
+    other_buf = Rvim::Buffer.new(99)
+    other_buf.lines = [+'']
+    other_win = Rvim::Window.new(other_buf)
+    other_win.floating = true
+    @editor.floating_windows << other_win
+    other_win_id = other_win.id
+
+    @editor.instance_variable_set(:@line_index, 0)
+    @editor.instance_variable_set(:@byte_pointer, 0)
+
+    @editor.lua.eval("vim.api.nvim_win_set_cursor(#{other_win_id}, {1, 5})")
+
+    # Editor globals untouched — still pointing at [No Name].
+    assert_equal 0, @editor.line_index
+    assert_equal 0, @editor.byte_pointer
+    # The float's buffer remembers the requested cursor (clamped to
+    # its empty single line — col 5 → col 0).
+    assert_equal 0, other_buf.line_index
+    assert_equal 0, other_buf.byte_pointer
   end
 
   def test_win_get_height

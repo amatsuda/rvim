@@ -839,7 +839,7 @@ module Rvim
           [editor.line_index + 1, editor.byte_pointer]
         end
 
-        state.function '_rvim_api_win_set_cursor' do |_winid, pos|
+        state.function '_rvim_api_win_set_cursor' do |winid, pos|
           arr = if pos.respond_to?(:to_h)
                   pos.to_h.values
                 elsif pos.is_a?(Array)
@@ -849,8 +849,41 @@ module Rvim
                 end
           row = arr[0].to_i - 1
           col = arr[1].to_i
-          editor.instance_variable_set(:@line_index, [[row, 0].max, [editor.buffer_of_lines.size - 1, 0].max].min)
-          editor.instance_variable_set(:@byte_pointer, [col, 0].max)
+          win = Rvim::Lua::Api.resolve_window(editor, winid)
+          # The cursor lives on the target window's buffer, not the
+          # editor's globals. Telescope sets the cursor on its prompt
+          # window during setup; if we wrote that to the editor's
+          # @byte_pointer we'd clobber the cursor of the still-current
+          # buffer (e.g. [No Name]) and a later `i` + char would index
+          # past the line's end, crashing Reline's byteinsert.
+          if win && win.buffer
+            buf = win.buffer
+            target = buf.lines[[row, 0].max] || ''
+            buf.line_index = [[row, 0].max, [(buf.lines.size - 1), 0].max].min
+            buf.byte_pointer = [col, 0].max.clamp(0, target.bytesize)
+            if editor.current_window.equal?(win)
+              editor.instance_variable_set(:@line_index, buf.line_index)
+              editor.instance_variable_set(:@byte_pointer, buf.byte_pointer)
+            end
+            # Scroll the window so the requested row is visible.
+            # Telescope's descending-sort path positions the cursor at
+            # max_results to make the buffer's last 14 rows show in a
+            # 14-tall results float — but only the cursor move alone
+            # doesn't drive the viewport on rvim's floats. Mirror
+            # NeoVim's "scrolloff = 0" behaviour: keep the row within
+            # the visible window, scrolling scroll_top forward when
+            # the cursor would otherwise be below the bottom edge.
+            height = win.height.to_i
+            if height.positive?
+              row_idx = buf.line_index
+              st = win.scroll_top.to_i
+              if row_idx < st
+                win.scroll_top = row_idx
+              elsif row_idx >= st + height
+                win.scroll_top = row_idx - height + 1
+              end
+            end
+          end
         end
 
         state.function('_rvim_api_win_get_height') { |winid| (resolve.call(winid)&.height) || 24 }
