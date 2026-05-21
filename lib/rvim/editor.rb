@@ -174,6 +174,10 @@ module Rvim
       Dir.pwd
     end
 
+    # Single pump tick: fire any scheduler timers whose deadline has
+    # arrived, then drain uv-spawn pipes once. Returns the number of
+    # timers that fired this tick. Called by drain_lua_until_idle
+    # (render loop) and from inside vim.wait.
     def pump_lua_loop
       sched = @lua_scheduler
       n = sched&.pump || 0
@@ -184,6 +188,47 @@ module Rvim
       drainer = @lua_uv_drainer
       drainer.call if drainer
       n
+    end
+
+    # Render-loop hook: tick the Lua loop until quiescent OR a budget
+    # is exhausted. Each tick delivers one chunk to telescope's
+    # LinesPipe (per its read_stop/read_start cycle), so a single
+    # render iteration needs many ticks to populate a results buffer.
+    # Budget caps prevent a chatty process from pinning the render
+    # loop and starving keyboard input.
+    LUA_PUMP_MAX_ITERS = 256
+    LUA_PUMP_MAX_MS    = 50
+    def drain_lua_until_idle
+      deadline = Process.clock_gettime(Process::CLOCK_MONOTONIC) + (LUA_PUMP_MAX_MS / 1000.0)
+      LUA_PUMP_MAX_ITERS.times do
+        before_pending = lua_uv_total_pending
+        timers_fired = pump_lua_loop
+        after_pending = lua_uv_total_pending
+        # Idle: no timers fired this tick AND nothing was delivered
+        # AND no chunks are queued waiting for a reader. Stop.
+        break if timers_fired.zero? && before_pending == after_pending && after_pending.zero?
+        break if Process.clock_gettime(Process::CLOCK_MONOTONIC) >= deadline
+      end
+    end
+
+    # True while any libuv-spawned process is still alive or has
+    # pending chunks to deliver. Used to shorten the render loop's
+    # input-poll timeout so async finders keep producing output
+    # without the user having to mash keys.
+    def lua_loop_busy?
+      jobs  = @lua_uv_jobs
+      pipes = @lua_uv_pipes
+      return false unless jobs && pipes
+
+      jobs.any? { |_, entry| !entry[:exited] } ||
+        pipes.any? { |_, p| !p[:pending].empty? }
+    end
+
+    private def lua_uv_total_pending
+      pipes = @lua_uv_pipes
+      return 0 unless pipes
+
+      pipes.values.sum { |p| p[:pending].size }
     end
 
     # Re-sync Lua's package.path with the current &runtimepath. Called by
@@ -7203,6 +7248,12 @@ module Rvim
             # Stream new window/log+showMessage entries into any open
             # :LspWatch buffers.
             editor.pump_lsp_watch_buffers
+            # Drive the Lua libuv-style loop: fires vim.uv.new_timer
+            # / vim.defer_fn / vim.schedule callbacks, plus drains
+            # stdout/stderr from vim.uv.spawn processes (telescope's
+            # finder pipeline). Bounded so a chatty process can't
+            # starve keyboard input on a busy render.
+            editor.drain_lua_until_idle
             begin
               # In insert mode, drop the wait-for-more-bytes window to
               # a tight value so Esc fires almost instantly (vim's
@@ -7212,10 +7263,22 @@ module Rvim
               # which makes leaving insert mode feel sluggish.
               insert_mode = editor.editing_mode_label == :vi_insert
               timeout = insert_mode ? 25 : Reline.core.config.keyseq_timeout
-              Reline.core.send(:read_io, timeout) do |inputs|
-                inputs.each do |key|
-                  editor.set_pasting_state(Reline::IOGate.in_pasting?)
-                  editor.update(key)
+              # Reline.read_io blocks indefinitely waiting for the first
+              # byte of a keysequence (the keyseq_timeout only governs
+              # the wait *between* bytes mid-sequence). When a libuv
+              # process is producing output, that blocking prevents the
+              # render loop from iterating, so telescope's drainer
+              # never delivers chunks to the results buffer. Gate
+              # read_io behind IO.select so the loop continues to spin
+              # (and pump Lua) while finders are active.
+              poll_s = editor.lua_loop_busy? ? 0.025 : 0.5
+              ready = IO.select([STDIN], nil, nil, poll_s)
+              if ready
+                Reline.core.send(:read_io, timeout) do |inputs|
+                  inputs.each do |key|
+                    editor.set_pasting_state(Reline::IOGate.in_pasting?)
+                    editor.update(key)
+                  end
                 end
               end
             rescue Interrupt

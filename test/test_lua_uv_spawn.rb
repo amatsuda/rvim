@@ -100,6 +100,44 @@ class TestLuaUvSpawn < Test::Unit::TestCase
     assert_match(/through stdin/, @editor.lua.eval('return collected').to_s)
   end
 
+  def test_drain_lua_until_idle_delivers_all_chunks_in_one_render_tick
+    # Regression: in interactive use the editor's render loop calls
+    # drain_lua_until_idle once per iteration. A naive single-pump
+    # call delivers one chunk per tick, so a 100-line process needs
+    # 100 render ticks (≈50s at the default 500ms keyseq_timeout) to
+    # populate. drain_lua_until_idle must loop until either quiescent
+    # or the wall-time budget is exhausted so most output lands on
+    # the first idle tick after the process completes.
+    @editor.lua.eval(<<~LUA)
+      collected = {}
+      done = false
+      local stdout = vim.uv.new_pipe(false)
+      vim.uv.spawn("printf",
+        { args = {"a\\nb\\nc\\nd\\ne\\nf\\ng\\nh\\ni\\nj\\n"}, stdio = {nil, stdout, nil} },
+        function() done = true end)
+      local function arm()
+        stdout:read_start(function(_, data)
+          stdout:read_stop()
+          if data then
+            for line in data:gmatch("[^\\n]+") do
+              table.insert(collected, line)
+            end
+            vim.schedule(arm)
+          end
+        end)
+      end
+      arm()
+    LUA
+    pump_until { @editor.lua.eval('return done') }
+    # One drain_lua_until_idle call after the process is done should
+    # flush every queued chunk through telescope's read_stop/read_start
+    # cycle, not just one.
+    @editor.drain_lua_until_idle
+    count = @editor.lua.eval('return #collected').to_i
+    assert_equal 10, count,
+                 "drain_lua_until_idle should deliver all 10 lines, got #{count}"
+  end
+
   def test_coroutine_pipe_callback_can_resume_yielded_thread
     # Regression: rufus-lua pins Rufus::Lua::Function#@pointer to the
     # lua_State* that was active at construction. When state.function
