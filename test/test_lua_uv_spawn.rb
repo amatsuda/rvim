@@ -99,4 +99,85 @@ class TestLuaUvSpawn < Test::Unit::TestCase
     pump_until { @editor.lua.eval('return done') }
     assert_match(/through stdin/, @editor.lua.eval('return collected').to_s)
   end
+
+  def test_coroutine_pipe_callback_can_resume_yielded_thread
+    # Regression: rufus-lua pins Rufus::Lua::Function#@pointer to the
+    # lua_State* that was active at construction. When state.function
+    # dispatches a Ruby callback from inside a coroutine T1, any
+    # Function arg (e.g. the cb passed to read_start) captures T1's
+    # pointer. Firing it later from the drainer would run Lua code on
+    # T1's state — coroutine.running() returns T1 — and the call to
+    # coroutine.resume(T1) inside the cb body fails with "cannot
+    # resume running coroutine". The fix: Rvim::Lua::Runtime patches
+    # Function#call to swap @pointer to the main state for the call.
+    #
+    # This test exercises that path with a coroutine-driven mini-finder
+    # that mirrors telescope's LinesPipe pattern: spawn a process,
+    # read its output through a yielded receiver, accumulate lines.
+    @editor.lua.eval(<<~LUA)
+      collected = {}
+      done = false
+      error_msg = nil
+
+      local function oneshot()
+        local sent, value, cb = false, nil, nil
+        return function(v)
+          if cb then cb(v) else sent, value = true, v end
+        end,
+        function()
+          if sent then return value end
+          return coroutine.yield(function(c) cb = c end)
+        end
+      end
+
+      local thread = coroutine.create(function()
+        local stdout = vim.uv.new_pipe(false)
+        local exit_tx, exit_rx = oneshot()
+        vim.uv.spawn("printf",
+          { args = {"a\\nb\\nc\\n"}, stdio = {nil, stdout, nil} },
+          function() exit_tx(true) end)
+
+        local function read()
+          local tx, rx = oneshot()
+          stdout:read_start(function(_, data)
+            stdout:read_stop()
+            tx(data)
+          end)
+          return rx()
+        end
+
+        local function step(thr, ...)
+          local ok, fn = coroutine.resume(thr, ...)
+          if not ok then error_msg = fn return end
+          if coroutine.status(thr) ~= "dead" and type(fn) == "function" then
+            fn(function(v) step(thr, v) end)
+          end
+        end
+
+        while true do
+          local data = read()
+          if data == nil then break end
+          for line in data:gmatch("[^\\n]+") do
+            table.insert(collected, line)
+          end
+        end
+        done = true
+      end)
+
+      local function step(thr, ...)
+        local ok, fn = coroutine.resume(thr, ...)
+        if not ok then error_msg = fn return end
+        if coroutine.status(thr) ~= "dead" and type(fn) == "function" then
+          fn(function(v) step(thr, v) end)
+        end
+      end
+
+      step(thread)
+    LUA
+    pump_until { @editor.lua.eval('return done') }
+    assert_nil @editor.lua.eval('return error_msg'),
+               'coroutine resume should not fail with "cannot resume running coroutine"'
+    collected = @editor.lua.eval('return table.concat(collected, ",")').to_s
+    assert_equal 'a,b,c', collected
+  end
 end

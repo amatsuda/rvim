@@ -49,6 +49,7 @@ module Rvim
           begin
             require 'rufus-lua'
             patch_stack_push!
+            patch_function_call!
             @available = true
           rescue LoadError => e
             @unavailable_reason = "rufus-lua gem not loadable: #{e.message}"
@@ -93,6 +94,49 @@ module Rvim
           Rufus::Lua::StateMixin.prepend(mod)
           Rufus::Lua::StateMixin.alias_method(:_rvim_orig_stack_push, :stack_push)
         end
+
+        # Rufus::Lua::Function pins @pointer to the lua_State* that was
+        # active when the Function was constructed. When state.function
+        # dispatches a Ruby callback from inside a coroutine T1, any
+        # Function arg (e.g. `step` passed to vim.schedule, or the cb
+        # passed to read_start) captures T1's pointer. Calling that
+        # Function LATER from the drainer's pump runs Lua code ON T1's
+        # state — coroutine.running() returns T1, and the Function's
+        # body calling co.resume(T1) fails with "cannot resume running
+        # coroutine" because T1 IS currently running.
+        #
+        # The Lua registry is shared across coroutines, so the @ref is
+        # valid from any state. Swap @pointer to the main state for the
+        # duration of the call; coroutine.running() then correctly
+        # returns nil (we're on the main thread) and resumes work.
+        def patch_function_call!
+          return if Rufus::Lua::Function.private_method_defined?(:_rvim_orig_call)
+
+          mod = Module.new do
+            def call(*args)
+              main = Rvim::Lua::Runtime.main_state_pointer
+              if main && @pointer != main
+                saved = @pointer
+                @pointer = main
+                begin
+                  super
+                ensure
+                  @pointer = saved
+                end
+              else
+                super
+              end
+            end
+          end
+          Rufus::Lua::Function.prepend(mod)
+          Rufus::Lua::Function.alias_method(:_rvim_orig_call, :call)
+        end
+      end
+
+      # Captured when the per-editor Rufus::Lua::State is constructed.
+      # Used by the Function#call patch above.
+      class << self
+        attr_accessor :main_state_pointer
       end
 
       attr_reader :editor, :state
@@ -114,6 +158,7 @@ module Rvim
 
         @state ||= begin
           s = Rufus::Lua::State.new
+          self.class.main_state_pointer = s.instance_variable_get(:@pointer)
           Rvim::Lua::Bridge.install(s, @editor, self)
           s
         end
