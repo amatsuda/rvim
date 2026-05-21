@@ -84,6 +84,7 @@ module Rvim
 
           vim.api.nvim_buf_get_lines        = _rvim_api_buf_get_lines
           vim.api.nvim_buf_set_lines        = _rvim_api_buf_set_lines
+          vim.api.nvim_buf_set_text         = _rvim_api_buf_set_text
           vim.api.nvim_buf_get_name         = _rvim_api_buf_get_name
           vim.api.nvim_buf_set_name         = _rvim_api_buf_set_name
           vim.api.nvim_buf_line_count       = _rvim_api_buf_line_count
@@ -956,6 +957,53 @@ module Rvim
                         []
                       end
           buf.lines = lines[0...s] + new_lines + (lines[e..] || [])
+          if buf == editor.current_buffer
+            editor.instance_variable_set(:@buffer_of_lines, buf.lines)
+            editor.instance_variable_set(:@modified, true)
+          end
+        end
+
+        # nvim_buf_set_text(buf, srow, scol, erow, ecol, replacement) —
+        # replace a byte-range that may span multiple rows with the
+        # given lines. telescope uses it to update result rows in-place
+        # without disturbing surrounding highlights.
+        state.function '_rvim_api_buf_set_text' do |bufnr, srow, scol, erow, ecol, replacement|
+          buf = resolve.call(bufnr)
+          next nil unless buf
+
+          lines = buf.lines || []
+          sr = srow.to_i
+          sc = scol.to_i
+          er = erow.to_i
+          ec = ecol.to_i
+          coerce = ->(v) { String.new(v.to_s, encoding: editor.encoding) }
+          repl_lines = if replacement.respond_to?(:to_h)
+                         replacement.to_h.values.map(&coerce)
+                       elsif replacement.is_a?(Array)
+                         replacement.map(&coerce)
+                       else
+                         ['']
+                       end
+          repl_lines = [''] if repl_lines.empty?
+
+          prefix = if sr < lines.size
+                     (lines[sr] || '').byteslice(0, sc).to_s
+                   else
+                     ''
+                   end
+          suffix = if er < lines.size
+                     line = lines[er] || ''
+                     line.byteslice(ec, line.bytesize - ec).to_s
+                   else
+                     ''
+                   end
+
+          spliced = repl_lines.dup
+          spliced[0] = prefix + (spliced[0] || '')
+          spliced[-1] = (spliced[-1] || '') + suffix
+          spliced.map! { |l| String.new(l, encoding: editor.encoding) }
+
+          buf.lines = (lines[0...sr] || []) + spliced + (lines[(er + 1)..] || [])
           if buf == editor.current_buffer
             editor.instance_variable_set(:@buffer_of_lines, buf.lines)
             editor.instance_variable_set(:@modified, true)

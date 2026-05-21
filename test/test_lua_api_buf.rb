@@ -66,4 +66,19 @@ class TestLuaApiBuf < Test::Unit::TestCase
     @editor.lua.eval('vim.api.nvim_buf_set_lines(0, -1, -1, true, {"appended"})')
     assert_equal 'appended', @editor.buffer_of_lines.last
   end
+
+  def test_buf_set_text_replaces_byte_range_within_one_row
+    # telescope updates result rows in place via set_text rather than
+    # set_lines so existing highlights are preserved.
+    @editor.lua.eval('vim.api.nvim_buf_set_text(0, 0, 0, 0, 1, {"XX"})')
+    assert_equal 'XX', @editor.buffer_of_lines[0]
+  end
+
+  def test_buf_set_text_splices_across_rows
+    @editor.lua.eval('vim.api.nvim_buf_set_text(0, 0, 1, 2, 1, {"YY"})')
+    # original "a\nb\nc\nd" -> after replacing (0,1)..(2,1) with "YY":
+    # row0 keeps "a"; rows 0-2 collapse; "" + "YY" + "" → "aYY"
+    assert_equal 'aYY', @editor.buffer_of_lines[0]
+    assert_equal 'd',   @editor.buffer_of_lines[1]
+  end
 end
