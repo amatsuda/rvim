@@ -927,7 +927,13 @@ module Rvim
         state.function('_rvim_api_get_current_win') { editor.current_window&.id || 0 }
         state.function('_rvim_api_set_current_win') do |winid|
           win = resolve_window(editor, winid)
-          editor.instance_variable_set(:@current_window, win) if win
+          # Focus changes mean the buffer context changes too —
+          # telescope calls this to land the user in its prompt
+          # window so typing goes into the prompt buffer (and the
+          # on_lines listener triggers refiltering). Without
+          # swapping the buffer, typing keeps editing the previous
+          # buffer and no on_lines fires on the prompt.
+          editor.send(:enter_window, win) if win
         end
 
         # Tab page API — rvim doesn't have full tab semantics; surface
