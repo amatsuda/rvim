@@ -315,6 +315,7 @@ module Rvim
           vim.loop.fs_read        = _rvim_fs_read
           vim.loop.fs_write       = _rvim_fs_write
           vim.loop.fs_close       = _rvim_fs_close
+          vim.loop.fs_fstat       = _rvim_fs_fstat
           vim.loop.fs_copyfile    = _rvim_fs_copyfile
           vim.loop.cwd            = function() return _rvim_loop_cwd() end
           vim.loop.os_homedir     = function() return _rvim_loop_homedir() end
@@ -654,6 +655,15 @@ module Rvim
           true
         rescue StandardError
           false
+        end
+        # fs_fstat(fd) — stat by file descriptor. plenary.path uses
+        # it from `Path:_stat` when checking file metadata; without
+        # it telescope's <Esc> action errors on path teardown.
+        state.function '_rvim_fs_fstat' do |fd|
+          io = fds[fd.to_i]
+          next nil unless io
+
+          fs_stat_table(io.stat) rescue nil
         end
       end
 

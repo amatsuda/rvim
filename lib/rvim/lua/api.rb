@@ -85,6 +85,7 @@ module Rvim
           vim.api.nvim_buf_get_lines        = _rvim_api_buf_get_lines
           vim.api.nvim_buf_set_lines        = _rvim_api_buf_set_lines
           vim.api.nvim_buf_set_text         = _rvim_api_buf_set_text
+          vim.api.nvim_buf_delete           = _rvim_api_buf_delete
           vim.api.nvim_buf_get_name         = _rvim_api_buf_get_name
           vim.api.nvim_buf_set_name         = _rvim_api_buf_set_name
           vim.api.nvim_buf_line_count       = _rvim_api_buf_line_count
@@ -185,6 +186,7 @@ module Rvim
           vim.api.nvim_exec                 = _rvim_api_exec
           vim.api.nvim_exec2                = _rvim_api_exec2
           vim.api.nvim_exec_autocmds        = _rvim_api_exec_autocmds
+          vim.api.nvim_clear_autocmds       = _rvim_api_clear_autocmds
           vim.api.nvim_get_autocmds         = _rvim_api_get_autocmds
         LUA
       end
@@ -620,6 +622,29 @@ module Rvim
             end
           end
         end
+
+        # nvim_clear_autocmds(opts) — remove registered autocmds
+        # matching opts (event/group/pattern/buffer). Telescope's
+        # close path calls it to remove the BufLeave autocmd on the
+        # prompt buffer so close_windows doesn't fire twice.
+        state.function '_rvim_api_clear_autocmds' do |opts|
+          opts_h = opts.respond_to?(:to_h) ? opts.to_h : {}
+          ev_filter = normalize_event_filter(opts_h['event'])
+          grp = opts_h['group']
+          # group can be passed as either an integer id (from
+          # nvim_create_augroup) or a string name.
+          ents = editor.autocommands.instance_variable_get(:@entries)
+          ents.reject! do |entry|
+            keep = true
+            if ev_filter && !ev_filter.empty?
+              keep = false unless ev_filter.include?(entry.event.to_s.downcase)
+            end
+            if keep && grp
+              keep = false unless entry.group == grp || entry.group.to_s == grp.to_s
+            end
+            !keep
+          end
+        end
       end
 
       def self.install_attach_feedkeys_api(state, editor)
@@ -1047,6 +1072,34 @@ module Rvim
             editor.instance_variable_set(:@buffer_of_lines, buf.lines)
             editor.instance_variable_set(:@modified, true)
           end
+        end
+
+        # nvim_buf_delete(bufnr, opts) — telescope's close action
+        # calls this to tear down its scratch prompt/results/preview
+        # buffers when the picker exits. opts (force/unload) is
+        # ignored: rvim doesn't distinguish between unload + delete
+        # for scratch buffers, and the action just wants the buffer
+        # gone from the list.
+        state.function '_rvim_api_buf_delete' do |bufnr, _opts|
+          buf = resolve.call(bufnr)
+          next nil unless buf
+
+          # If the buffer is current, fall back to another live one
+          # so swap_to_buffer below has somewhere to go.
+          if editor.current_buffer&.equal?(buf)
+            other = editor.buffers.values.find { |b| !b.equal?(buf) }
+            editor.swap_to_buffer(other) if other
+          end
+          editor.buffers.delete(buf.id)
+          (editor.instance_variable_get(:@buffer_order) || []).delete(buf.id)
+          # Drop any floats backed by this buffer so the renderer
+          # doesn't try to draw a buffer that's been deleted.
+          if editor.respond_to?(:floating_windows)
+            editor.floating_windows.dup.each do |w|
+              editor.close_floating_window(w) if w.buffer.equal?(buf)
+            end
+          end
+          nil
         end
 
         state.function('_rvim_api_buf_get_name')   { |bufnr| (resolve.call(bufnr)&.filepath).to_s }

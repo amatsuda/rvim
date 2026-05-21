@@ -96,6 +96,11 @@ module Rvim
         state.function('vim.fn.reg_executing') { '' }
         state.function('vim.fn.strchars')   { |s, _skip| s.to_s.length }
         state.function('vim.fn.strdisplaywidth') { |s, _col| s.to_s.length }
+        # Popup-menu visibility probe. Telescope's <Esc> action checks
+        # pumvisible() before closing the picker; without the shim
+        # Reline-side completion popups aren't a concept telescope
+        # cares about anyway, so always return 0 (no menu visible).
+        state.function('vim.fn.pumvisible')      { 0 }
         # strcharpart({src}, {start} [, {len} [, {skipcc}]]) — substring
         # by character index/length (not byte). plenary.strings uses it
         # as a fallback when its FFI utf_ptr2len path is unavailable.
