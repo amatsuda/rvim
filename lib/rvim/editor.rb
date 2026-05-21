@@ -4423,6 +4423,7 @@ module Rvim
       end
 
       sync_current_buffer_lines
+      reconcile_prompt_prefix
       capture_special_marks(pre_buffer, pre_mode)
       # Same skip as above: a bare `.` keystroke shouldn't update
       # last_change_keys — that would clobber the actual last change
@@ -4507,6 +4508,35 @@ module Rvim
       if @current_buffer.lines.object_id != @buffer_of_lines.object_id
         @current_buffer.lines = @buffer_of_lines
       end
+    end
+
+    # Telescope-style prompt buffers store the prefix (e.g. "> ") as
+    # the leading bytes of line 0; real NeoVim's prompt-buffer type
+    # treats those bytes as immutable. Reline doesn't know about that
+    # contract — backspace at col 0..prefix.bytesize, or text inserted
+    # before the prefix, would otherwise corrupt the picker's
+    # _get_prompt() output. After every keystroke, restore the prefix
+    # at the start of line 0 and snap byte_pointer past it.
+    private def reconcile_prompt_prefix
+      return unless @current_buffer
+
+      prefix = @current_buffer.vars && @current_buffer.vars['_rvim_prompt_prefix']
+      return if prefix.nil? || prefix.empty?
+
+      line0 = (@buffer_of_lines[0] || '').to_s
+      unless line0.start_with?(prefix)
+        # Find how many leading chars of line0 already match a leading
+        # substring of `prefix` — the user may have only backspaced
+        # partway through the prefix. Drop those incomplete-prefix
+        # chars and prepend the full prefix; everything past the
+        # match point is treated as user text.
+        match = 0
+        match += 1 while match < line0.length && match < prefix.length && line0[match] == prefix[match]
+        tail = line0[match..] || ''
+        @buffer_of_lines[0] = String.new(prefix + tail, encoding: encoding)
+        @current_buffer.lines = @buffer_of_lines
+      end
+      @byte_pointer = prefix.bytesize if @byte_pointer < prefix.bytesize && @line_index.zero?
     end
 
     MAXMAPDEPTH = 1000
