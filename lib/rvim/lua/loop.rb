@@ -409,7 +409,8 @@ module Rvim
 
           job = Rvim::Job.new([cmd.to_s, *args.map(&:to_s)],
                               cwd: opts_h['cwd']&.to_s,
-                              env: lua_hash_to_ruby(opts_h['env']))
+                              env: lua_hash_to_ruby(opts_h['env']),
+                              no_stdin: stdin_pid.nil?)
           jobs[job.id] = {
             job: job,
             stdout_pid: stdout_pid,

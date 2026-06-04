@@ -22,12 +22,17 @@ module Rvim
       @@id_mutex.synchronize { @@next_id += 1 }
     end
 
-    def initialize(cmd, shell: nil, shellcmdflag: nil, env: nil, cwd: nil)
+    def initialize(cmd, shell: nil, shellcmdflag: nil, env: nil, cwd: nil, no_stdin: false)
       @cmd = cmd
       @shell = shell
       @shellcmdflag = shellcmdflag
       @env = env
       @cwd = cwd
+      # When true, redirect stdin to /dev/null at spawn time. Tools
+      # like `rg pattern` (no path) read stdin if it's a pipe but
+      # search cwd if stdin points at /dev/null — popen3's default
+      # pipe stdin makes rg sit on empty input forever.
+      @no_stdin = no_stdin
       @queue = Thread::Queue.new
       @stdout_open = false
       @stderr_open = false
@@ -46,11 +51,31 @@ module Rvim
       spawn_opts = {}
       spawn_opts[:chdir] = @cwd if @cwd
       @env ||= {}
-      @stdin, stdout, stderr, @wait_thread = Open3.popen3(@env, *argv, spawn_opts)
-      @stdout_open = true
-      @stderr_open = true
-      @stdout_reader = spawn_reader(stdout, :stdout) { @stdout_open = false }
-      @stderr_reader = spawn_reader(stderr, :stderr) { @stderr_open = false }
+      if @no_stdin
+        # Hand-roll the pipes so we can redirect stdin to /dev/null.
+        # popen3 always creates a stdin pipe, and closing our end of
+        # the pipe still leaves the child looking at a pipe (just
+        # empty), which is different from looking at /dev/null —
+        # rg's behaviour, for instance, branches on the latter.
+        out_r, out_w = IO.pipe
+        err_r, err_w = IO.pipe
+        pid = Process.spawn(@env, *argv, spawn_opts.merge(in: '/dev/null', out: out_w, err: err_w))
+        out_w.close
+        err_w.close
+        @stdin = nil
+        @wait_thread = Process.detach(pid)
+        # detach returns a Thread whose #pid + #value match popen3.
+        @stdout_open = true
+        @stderr_open = true
+        @stdout_reader = spawn_reader(out_r, :stdout) { @stdout_open = false }
+        @stderr_reader = spawn_reader(err_r, :stderr) { @stderr_open = false }
+      else
+        @stdin, stdout, stderr, @wait_thread = Open3.popen3(@env, *argv, spawn_opts)
+        @stdout_open = true
+        @stderr_open = true
+        @stdout_reader = spawn_reader(stdout, :stdout) { @stdout_open = false }
+        @stderr_reader = spawn_reader(stderr, :stderr) { @stderr_open = false }
+      end
       @waiter = Thread.new do
         @exit_status = @wait_thread.value&.exitstatus
         @reader_done = true
