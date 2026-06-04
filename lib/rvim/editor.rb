@@ -209,6 +209,30 @@ module Rvim
         break if timers_fired.zero? && before_pending == after_pending && after_pending.zero?
         break if Process.clock_gettime(Process::CLOCK_MONOTONIC) >= deadline
       end
+      surface_captured_lua_print
+    end
+
+    # When a Lua callback scheduled via vim.schedule prints something,
+    # the :lua_chunk command handler has already returned by the time
+    # the print fires — its captured-print buffer never gets drained.
+    # Surface anything that accumulates between render ticks: single
+    # line goes to status_message, multi-line opens the listing
+    # overlay just like a sync print would.
+    private def surface_captured_lua_print
+      runtime = @lua
+      return unless runtime && runtime.respond_to?(:captured_print)
+
+      captured = runtime.captured_print
+      return if captured.nil? || captured.empty?
+
+      runtime.captured_print = nil
+      lines = captured.flat_map { |chunk| chunk.to_s.split("\n", -1) }
+      lines.pop while lines.last == ''
+      if lines.size > 1
+        show_list(lines)
+      elsif lines.size == 1
+        @status_message = lines.first
+      end
     end
 
     # True while any libuv-spawned process is still alive or has
