@@ -4594,6 +4594,20 @@ module Rvim
       end
       g_result, g_mapping = @keymap.lookup(mode, candidate)
       return [g_result, g_mapping] if g_result == :exact
+      # Standalone ESC in insert mode is not a chord-prefix even though
+      # \e[A / \e[B / \e[5~ etc. live in the table — Reline already
+      # bundles escape sequences into a single multi-byte Key, so by
+      # the time a standalone "\e" reaches us we know no more bytes
+      # are coming. Treating it as :prefix and waiting (until the
+      # next keystroke triggers flush_pending_with with map_noremap
+      # active) defeats telescope-style <esc> mappings: Reline's
+      # vi_command_mode transition fires but the buffer-local
+      # callback never gets routed. Promote standalone \e to :none
+      # so it falls through to Reline (insert → normal), and the
+      # next ESC keystroke routes via :normal mode.
+      if candidate == "\e" && mode == :insert
+        return [:none, nil]
+      end
       return [:prefix, nil] if g_result == :prefix
       return [:prefix, nil] if local && l_result == :prefix
 

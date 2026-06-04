@@ -978,9 +978,14 @@ module Rvim
         return editor.current_window if n.zero?
 
         # Each Window now carries a stable id (Window#id) so floats
-        # and tiled windows live in the same namespace.
+        # and tiled windows live in the same namespace. Return nil
+        # rather than falling back to current_window when the winid
+        # is unknown — telescope's close path calls utils.win_delete
+        # on already-closed window ids, and the fallback caused
+        # nvim_win_get_buf to point at the [No Name] buffer, which
+        # then got buf_delete'd in the cascade.
         all = (editor.windows || []) + (editor.respond_to?(:floating_windows) ? editor.floating_windows : [])
-        all.find { |w| w.id == n } || editor.current_window
+        all.find { |w| w.id == n }
       end
 
       def self.install_buffer_api(state, editor)
