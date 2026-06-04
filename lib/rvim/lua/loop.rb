@@ -292,10 +292,42 @@ module Rvim
           vim.loop.new_fs_event = make_fs_event
           -- vim.uv is the same table as vim.loop; new_fs_event reachable there too.
 
-          -- ---- Filesystem ops (sync wrappers; callbacks ignored) -----
-          vim.loop.fs_stat        = _rvim_fs_stat
-          vim.loop.fs_lstat       = _rvim_fs_lstat
-          vim.loop.fs_realpath    = _rvim_fs_realpath
+          -- ---- Filesystem ops -----
+          -- NeoVim's libuv fs_* helpers each support two call forms:
+          --   value = fs_X(args...)             — synchronous, returns
+          --   fs_X(args..., function(err, val)) — async, schedules cb
+          -- Telescope's previewer chains fs_open → fs_fstat → fs_read →
+          -- fs_close in the async form to load a file into the preview
+          -- buffer. Without callback support the chain never runs and
+          -- the preview pane stays blank. Wrap each so the trailing
+          -- function arg, when present, gets scheduled with (err, val).
+          local function _fs_dual(sync_fn, err_label)
+            return function(...)
+              local args = {...}
+              local n = select("#", ...)
+              local cb = (n > 0 and type(args[n]) == "function") and args[n] or nil
+              if cb then
+                args[n] = nil
+                n = n - 1
+              end
+              local ok, val = pcall(sync_fn, unpack(args, 1, n))
+              if cb then
+                vim.schedule(function()
+                  if not ok then
+                    cb(err_label .. ": " .. tostring(val), nil)
+                  else
+                    cb(val == nil and (err_label .. ": failed") or nil, val)
+                  end
+                end)
+                return
+              end
+              if not ok then error(val) end
+              return val
+            end
+          end
+          vim.loop.fs_stat        = _fs_dual(_rvim_fs_stat,     "fs_stat")
+          vim.loop.fs_lstat       = _fs_dual(_rvim_fs_lstat,    "fs_lstat")
+          vim.loop.fs_realpath    = _fs_dual(_rvim_fs_realpath, "fs_realpath")
           vim.loop.fs_scandir     = _rvim_fs_scandir
           -- Each call pops one [name, type] entry off the handle (a
           -- Lua array) and returns (name, type). nil signals EOF.
@@ -311,11 +343,11 @@ module Rvim
           vim.loop.fs_rename      = _rvim_fs_rename
           vim.loop.fs_access      = _rvim_fs_access
           vim.loop.fs_chmod       = _rvim_fs_chmod
-          vim.loop.fs_open        = _rvim_fs_open
-          vim.loop.fs_read        = _rvim_fs_read
-          vim.loop.fs_write       = _rvim_fs_write
-          vim.loop.fs_close       = _rvim_fs_close
-          vim.loop.fs_fstat       = _rvim_fs_fstat
+          vim.loop.fs_open        = _fs_dual(_rvim_fs_open,  "fs_open")
+          vim.loop.fs_read        = _fs_dual(_rvim_fs_read,  "fs_read")
+          vim.loop.fs_write       = _fs_dual(_rvim_fs_write, "fs_write")
+          vim.loop.fs_close       = _fs_dual(_rvim_fs_close, "fs_close")
+          vim.loop.fs_fstat       = _fs_dual(_rvim_fs_fstat, "fs_fstat")
           vim.loop.fs_copyfile    = _rvim_fs_copyfile
           vim.loop.cwd            = function() return _rvim_loop_cwd() end
           vim.loop.os_homedir     = function() return _rvim_loop_homedir() end
