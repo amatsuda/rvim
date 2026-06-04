@@ -1724,19 +1724,31 @@ module Rvim
     end
 
     def bottom_line
+      # Anything that lands on the status line ends up << into the
+      # render buffer alongside UTF-8 escape codes. status_message
+      # can come from Lua print() (ASCII-8BIT when rufus passes
+      # bytes through), so coerce to UTF-8 — otherwise screen.render
+      # blows up with Encoding::CompatibilityError when print output
+      # contains non-ASCII bytes.
+      coerce = ->(s) {
+        out = s.to_s
+        out = String.new(out, encoding: Encoding::UTF_8) unless out.encoding == Encoding::UTF_8
+        out.valid_encoding? ? out : out.scrub('?')
+      }
+
       if @editor.confirm_question
-        return "#{@editor.confirm_question} (#{@editor.confirm_options.join('/')}): "
+        return coerce.call("#{@editor.confirm_question} (#{@editor.confirm_options.join('/')}): ")
       end
 
       case @editor.prompt_mode
-      when :ex then ":#{@editor.prompt_buffer}"
-      when :search_forward then "/#{@editor.prompt_buffer}"
-      when :search_backward then "?#{@editor.prompt_buffer}"
+      when :ex then coerce.call(":#{@editor.prompt_buffer}")
+      when :search_forward then coerce.call("/#{@editor.prompt_buffer}")
+      when :search_backward then coerce.call("?#{@editor.prompt_buffer}")
       when :listing
         view = @editor.list_view
         view && view.more?(list_overlay_rows) ? '-- More --' : 'Press ENTER or type command to continue'
       else
-        @editor.status_message ? @editor.status_message.to_s : ''
+        @editor.status_message ? coerce.call(@editor.status_message) : ''
       end
     end
 
