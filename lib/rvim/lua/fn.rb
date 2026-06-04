@@ -29,6 +29,13 @@ module Rvim
         state.function('vim.fn.system')       { |cmd, input| run_system(editor, cmd, input) }
         state.function('vim.fn.systemlist')   { |cmd, input| run_system(editor, cmd, input).split("\n") }
         state.function('vim.fn.shellescape')  { |s| shellescape(s.to_s) }
+        # escape({string}, {chars}) — backslash-escape every character
+        # in chars that occurs in string. plenary's job.lua calls
+        # escape(path, "[]$") before vim.fn.expand to keep glob and
+        # shell metacharacters from being interpreted.
+        state.function('vim.fn.escape') do |s, chars|
+          s.to_s.gsub(/([#{Regexp.escape(chars.to_s)}])/) { "\\#{$1}" }
+        end
         # fnameescape({string}) — escape Vim filename-special chars
         # so the result is safe to splice into an ex command argument.
         # Telescope's actions.edit uses this to build the

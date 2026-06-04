@@ -173,12 +173,24 @@ module Rvim
               if self._id then _rvim_loop_timer_close(self._id); self._id = nil end
             end
             function self:is_active() return self._id ~= nil and not self._stopped end
+            function self:is_closing() return self._id == nil end
             return self
           end
 
           vim.loop.new_check   = make_phase_handle
           vim.loop.new_idle    = make_phase_handle
           vim.loop.new_prepare = make_phase_handle
+
+          -- Global predicate forms (uv.is_active(handle) etc.) —
+          -- plenary's job.lua uses these on check handles rather than
+          -- the method form. Each handle exposes the corresponding
+          -- method, so the global form just delegates.
+          function vim.loop.is_active(handle)
+            return handle and handle.is_active and handle:is_active()
+          end
+          function vim.loop.is_closing(handle)
+            return handle == nil or not handle.is_closing or handle:is_closing()
+          end
 
           -- libuv-style spawn + pipes. Backed by Rvim::Job underneath;
           -- the Ruby side drains stdout/stderr each pump tick and
