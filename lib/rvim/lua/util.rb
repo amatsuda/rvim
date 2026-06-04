@@ -125,6 +125,68 @@ module Rvim
           return out
         end
 
+        -- vim.iter (NeoVim 0.10+): pipeline-style iterator over tables.
+        -- Telescope's utils.flatten chains `vim.iter(t):flatten():totable()`.
+        -- We don't model the full lazy semantics — each step eagerly
+        -- builds a new array — but the surface is the same: the
+        -- methods telescope uses (flatten/totable/map/filter/each)
+        -- work on the materialised list and chain via the same
+        -- metatable.
+        local Iter = {}
+        Iter.__index = Iter
+
+        function Iter.new(src)
+          local arr = {}
+          if type(src) == "table" then
+            for _, v in ipairs(src) do arr[#arr + 1] = v end
+          end
+          return setmetatable({ _arr = arr }, Iter)
+        end
+
+        function Iter:flatten(depth)
+          depth = depth or 1
+          local out = {}
+          local function walk(t, d)
+            for _, v in ipairs(t) do
+              if d > 0 and type(v) == "table" then
+                walk(v, d - 1)
+              else
+                out[#out + 1] = v
+              end
+            end
+          end
+          walk(self._arr, depth)
+          self._arr = out
+          return self
+        end
+
+        function Iter:totable() return self._arr end
+
+        function Iter:map(f)
+          local out = {}
+          for _, v in ipairs(self._arr) do
+            local r = f(v)
+            if r ~= nil then out[#out + 1] = r end
+          end
+          self._arr = out
+          return self
+        end
+
+        function Iter:filter(f)
+          local out = {}
+          for _, v in ipairs(self._arr) do
+            if f(v) then out[#out + 1] = v end
+          end
+          self._arr = out
+          return self
+        end
+
+        function Iter:each(f)
+          for _, v in ipairs(self._arr) do f(v) end
+        end
+
+        function vim.iter(src) return Iter.new(src) end
+
         function vim.tbl_get(t, ...)
           local cur = t
           local keys = {...}
