@@ -360,6 +360,11 @@ module Rvim
           editor.status_message = 'E32: No file name'
         else
           editor.open(parsed.arg)
+          # :edit always lands you in normal mode (matches vim).
+          # Telescope's select-default closes the picker via vim.cmd
+          # ("edit ..."); without this, an `i`-prefixed selection
+          # leaves you in insert mode on the opened file.
+          editor.instance_variable_get(:@config).editing_mode = :vi_command
         end
       when :bn
         editor.next_buffer
