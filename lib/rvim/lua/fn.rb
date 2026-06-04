@@ -29,6 +29,14 @@ module Rvim
         state.function('vim.fn.system')       { |cmd, input| run_system(editor, cmd, input) }
         state.function('vim.fn.systemlist')   { |cmd, input| run_system(editor, cmd, input).split("\n") }
         state.function('vim.fn.shellescape')  { |s| shellescape(s.to_s) }
+        # fnameescape({string}) — escape Vim filename-special chars
+        # so the result is safe to splice into an ex command argument.
+        # Telescope's actions.edit uses this to build the
+        # `:edit /path/with spaces.rb` line that opens the picked
+        # entry; without the shim, calling it errors before pcall
+        # captures the surrounding vim.cmd, the keymap callback
+        # swallows the LuaError, and the file silently never opens.
+        state.function('vim.fn.fnameescape')  { |s| fnameescape(s.to_s) }
         state.function('vim.fn.getenv')       { |name| ENV[name.to_s] }
         state.function('vim.fn.setenv')       { |name, val| ENV[name.to_s] = val.to_s }
         state.function('vim.fn.empty')        { |v| empty?(v) ? 1 : 0 }
@@ -405,6 +413,18 @@ module Rvim
         return "''" if s.empty?
 
         "'#{s.gsub("'", %q('\\\\''))}'"
+      end
+
+      # Vim's fnameescape: backslash-escape characters that the ex
+      # command-line parser treats as special when reading a filename.
+      # Order matters — '\\' has to be first so we don't double-escape
+      # the backslashes we just introduced.
+      FNAMESCAPE_CHARS = ['\\', ' ', "\t", "\n", '*', '?', '[', '{', '`',
+                          '$', '%', '#', "'", '"', '|', '!', '<'].freeze
+      def fnameescape(s)
+        out = s.dup
+        FNAMESCAPE_CHARS.each { |c| out.gsub!(c, '\\' + c) }
+        out
       end
 
       def empty?(v)
