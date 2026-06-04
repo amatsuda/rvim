@@ -859,9 +859,21 @@ module Rvim
       def self.install_window_api(state, editor)
         resolve = ->(winid) { resolve_window(editor, winid) }
 
-        state.function '_rvim_api_win_get_cursor' do |_winid|
-          # NeoVim returns {row(1-based), col(0-based)}.
-          [editor.line_index + 1, editor.byte_pointer]
+        state.function '_rvim_api_win_get_cursor' do |winid|
+          # NeoVim returns {row(1-based), col(0-based)} for the
+          # *target* window's buffer. Telescope reads the results
+          # window's cursor right after set_cursor moves it to the
+          # bottom (for descending sort); falling back to the
+          # editor's globals here would read the prompt buffer's
+          # cursor instead, and telescope's selection logic would
+          # think the row never moved.
+          win = Rvim::Lua::Api.resolve_window(editor, winid)
+          if win && win.buffer && !editor.current_window.equal?(win)
+            buf = win.buffer
+            [(buf.line_index || 0) + 1, buf.byte_pointer || 0]
+          else
+            [editor.line_index + 1, editor.byte_pointer]
+          end
         end
 
         state.function '_rvim_api_win_set_cursor' do |winid, pos|
