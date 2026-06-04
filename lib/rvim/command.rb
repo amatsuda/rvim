@@ -530,7 +530,22 @@ module Rvim
       when :terminal
         execute_terminal(editor, parsed)
       when :lua_chunk
+        editor.lua.captured_print = []
         editor.lua.eval(parsed.arg.to_s)
+        captured = editor.lua.captured_print || []
+        editor.lua.captured_print = nil
+        unless captured.empty?
+          # Split multi-line print output ("a\nb") into discrete rows
+          # so show_list can page each individually, then prompt for
+          # ENTER like NeoVim's "Press ENTER or type command to continue".
+          lines = captured.flat_map { |chunk| chunk.to_s.split("\n", -1) }
+          lines.pop while lines.last == '' # drop trailing newline-only entries
+          if lines.size > 1
+            editor.show_list(lines)
+          elsif lines.size == 1
+            editor.status_message = lines.first
+          end
+        end
       when :luafile
         if parsed.arg.nil? || parsed.arg.empty?
           editor.status_message = 'E471: Argument required'

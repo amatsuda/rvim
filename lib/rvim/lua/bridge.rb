@@ -31,6 +31,24 @@ module Rvim
         Rvim::Lua::LspStub.install(state, editor, runtime)
         Rvim::Lua::Fs.install(state, editor, runtime)
         Rvim::Lua::Json.install(state, editor, runtime)
+
+        # Redirect Lua's `print` into the editor's message buffer so
+        # output from `:lua print(...)` survives the next render
+        # tick. The `:lua` command handler reads `runtime.captured_print`
+        # after evaluating the chunk and pages it via show_list,
+        # matching NeoVim's "Press ENTER" behaviour.
+        state.function('_rvim_lua_print') do |line|
+          (runtime.captured_print ||= []) << line.to_s
+        end
+        state.eval(<<~LUA)
+          local _tostring = tostring
+          print = function(...)
+            local n = select("#", ...)
+            local parts = {}
+            for i = 1, n do parts[i] = _tostring(select(i, ...)) end
+            _rvim_lua_print(table.concat(parts, "\\t"))
+          end
+        LUA
       end
     end
   end

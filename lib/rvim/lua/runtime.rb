@@ -140,6 +140,7 @@ module Rvim
       end
 
       attr_reader :editor, :state
+      attr_accessor :captured_print
 
       def initialize(editor)
         @editor = editor
