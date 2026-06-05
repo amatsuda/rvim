@@ -368,13 +368,19 @@ module Rvim
         end
       when :bn
         editor.next_buffer
+        editor.instance_variable_get(:@config).editing_mode = :vi_command
       when :bp
         editor.prev_buffer
+        editor.instance_variable_get(:@config).editing_mode = :vi_command
       when :b
         if parsed.arg.nil? || parsed.arg.empty?
           editor.status_message = 'E32: No buffer specified'
         else
           editor.switch_buffer_by(parsed.arg)
+          # Same rationale as :edit above — telescope.builtin.buffers
+          # closes its picker through vim.cmd("buffer N"), so an
+          # `i`-prefixed selection would otherwise land in insert mode.
+          editor.instance_variable_get(:@config).editing_mode = :vi_command
         end
       when :bd
         editor.delete_current_buffer(force: parsed.bang)
