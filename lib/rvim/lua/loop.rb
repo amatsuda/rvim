@@ -507,12 +507,17 @@ module Rvim
             # flush each pipe to its callback if it's currently
             # reading. Buffering means read_stop/read_start cycles
             # never drop data.
-            job.drain.each do |stream, line|
+            job.drain_raw.each do |stream, line|
               pid = stream == :stdout ? entry[:stdout_pid] : entry[:stderr_pid]
               p = pid && pipes[pid]
               next unless p && !p[:closed]
 
-              p[:pending] << (line + "\n")
+              # Pass the line verbatim — Job#drain_raw keeps the original
+              # trailing byte (newline or absent). Re-appending \n here
+              # would corrupt null-separated streams (git -z), leaving
+              # telescope's iter with a residual \n that its \0-split
+              # can never consume so process_complete never fires.
+              p[:pending] << line
             end
 
             [entry[:stdout_pid], entry[:stderr_pid]].compact.each do |epid|
@@ -566,7 +571,13 @@ module Rvim
           p[:cb].call(nil, nil)
         rescue StandardError
         end
-        p[:eof] = false
+        # Don't reset eof — telescope's LinesPipe:read attaches a fresh
+        # read_start every iteration. After the first EOF delivery, iter
+        # may call self:read() again (e.g. when the chunk had no
+        # split-char and get_next_text recurses); subsequent read_starts
+        # need to see EOF too, otherwise the coroutine sits forever
+        # waiting for data that never comes and process_complete never
+        # fires. EOF is a terminal state — leave it set.
       end
 
       def self.lua_array_to_ruby(v)

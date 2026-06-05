@@ -104,6 +104,14 @@ module Rvim
     # :stderr / :close and payload is a line string (no trailing
     # newline) or the stream symbol for :close.
     def drain
+      drain_raw.map { |entry| [entry[0], entry[1].to_s.chomp] }
+    end
+
+    # Pop raw lines verbatim — preserves the trailing newline (or its
+    # absence) so callers that hand bytes onward to their own parser
+    # don't get extra terminators on streams that don't use \n
+    # (e.g. git status -z, find -print0).
+    def drain_raw
       out = []
       out << @queue.pop(true) until @queue.empty?
       out
@@ -159,8 +167,13 @@ module Rvim
 
     private def spawn_reader(io, stream)
       Thread.new do
+        # Push raw lines (with their original trailing newline, if any)
+        # — Job#drain still hands out chomp'd lines for backwards
+        # compatibility, but drain_raw exposes the unmodified bytes so
+        # the uv-pipe path can preserve original separators for null-
+        # delimited streams like `git status -z`.
         io.each_line do |line|
-          @queue << [stream, line.chomp]
+          @queue << [stream, line]
         end
       rescue IOError
         # Pipe closed.
