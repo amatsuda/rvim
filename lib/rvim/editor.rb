@@ -5557,6 +5557,16 @@ module Rvim
         return
       end
 
+      # Ctrl-P / Ctrl-N: pull from command history. Mirrors vim's
+      # default cmdline mappings and matches what arrow up/down
+      # already do (which arrive as the :ed_prev_history /
+      # :ed_next_history method symbols).
+      if @prompt_mode == :ex && (ch == "\x10" || ch == "\x0E")
+        clear_cmdline_completion
+        history_recall(ch == "\x10" ? -1 : +1)
+        return
+      end
+
       if ch == "\x19" && @prompt_mode == :ex
         # Ctrl-Y on some terminals: skip; reserved
       end
