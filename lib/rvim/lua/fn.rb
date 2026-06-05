@@ -22,6 +22,40 @@ module Rvim
         state.function('vim.fn.col')          { |arg| col(editor, arg.to_s) }
         state.function('vim.fn.mode')         { mode(editor) }
         state.function('vim.fn.bufnr')        { |arg| bufnr(editor, arg.to_s) }
+        # buflisted({bufnr}) / bufloaded / bufexists — 1 if the buffer
+        # matches the predicate, 0 otherwise. telescope.builtin.buffers
+        # filters with vim.fn.buflisted(bufnr) to skip hidden scratches.
+        state.function('vim.fn.buflisted')    { |arg| (b = lookup_buf(editor, arg)) && b.listed ? 1 : 0 }
+        state.function('vim.fn.bufloaded')    { |arg| lookup_buf(editor, arg) ? 1 : 0 }
+        state.function('vim.fn.bufexists')    { |arg| lookup_buf(editor, arg) ? 1 : 0 }
+        state.function('vim.fn.bufname') do |arg|
+          b = lookup_buf(editor, arg)
+          b ? (b.filepath || '').to_s : ''
+        end
+        # getbufinfo({buf}) — vim returns a list of dicts; telescope's
+        # buffers picker reads [1].lnum / .name / .changed / .hidden /
+        # .lastused for the entry layout. Return a single-element list
+        # so `vim.fn.getbufinfo(b)[1]` works.
+        state.function('vim.fn.getbufinfo') do |arg|
+          b = lookup_buf(editor, arg)
+          if b
+            [{
+              bufnr: b.id,
+              name: (b.filepath || '').to_s,
+              changed: b.modified ? 1 : 0,
+              hidden: 0,
+              listed: b.listed ? 1 : 0,
+              loaded: 1,
+              lnum: (b.line_index || 0) + 1,
+              linecount: (b.lines || []).size,
+              lastused: 0,
+              windows: [],
+              variables: {},
+            }]
+          else
+            []
+          end
+        end
         state.function('vim.fn.winnr')        { (editor.windows || []).index(editor.current_window).to_i + 1 }
         state.function('vim.fn.fnamemodify')  { |path, mods| fnamemodify(path.to_s, mods.to_s) }
         state.function('vim.fn.filereadable') { |path| File.file?(File.expand_path(path.to_s)) ? 1 : 0 }
@@ -413,6 +447,25 @@ module Rvim
         else
           buf = editor.buffers&.values&.find { |b| b.filepath == arg }
           buf ? buf.id : -1
+        end
+      end
+
+      # Resolve a vim.fn.{buflisted,bufexists,...} argument to a Buffer.
+      # The arg is either an integer-ish (Lua sends bufnrs as Float), a
+      # "%" / "#" sentinel, or a filename pattern.
+      def lookup_buf(editor, arg)
+        return nil unless editor.buffers
+
+        case arg
+        when '%' then editor.current_buffer
+        when '#' then nil
+        else
+          n = arg.is_a?(Numeric) ? arg.to_i : Integer(arg.to_s, exception: false)
+          if n
+            editor.buffers.values.find { |b| b.id == n }
+          else
+            editor.buffers.values.find { |b| b.filepath == arg.to_s }
+          end
         end
       end
 
