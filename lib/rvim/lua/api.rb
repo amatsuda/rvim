@@ -93,6 +93,7 @@ module Rvim
           vim.api.nvim_buf_set_option       = _rvim_api_buf_set_option
           vim.api.nvim_get_current_buf      = _rvim_api_get_current_buf
           vim.api.nvim_set_current_buf      = _rvim_api_set_current_buf
+          vim.api.nvim_buf_call             = _rvim_api_buf_call
 
           vim.api.nvim_win_get_cursor       = _rvim_api_win_get_cursor
           vim.api.nvim_win_set_cursor       = _rvim_api_win_set_cursor
@@ -1138,6 +1139,27 @@ module Rvim
         state.function '_rvim_api_set_current_buf' do |bufnr|
           buf = editor.buffers&.values&.find { |b| b.id == bufnr.to_i }
           editor.swap_to_buffer(buf) if buf
+        end
+
+        # nvim_buf_call(buf, fn) — run fn with `buf` temporarily as the
+        # current buffer, then restore the original. Telescope's buffer
+        # previewer uses this to drive `:norm gg / search / zz` against
+        # the preview buffer without disturbing the user's window.
+        # We don't model NeoVim's "execute in another buffer's context"
+        # primitive; we approximate by swapping current_buffer for the
+        # duration of the call.
+        state.function '_rvim_api_buf_call' do |bufnr, fn|
+          buf = resolve.call(bufnr)
+          if buf && fn.is_a?(Rufus::Lua::Function)
+            saved = editor.current_buffer
+            begin
+              editor.swap_to_buffer(buf) if buf != saved
+              fn.call
+            ensure
+              editor.swap_to_buffer(saved) if saved && buf != saved
+            end
+          end
+          nil
         end
       end
 
