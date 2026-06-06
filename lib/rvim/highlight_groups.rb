@@ -83,6 +83,14 @@ module Rvim
     def define(name, spec)
       spec = stringify(spec)
 
+      # `default = true` (nvim_set_hl convention) means "only set if
+      # not already defined". Telescope's plugin file reseeds
+      # TelescopeBorder etc. with `default = true, link = "..."`; we
+      # ship concrete SGR pairs for those groups, so honoring the flag
+      # keeps our colored defaults instead of collapsing through the
+      # link chain to plain Normal.
+      return if spec['default'] && @groups.key?(name.to_s)
+
       # nvim_set_hl(... { link = "OtherGroup" }) — alias by copying
       # the target's current pair. If the link target is later
       # redefined we don't follow; that's fine for our usage since
