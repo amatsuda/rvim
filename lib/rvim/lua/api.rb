@@ -136,7 +136,9 @@ module Rvim
           -- Legacy per-scope option setters (deprecated in 0.7+ but
           -- plenary/telescope still use them).
           vim.api.nvim_win_get_option       = function(_w, n) return _rvim_api_get_option(n) end
-          vim.api.nvim_win_set_option       = function(_w, n, v) _rvim_api_set_option(n, v) end
+          vim.api.nvim_win_set_option       = function(w, n, v)
+            if n == "winhl" then _rvim_api_win_set_winhl(w, v) else _rvim_api_set_option(n, v) end
+          end
           vim.api.nvim_get_mode             = _rvim_api_get_mode
           vim.api.nvim_command              = _rvim_api_command
           vim.api.nvim_call_function        = _rvim_api_call_function
@@ -247,9 +249,20 @@ module Rvim
           if opts_h['buf']
             buf = resolve_buffer(editor, opts_h['buf'])
             editor.settings.set(name.to_s, coerced, buffer: buf)
+          elsif opts_h['win'] && name.to_s == 'winhl'
+            win = Rvim::Lua::Api.resolve_window(editor, opts_h['win'])
+            win.winhl = coerced.to_s if win
           else
             editor.settings.set(name.to_s, coerced)
           end
+        end
+
+        # nvim_win_set_option(win, 'winhl', value) — record the win-local
+        # highlight remap on the Window so the renderer can resolve
+        # Normal -> TelescopeBorder / etc when painting that float.
+        state.function '_rvim_api_win_set_winhl' do |winid, value|
+          win = Rvim::Lua::Api.resolve_window(editor, winid)
+          win.winhl = value.to_s if win
         end
 
         state.function '_rvim_api_get_mode' do

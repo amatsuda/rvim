@@ -500,6 +500,11 @@ module Rvim
 
       out = +''
       out << render_float_border(win) if has_border
+      # Window-local Normal remap (set by plugins via winhl).
+      # Telescope's border buffer paints box-drawing chars in plain
+      # Normal — its only color hook is winhl = "Normal:TelescopeBorder",
+      # so without honoring this the borders render white.
+      winhl_target = win.respond_to?(:winhl_normal_target) ? win.winhl_normal_target : nil
       content_rows.times do |i|
         line_idx = (win.scroll_top || 0) + i
         raw = buf.lines[line_idx]
@@ -508,11 +513,42 @@ module Rvim
         # scratch buffers (no syntax detected) it falls through to
         # plain text via the truncate fast-path.
         highlighted = apply_syntax_highlight(text, content_width)
+        # Apply plugin-set extmark highlights so telescope's
+        # TelescopeSelection / TelescopeMatching / Title spans get
+        # their colors. The main-window pipeline does this too —
+        # without it, every float renders monochrome.
+        marks = extmarks_intersecting(buf, line_idx)
+        highlighted = apply_extmark_overlay(highlighted, marks, text) unless marks.empty?
         rendered = pad_render_to_width(highlighted, content_width)
+        # Wrap the rendered cell in the winhl Normal target's SGR so
+        # bytes not covered by any extmark still take that color. The
+        # extmark overlay emits its own `\e[39m`-style closes around
+        # inner spans, which reset fg to the terminal default — the
+        # title text is fine but the chars after it lose our outer
+        # color. Splice the winhl open back in after every inner close
+        # so the base color persists through the rest of the line.
+        rendered = apply_winhl_base(rendered, winhl_target) if winhl_target
         out << move_to(content_top + i + 1, content_left + 1)
         out << rendered
       end
       out
+    end
+
+    # Wrap `rendered` in the winhl Normal target's SGR and rewrite any
+    # inner fg-reset closes (`\e[39m`, `\e[22;39m`, `\e[39;49m`, …) to
+    # close + reopen so the base color survives past each inner span.
+    private def apply_winhl_base(rendered, hl_name)
+      pair = @editor.hl_groups.lookup(hl_name)
+      return rendered unless pair && !pair.open.empty?
+
+      open_sgr = pair.open
+      close_sgr = pair.close.empty? ? "\e[39m" : pair.close
+      # Drop the trailing close — we'll emit our own at the end.
+      body = rendered.to_s
+      # Splice `open_sgr` back in after every fg-reset close in the body
+      # so chars after an inner span continue in our base color.
+      body = body.gsub(/\e\[(?:[0-9;]*;)?39m/) { |m| "#{m}#{open_sgr}" }
+      "#{open_sgr}#{body}#{close_sgr}"
     end
 
     private def render_float_border(win)

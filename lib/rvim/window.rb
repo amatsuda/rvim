@@ -16,6 +16,11 @@ module Rvim
     # `hide` skips rendering without destroying the window.
     attr_accessor :floating, :border, :zindex, :focusable, :relative
     attr_accessor :anchor, :title, :footer, :hide
+    # winhl: "Normal:TelescopePromptBorder,..." string set by plugins to
+    # remap window-local highlight groups. Borders rely on this — they
+    # draw box-drawing chars with no extmark, so the only color source
+    # is whatever Normal resolves to inside the window.
+    attr_accessor :winhl
     attr_reader :id
 
     @@next_id = 0
@@ -44,7 +49,21 @@ module Rvim
       @title = nil
       @footer = nil
       @hide = false
+      @winhl = nil
       @id = self.class.allocate_id
+    end
+
+    # Parse the Normal: target from a winhl spec like
+    # "Normal:TelescopePromptBorder,EndOfBuffer:X". Returns nil if no
+    # Normal mapping is set.
+    def winhl_normal_target
+      return nil unless @winhl
+
+      @winhl.to_s.split(',').each do |pair|
+        from, to = pair.split(':', 2)
+        return to.to_s if from && from.strip == 'Normal' && to && !to.empty?
+      end
+      nil
     end
 
     def floating?
