@@ -134,7 +134,12 @@ module Rvim
              when 'packadd' then :packadd
              when 'messages', 'mes', 'mess' then :messages
              when 'execute', 'exe' then :execute_cmd
+             when 'normal', 'norm' then :normal
              when 'silent', 'sil' then :silent
+             when 'keepjumps', 'keepj' then :keepjumps
+             when 'keepmarks', 'keepm' then :keepjumps
+             when 'keepalt', 'keepa' then :keepjumps
+             when 'noautocmd', 'noa' then :keepjumps
              when 'verbose', 'verb' then :verbose
              when 'redir', 'red' then :redir
              when 'command', 'com' then :user_command_def
@@ -452,6 +457,14 @@ module Rvim
         execute_execute(editor, parsed)
       when :silent
         execute_silent(editor, parsed)
+      when :normal
+        execute_normal(editor, parsed)
+      when :keepjumps
+        # :keepjumps / :keepmarks / :keepalt / :noautocmd are jump-list /
+        # mark / autocommand-suppressing modifiers in vim. Our editor
+        # doesn't model the side effects they elide, so the modifier is
+        # a no-op — just re-parse and execute the inner command.
+        execute_passthrough(editor, parsed)
       when :verbose
         execute_verbose(editor, parsed)
       when :redir
@@ -1899,6 +1912,40 @@ module Rvim
       execute(editor, sub) if sub
       # Suppress whatever status_message the inner command set.
       editor.status_message = nil
+    end
+
+    # :normal[!] {commands} — feed {commands} as if typed in normal mode.
+    # Telescope's previewer drives the preview buffer with `:norm! gg`
+    # and `:norm! zz` (to scroll-top / center) after refreshing content.
+    # We don't implement remap-aware vs no-remap distinctly (the `!`):
+    # the editor's update path already routes through mappings for
+    # normal mode, and previewer use cases don't depend on the bang.
+    def self.execute_normal(editor, parsed)
+      keys = parsed.arg.to_s
+      return if keys.empty?
+
+      # Make sure we're in normal mode for the duration. Save/restore
+      # the editing mode so :normal from insert mode (rare but legal)
+      # leaves the user back in insert when done.
+      saved_mode = editor.editing_mode_label
+      cfg = editor.instance_variable_get(:@config)
+      cfg.editing_mode = :vi_command if saved_mode != :vi_command
+      begin
+        keys.each_char do |ch|
+          editor.update(Reline::Key.new(ch, nil, false))
+        end
+      ensure
+        cfg.editing_mode = saved_mode if saved_mode != :vi_command
+      end
+    end
+
+    def self.execute_passthrough(editor, parsed)
+      arg = parsed.arg.to_s.strip
+      return if arg.empty?
+
+      cmd = arg.start_with?(':') ? arg : ":#{arg}"
+      sub = parse(cmd)
+      execute(editor, sub) if sub
     end
 
     def self.execute_verbose(editor, parsed)
