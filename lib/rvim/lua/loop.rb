@@ -537,12 +537,22 @@ module Rvim
             next unless job.done? && !entry[:exited]
 
             entry[:exited] = true
+            # Job exited AND its reader-queue is empty. Whatever data
+            # was buffered in pipes[:pending] needs to reach the cb
+            # before we fire on_exit — plenary's Job:sync flips
+            # is_shutdown the moment on_exit fires and stops pumping,
+            # so any chunk left in pending would be dropped on the
+            # floor. (We normally meter ONE chunk per pipe per drainer
+            # tick to avoid coroutine re-entrancy, but at exit time
+            # there's no more incoming data so the metering doesn't
+            # matter.)
             [entry[:stdout_pid], entry[:stderr_pid]].compact.each do |epid|
               p = pipes[epid]
               next unless p && !p[:closed]
 
+              flush_pending_to_cb(p) while !p[:pending].empty? && p[:cb] && p[:reading]
               p[:eof] = true
-              flush_pending_to_cb(p) # may deliver final nil
+              flush_pending_to_cb(p) # final nil delivery
             end
             if (cb = entry[:on_exit])
               code = job.exit_status || 0
