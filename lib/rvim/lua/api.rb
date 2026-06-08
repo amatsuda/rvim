@@ -33,17 +33,22 @@ module Rvim
         end
 
         state.function '_rvim_api_create_autocmd' do |events, opts|
-          events_arr = if events.respond_to?(:to_h)
+          events_arr = if events.is_a?(Rufus::Lua::Table)
                          events.to_h.values.map(&:to_s)
                        else
                          [events.to_s]
                        end
-          opts_h = opts.respond_to?(:to_h) ? opts.to_h : {}
+          opts_h = opts.is_a?(Rufus::Lua::Table) ? opts.to_h : {}
           patterns_raw = opts_h['pattern']
-          patterns = if patterns_raw.respond_to?(:to_h)
-                       patterns_raw.to_h.values.map(&:to_s)
-                     elsif patterns_raw.nil? || patterns_raw == ''
+          # Don't lean on respond_to?(:to_h) here — `nil.to_h` returns
+          # {} on modern Ruby (and `"foo".respond_to?(:to_h)` flips by
+          # version), so the nil/empty-pattern case has to come first
+          # or it gets routed through the empty-table branch and we
+          # add zero entries instead of defaulting to '*'.
+          patterns = if patterns_raw.nil? || patterns_raw == ''
                        ['*']
+                     elsif patterns_raw.is_a?(Rufus::Lua::Table)
+                       patterns_raw.to_h.values.map(&:to_s)
                      else
                        [patterns_raw.to_s]
                      end
