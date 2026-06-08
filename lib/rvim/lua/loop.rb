@@ -365,6 +365,7 @@ module Rvim
           vim.loop.os_homedir     = function() return _rvim_loop_homedir() end
           vim.loop.os_uname       = _rvim_loop_uname
           vim.loop.os_getenv      = function(k) return _rvim_loop_getenv(k) end
+          vim.loop.os_environ     = function() return _rvim_loop_environ() end
           vim.loop.getpid         = function() return _rvim_loop_getpid() end
 
           -- vim.uv is the modern alias; everything reachable there.
@@ -421,7 +422,7 @@ module Rvim
 
           job = Rvim::Job.new([cmd.to_s, *args.map(&:to_s)],
                               cwd: opts_h['cwd']&.to_s,
-                              env: lua_hash_to_ruby(opts_h['env']),
+                              env: normalize_spawn_env(opts_h['env']),
                               no_stdin: stdin_pid.nil?)
           jobs[job.id] = {
             job: job,
@@ -601,6 +602,35 @@ module Rvim
         v.respond_to?(:to_h) ? v.to_h : nil
       end
 
+      # libuv's uv.spawn accepts env as an array of "KEY=VALUE" strings;
+      # lazy.nvim's Process:env() builds exactly that shape. Process.spawn
+      # on the Ruby side wants {name => value}, so detect the array form
+      # and split each entry. Hash form passes through unchanged.
+      def self.normalize_spawn_env(v)
+        return nil if v.nil?
+
+        h = if v.respond_to?(:to_h)
+              v.to_h
+            elsif v.is_a?(Hash)
+              v
+            else
+              return nil
+            end
+        return h if h.empty?
+
+        # Lua array tables surface as {1.0 => "KEY=V", 2.0 => "..."}. If
+        # every key is numeric AND every value looks like "K=V", treat
+        # it as an env array.
+        if h.keys.all? { |k| k.is_a?(Numeric) } && h.values.all? { |val| val.is_a?(String) && val.include?('=') }
+          h.values.each_with_object({}) do |entry, out|
+            name, val = entry.split('=', 2)
+            out[name] = val.to_s if name && !name.empty?
+          end
+        else
+          h.transform_keys(&:to_s)
+        end
+      end
+
       def self.install_fs_sync(state)
         state.function('_rvim_fs_stat')      { |path| fs_stat_table(File.stat(path.to_s)) rescue nil }
         state.function('_rvim_fs_lstat')     { |path| fs_stat_table(File.lstat(path.to_s)) rescue nil }
@@ -671,6 +701,12 @@ module Rvim
           { 'sysname' => 'Unknown', 'release' => '', 'machine' => '', 'version' => '' }
         end
         state.function('_rvim_loop_getenv')  { |k| ENV[k.to_s] }
+        # uv.os_environ() — return the process environment as a Lua
+        # table {NAME = "VALUE", ...}. lazy.nvim's clone task builds
+        # its child env via vim.tbl_extend("force", {...}, uv.os_environ(),
+        # ...); without this shim os_environ returns nil and the
+        # tbl_extend call errors before git is ever spawned.
+        state.function('_rvim_loop_environ') { ENV.to_h }
         state.function('_rvim_loop_getpid')  { Process.pid }
       end
 
