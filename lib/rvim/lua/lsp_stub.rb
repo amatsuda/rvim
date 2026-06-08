@@ -13,9 +13,56 @@ module Rvim
       module_function
 
       LSP_LUA = <<~LUA
+        -- vim.lpeg stub. NeoVim 0.10+ exposes the lpeg parsing library
+        -- on vim.lpeg. telescope-file-browser's lsp module builds a
+        -- glob-pattern grammar at *module load time* (inside a `do`
+        -- block), so the module can't even be required without lpeg.
+        -- We don't trigger LSP rename events so the grammar is never
+        -- consulted; a metatable-driven no-op that swallows every
+        -- combinator + arithmetic operator is enough to satisfy the
+        -- module-load handshake.
+        if vim.lpeg == nil then
+          local stub = {}
+          local mt = {}
+          mt.__index = function() return function() return stub end end
+          mt.__call  = function() return stub end
+          mt.__add   = function() return stub end
+          mt.__sub   = function() return stub end
+          mt.__mul   = function() return stub end
+          mt.__pow   = function() return stub end
+          mt.__div   = function() return stub end
+          mt.__unm   = function() return stub end
+          mt.__len   = function() return stub end
+          setmetatable(stub, mt)
+          vim.lpeg = stub
+        end
+
         vim.lsp = vim.lsp or {}
         vim.lsp.handlers   = vim.lsp.handlers or {}
-        vim.lsp.protocol   = vim.lsp.protocol or { Methods = {}, ErrorCodes = {}, MessageType = {} }
+        vim.lsp.protocol   = vim.lsp.protocol or {
+          Methods = {
+            -- Workspace file ops (used by telescope-file-browser's
+            -- lsp module to register willRename / didRename hooks).
+            workspace_willCreateFiles = "workspace/willCreateFiles",
+            workspace_didCreateFiles  = "workspace/didCreateFiles",
+            workspace_willRenameFiles = "workspace/willRenameFiles",
+            workspace_didRenameFiles  = "workspace/didRenameFiles",
+            workspace_willDeleteFiles = "workspace/willDeleteFiles",
+            workspace_didDeleteFiles  = "workspace/didDeleteFiles",
+            -- Document ops — common probes.
+            textDocument_definition     = "textDocument/definition",
+            textDocument_references     = "textDocument/references",
+            textDocument_hover          = "textDocument/hover",
+            textDocument_completion     = "textDocument/completion",
+            textDocument_rename         = "textDocument/rename",
+            textDocument_formatting     = "textDocument/formatting",
+            textDocument_codeAction     = "textDocument/codeAction",
+            textDocument_documentSymbol = "textDocument/documentSymbol",
+            workspace_symbol            = "workspace/symbol",
+          },
+          ErrorCodes = {},
+          MessageType = {},
+        }
         vim.lsp.log        = vim.lsp.log or { set_level = function() end, get_level = function() return 0 end }
         vim.lsp.log_levels = { TRACE = 0, DEBUG = 1, INFO = 2, WARN = 3, ERROR = 4 }
         vim.lsp.semantic_tokens = vim.lsp.semantic_tokens or { start = function() end, stop = function() end }
