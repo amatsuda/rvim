@@ -146,6 +146,7 @@ module Rvim
           end
           vim.api.nvim_get_mode             = _rvim_api_get_mode
           vim.api.nvim_command              = _rvim_api_command
+          vim.api.nvim_cmd                  = _rvim_api_cmd
           vim.api.nvim_call_function        = _rvim_api_call_function
           vim.api.nvim_echo                 = _rvim_api_echo
           vim.api.nvim_err_writeln          = _rvim_api_err_writeln
@@ -280,6 +281,30 @@ module Rvim
         state.function '_rvim_api_command' do |cmd|
           parsed = Rvim::Command.parse(cmd.to_s)
           Rvim::Command.execute(editor, parsed) if parsed
+        end
+
+        # nvim_cmd({ cmd = "verb", args = {"..."}, bang = bool }, opts) -> string
+        # NeoVim's structured ex-command runner. Flatten the table back
+        # into a string, parse, execute, return "" (we don't capture
+        # command output — only lazy.nvim uses this and it just logs
+        # the empty string).
+        state.function '_rvim_api_cmd' do |spec, _opts|
+          spec_h = spec.respond_to?(:to_h) ? spec.to_h : {}
+          verb = spec_h['cmd'].to_s
+          verb = "#{verb}!" if spec_h['bang'] == true
+          raw_args = spec_h['args']
+          args_list = if raw_args.respond_to?(:to_h)
+                        h = raw_args.to_h
+                        (1..h.size).map { |i| (h[i] || h[i.to_f]).to_s }
+                      elsif raw_args.is_a?(Array)
+                        raw_args.map(&:to_s)
+                      else
+                        []
+                      end
+          line = ([verb] + args_list).join(' ').strip
+          parsed = Rvim::Command.parse(line)
+          Rvim::Command.execute(editor, parsed) if parsed
+          ''
         end
 
         # nvim_call_function(name, args) — invoke a vim function by
