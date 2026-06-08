@@ -153,6 +153,9 @@ module Rvim
           vim.api.nvim_strwidth             = _rvim_api_strwidth
           vim.api.nvim_replace_termcodes    = _rvim_api_replace_termcodes
           vim.api.nvim_set_hl               = _rvim_api_set_hl
+          vim.api.nvim_get_hl               = _rvim_api_get_hl
+          vim.api.nvim_get_hl_by_name       = function(name, _rgb) return _rvim_api_get_hl(0, { name = name }) end
+          vim.api.nvim_get_hl_id_by_name    = function(name) return _rvim_api_get_hl_id(name) end
 
           -- Floating windows + scratch buffers.
           vim.api.nvim_create_buf           = _rvim_api_create_buf
@@ -701,6 +704,20 @@ module Rvim
 
       def self.install_extmark_api(state, editor)
         state.function('_rvim_api_create_namespace') { |name| editor.create_namespace(name.to_s) }
+
+        # nvim_get_hl(ns_id, opts) — return the highlight group definition
+        # for opts.name / opts.id. NeoVim hands back { fg, bg, bold, ... }
+        # (or { link = "..." } for unresolved links). We only keep the
+        # rendered SGR pairs on disk, not the original spec, so the
+        # honest return is an empty table — callers that probe e.g.
+        # `result.bg` see nil and skip behaviors that depend on the
+        # palette. lazy.nvim uses this to decide whether to draw a
+        # backdrop; the empty-table path matches "no palette known".
+        state.function('_rvim_api_get_hl') { |_ns_id, _opts| {} }
+        # nvim_get_hl_id_by_name — returns the integer id of a hl group.
+        # We don't track stable ids; hash-of-name is good enough so
+        # callers that want "some non-zero integer" get one.
+        state.function('_rvim_api_get_hl_id') { |name| name.to_s.hash.abs }
 
         # nvim_set_hl(ns_id, name, val) — ns_id is ignored for now
         # (one global registry). val is a table of fg/bg/bold/etc.
