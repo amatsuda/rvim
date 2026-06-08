@@ -420,7 +420,15 @@ module Rvim
           stdout_pid = pipe_id.call(stdio[1])
           stderr_pid = pipe_id.call(stdio[2])
 
-          job = Rvim::Job.new([cmd.to_s, *args.map(&:to_s)],
+          # Lua integers cross the rufus-lua boundary as Ruby Floats
+          # (LuaJIT has no separate integer type), so a plain to_s on a
+          # whole-number argument would render as "1.0" instead of "1".
+          # fd / rg / git all reject that form (e.g. "--max-depth 1.0":
+          # invalid digit). Round-trip whole floats to integer first.
+          stringify_arg = ->(v) {
+            v.is_a?(Float) && v.finite? && v == v.to_i ? v.to_i.to_s : v.to_s
+          }
+          job = Rvim::Job.new([cmd.to_s, *args.map(&stringify_arg)],
                               cwd: opts_h['cwd']&.to_s,
                               env: normalize_spawn_env(opts_h['env']),
                               no_stdin: stdin_pid.nil?)
