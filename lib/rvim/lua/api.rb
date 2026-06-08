@@ -1103,6 +1103,12 @@ module Rvim
             editor.instance_variable_set(:@buffer_of_lines, buf.lines)
             editor.instance_variable_set(:@modified, true)
           end
+          # Fire on_lines so nvim_buf_attach listeners see the change.
+          # Telescope's prompt-buffer attach drives the finder loop —
+          # without this, picker:refresh / picker:reset_prompt mutate
+          # the buffer but the coroutine never wakes up, so file_browser
+          # navigating into a directory silently no-ops.
+          buf.fire_lines_event(s, e, s + new_lines.size) if buf.respond_to?(:fire_lines_event)
         end
 
         # nvim_buf_set_text(buf, srow, scol, erow, ecol, replacement) —
