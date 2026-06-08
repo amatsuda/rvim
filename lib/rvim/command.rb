@@ -139,6 +139,11 @@ module Rvim
              when 'redrawstatus', 'redraws' then :redraw
              when 'redrawtabline', 'redrawt' then :redraw
              when 'helptags', 'helpt' then :redraw
+             when 'echohl', 'echoh' then :redraw
+             when 'echomsg', 'echom' then :echo
+             when 'echo' then :echo
+             when 'echoerr', 'echoe' then :echo
+             when 'echon' then :echo
              when 'silent', 'sil' then :silent
              when 'keepjumps', 'keepj' then :keepjumps
              when 'keepmarks', 'keepm' then :keepjumps
@@ -469,7 +474,16 @@ module Rvim
         # tick; the explicit command is a no-op for us. :helptags also
         # routes here — we don't ship a tags index, but lazy.nvim
         # follows every install/update with a :helptags pass that we
-        # can safely ignore.
+        # can safely ignore. :echohl (sets the highlight group for
+        # subsequent :echo) is another decorative no-op.
+      when :echo
+        # :echo / :echomsg / :echon / :echoerr — surface the argument
+        # as a status message. We strip leading/trailing quotes that
+        # plugins commonly wrap around their text but otherwise pass
+        # the literal through; expression evaluation is out of scope.
+        arg = parsed.arg.to_s.strip
+        arg = arg[1..-2].to_s if arg.length >= 2 && ((arg.start_with?('"') && arg.end_with?('"')) || (arg.start_with?("'") && arg.end_with?("'")))
+        editor.status_message = arg unless arg.empty?
       when :keepjumps
         # :keepjumps / :keepmarks / :keepalt / :noautocmd are jump-list /
         # mark / autocommand-suppressing modifiers in vim. Our editor
