@@ -53,6 +53,20 @@ module Rvim
               nil
             end
             target_keymap.add(modes, expanded_lhs, '', recursive: recursive, silent: silent, callback: cb)
+          elsif (cmd_match = rhs.to_s.match(/\A<[Cc][Mm][Dd]>(.*?)<[Cc][Rr]>\z/m))
+            # `<cmd>foo<CR>` runs `foo` as an ex command WITHOUT
+            # leaving the current mode (no `:` framing, no mode flip).
+            # Many plugins lean on this for in-mode actions; expanding
+            # it as plain bytes would just type "<cmd>foo<CR>" into the
+            # buffer.
+            ex_cmd = cmd_match[1].to_s
+            cb = lambda do
+              parsed = Rvim::Command.parse(ex_cmd)
+              Rvim::Command.execute(editor, parsed) if parsed
+            rescue StandardError => e
+              editor.status_message = "E5108: keymap <cmd>: #{e.message[0, 120]}"
+            end
+            target_keymap.add(modes, expanded_lhs, '', recursive: recursive, silent: silent, callback: cb)
           else
             expanded_rhs = Rvim::Keymap.expand(rhs.to_s, leader: editor.mapleader)
             target_keymap.add(modes, expanded_lhs, expanded_rhs, recursive: recursive, silent: silent)

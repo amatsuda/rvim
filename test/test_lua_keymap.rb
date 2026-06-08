@@ -94,4 +94,36 @@ class TestLuaKeymap < Test::Unit::TestCase
     @editor.keymap.each(:normal) { |lhs, m| found = m if lhs == "\r" }
     refute_nil found
   end
+
+  def test_keymap_cmd_rhs_runs_ex_command_without_mode_flip
+    # `<cmd>foo<CR>` is the vim convention for "run :foo without
+    # leaving the current mode". Expanding it as plain bytes would
+    # just type the literal text into the buffer; instead the mapping
+    # should fire :foo through the command parser. We use
+    # `:lua vim.g.fired = 1` because it's a self-contained probe with
+    # no side effects on the editor's mode or buffer state.
+    @editor.lua.eval(<<~LUA)
+      vim.g.fired = 0
+      vim.keymap.set("n", "<leader>x", "<cmd>lua vim.g.fired = 1<CR>")
+    LUA
+    cb = nil
+    @editor.keymap.each(:normal) { |lhs, m| cb = m.callback if lhs == "\\x" }
+    refute_nil cb, '<cmd>...<CR> rhs should register a callback rather than a literal rhs'
+    cb.call
+    assert_equal 1, @editor.let_vars['fired'].to_i
+  end
+
+  def test_keymap_cmd_rhs_case_insensitive
+    # `<Cmd>` / `<CR>` are case-insensitive in vim. Make sure our
+    # pattern matches the common camelcase form plugins use.
+    @editor.lua.eval(<<~LUA)
+      vim.g.fired2 = 0
+      vim.keymap.set("n", "<leader>y", "<Cmd>lua vim.g.fired2 = 1<CR>")
+    LUA
+    cb = nil
+    @editor.keymap.each(:normal) { |lhs, m| cb = m.callback if lhs == "\\y" }
+    refute_nil cb
+    cb.call
+    assert_equal 1, @editor.let_vars['fired2'].to_i
+  end
 end
