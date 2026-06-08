@@ -20,6 +20,36 @@ module Rvim
         state.function('vim.fn.exists')       { |name| exists?(editor, name.to_s) ? 1 : 0 }
         state.function('vim.fn.line')         { |arg| line(editor, arg.to_s) }
         state.function('vim.fn.col')          { |arg| col(editor, arg.to_s) }
+        # winsaveview / winrestview — capture / restore a window's
+        # cursor + scroll position. lazy.nvim's view re-renders by
+        # save → buf_set_lines → restore so the cursor doesn't jump
+        # to (0,0) on every refresh. We model just the fields lazy
+        # reads back; restore writes them through to the current
+        # buffer.
+        state.function('vim.fn.winsaveview') do
+          buf = editor.current_buffer
+          {
+            'lnum'     => (buf&.line_index || 0) + 1,
+            'col'      => buf&.byte_pointer || 0,
+            'coladd'   => 0,
+            'curswant' => buf&.byte_pointer || 0,
+            'topline'  => (editor.current_window&.scroll_top || 0) + 1,
+            'topfill'  => 0,
+            'leftcol'  => 0,
+            'skipcol'  => 0,
+          }
+        end
+        state.function('vim.fn.winrestview') do |view|
+          h = view.respond_to?(:to_h) ? view.to_h : {}
+          buf = editor.current_buffer
+          if buf
+            buf.line_index   = (h['lnum'] || 1).to_i - 1 if h['lnum']
+            buf.byte_pointer = h['col'].to_i             if h['col']
+          end
+          win = editor.current_window
+          win.scroll_top = (h['topline'] || 1).to_i - 1 if win && h['topline']
+          nil
+        end
         state.function('vim.fn.mode')         { mode(editor) }
         state.function('vim.fn.bufnr')        { |arg| bufnr(editor, arg.to_s) }
         # buflisted({bufnr}) / bufloaded / bufexists — 1 if the buffer
@@ -179,6 +209,13 @@ module Rvim
         state.function('vim.fn.reg_executing') { '' }
         state.function('vim.fn.strchars')   { |s, _skip| s.to_s.length }
         state.function('vim.fn.strdisplaywidth') { |s, _col| s.to_s.length }
+        # strlen / strcharlen — vim's byte / character length helpers.
+        # lazy's view/text.lua walks segments with strlen to compute
+        # extmark column ranges; without it the render loop bails.
+        state.function('vim.fn.strlen')          { |s| s.to_s.bytesize }
+        state.function('vim.fn.strchars')        { |s, _skipcc| s.to_s.length }
+        state.function('vim.fn.strcharlen')      { |s| s.to_s.length }
+        state.function('vim.fn.strwidth')        { |s| s.to_s.length }
         # Popup-menu visibility probe. Telescope's <Esc> action checks
         # pumvisible() before closing the picker; without the shim
         # Reline-side completion popups aren't a concept telescope
