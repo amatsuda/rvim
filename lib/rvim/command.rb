@@ -135,6 +135,10 @@ module Rvim
              when 'messages', 'mes', 'mess' then :messages
              when 'execute', 'exe' then :execute_cmd
              when 'normal', 'norm' then :normal
+             when 'redraw', 'redr' then :redraw
+             when 'redrawstatus', 'redraws' then :redraw
+             when 'redrawtabline', 'redrawt' then :redraw
+             when 'helptags', 'helpt' then :redraw
              when 'silent', 'sil' then :silent
              when 'keepjumps', 'keepj' then :keepjumps
              when 'keepmarks', 'keepm' then :keepjumps
@@ -459,6 +463,13 @@ module Rvim
         execute_silent(editor, parsed)
       when :normal
         execute_normal(editor, parsed)
+      when :redraw
+        # :redraw / :redraw! / :redrawstatus / :redrawtabline force a
+        # screen repaint in vim. Our render loop already redraws every
+        # tick; the explicit command is a no-op for us. :helptags also
+        # routes here — we don't ship a tags index, but lazy.nvim
+        # follows every install/update with a :helptags pass that we
+        # can safely ignore.
       when :keepjumps
         # :keepjumps / :keepmarks / :keepalt / :noautocmd are jump-list /
         # mark / autocommand-suppressing modifiers in vim. Our editor
