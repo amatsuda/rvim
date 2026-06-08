@@ -4579,6 +4579,12 @@ module Rvim
 
     private def route_through_mappings(key)
       ch = key.char
+      # Reline delivers ASCII keys as Integer codes (Reline::Key#char)
+      # for the raw single-byte case and as String for multibyte input.
+      # Mapping LHS strings are always Strings; coerce so an integer-
+      # delivered "U" still consults the buffer-local keymap (lazy.nvim
+      # / telescope register dozens of capital-letter buffer mappings).
+      ch = ch.chr(Encoding::UTF_8) rescue ch.chr if ch.is_a?(Integer) && ch >= 0
       return :fall_through unless ch.is_a?(String) && ch.bytesize >= 1
 
       mode = current_mapping_mode
