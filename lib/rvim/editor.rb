@@ -3672,22 +3672,32 @@ module Rvim
       end
 
       start = [@byte_pointer, line.bytesize - 1].min
-      if line.byteslice(start, 1) !~ /\d/
+      # Byte-level walks against /\d/ / /\w/ blow up the moment the
+      # cursor is near a multibyte char — byteslice(_, 1) hands the
+      # regex engine a continuation byte that isn't a valid UTF-8
+      # codepoint on its own. Use the raw byte value instead: digits
+      # are 0x30..0x39, "word" bytes are ASCII letters / digits /
+      # underscore. Continuation bytes (>= 0x80) read as non-word,
+      # which matches the boundary semantics we want anyway.
+      digit_byte  = ->(b) { b && b >= 0x30 && b <= 0x39 }
+      word_byte   = ->(b) { b && (digit_byte.call(b) || (b >= 0x41 && b <= 0x5A) || (b >= 0x61 && b <= 0x7A) || b == 0x5F) }
+
+      if !digit_byte.call(line.getbyte(start))
         pos = start + 1
-        pos += 1 while pos < line.bytesize && line.byteslice(pos, 1) !~ /\d/
+        pos += 1 while pos < line.bytesize && !digit_byte.call(line.getbyte(pos))
         return if pos >= line.bytesize
 
         start = pos
       else
-        start -= 1 while start > 0 && line.byteslice(start - 1, 1) =~ /\d/
+        start -= 1 while start > 0 && digit_byte.call(line.getbyte(start - 1))
       end
 
       ending = start
-      ending += 1 while ending < line.bytesize && line.byteslice(ending, 1) =~ /\d/
+      ending += 1 while ending < line.bytesize && digit_byte.call(line.getbyte(ending))
 
       has_minus = false
-      if start > 0 && line.byteslice(start - 1, 1) == '-'
-        has_minus = start == 1 || line.byteslice(start - 2, 1) !~ /\w/
+      if start > 0 && line.getbyte(start - 1) == 0x2D # '-'
+        has_minus = start == 1 || !word_byte.call(line.getbyte(start - 2))
       end
       num_start = has_minus ? start - 1 : start
 
