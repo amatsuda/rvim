@@ -43,14 +43,27 @@ module Rvim
           end
         end
 
-        # Buffer-local setter/getter.
-        state.function '_rvim_bo_set' do |name, value|
-          coerced = coerce_to_setting(name.to_s, value)
-          editor.settings.set(name.to_s, coerced, buffer: editor.current_buffer)
+        # Buffer-local setter/getter. The `bufnr` arg is nil for the
+        # vim.bo.option form (resolves to current buffer) and an
+        # integer for vim.bo[N].option.
+        resolve_bo_buf = lambda do |bufnr|
+          n = bufnr.to_i if bufnr
+          if bufnr.nil? || n.nil? || n.zero?
+            editor.current_buffer
+          else
+            editor.buffers&.values&.find { |b| b.id == n }
+          end
         end
 
-        state.function '_rvim_bo_get' do |name|
-          editor.settings.get(name.to_s, buffer: editor.current_buffer)
+        state.function '_rvim_bo_set' do |bufnr, name, value|
+          buf = resolve_bo_buf.call(bufnr)
+          coerced = coerce_to_setting(name.to_s, value)
+          editor.settings.set(name.to_s, coerced, buffer: buf)
+        end
+
+        state.function '_rvim_bo_get' do |bufnr, name|
+          buf = resolve_bo_buf.call(bufnr)
+          editor.settings.get(name.to_s, buffer: buf)
         end
 
         state.eval(<<~LUA)
@@ -146,7 +159,27 @@ module Rvim
 
           vim.opt = make_opt(_rvim_opt_set, _rvim_opt_get)
           vim.go  = make_opt(_rvim_opt_set, _rvim_opt_get)
-          vim.bo  = make_opt(_rvim_bo_set,  _rvim_bo_get)
+
+          -- vim.bo supports two shapes:
+          --   vim.bo.filetype            — current buffer
+          --   vim.bo[bufnr].filetype     — specific buffer
+          -- Plugins (file_browser, telescope) need the indexed form
+          -- to read/write options on a buffer they don't have current.
+          local function bo_for(bufnr)
+            return setmetatable({}, {
+              __index    = function(_, name)        return _rvim_bo_get(bufnr, name)        end,
+              __newindex = function(_, name, value) _rvim_bo_set(bufnr, name, value)        end,
+            })
+          end
+          vim.bo = setmetatable({}, {
+            __index = function(_, key)
+              if type(key) == "number" then return bo_for(key) end
+              return _rvim_bo_get(nil, key)
+            end,
+            __newindex = function(_, key, value)
+              _rvim_bo_set(nil, key, value)
+            end,
+          })
           vim.wo  = make_opt(_rvim_opt_set, _rvim_opt_get)  -- window-local stubs to global
 
           -- vim.o — simple table-style access, no :get() wrapper.
