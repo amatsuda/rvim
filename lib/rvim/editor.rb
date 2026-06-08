@@ -7262,6 +7262,14 @@ module Rvim
         filepaths.each { |path| editor.open(path) }
       end
       editor.autocommands.fire(:vimenter, '*', editor)
+      # Set vim.v.vim_did_enter / fire UIEnter so plugins (notably
+      # lazy.nvim) that gate their post-startup hooks on either signal
+      # finish bootstrapping. lazy's LazyDone callback only fires
+      # `VeryLazy` once vim_did_enter is set OR UIEnter has fired —
+      # without that, :Lazy / :LazyHealth never get registered.
+      v_vars = editor.instance_variable_get(:@lua_v_vars)
+      v_vars['vim_did_enter'] = 1 if v_vars
+      editor.autocommands.fire(:uienter, '*', editor)
       # Land on the first file the user passed, mirroring vim's `vim a b c`
       # behavior of opening all into the buffer list with the first active.
       if (first = filepaths.first) && (buf = editor.buffers.values.find { |b| b.filepath == first })
