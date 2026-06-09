@@ -329,6 +329,7 @@ module Rvim
       @config.add_default_key_binding_by_keymap(:vi_insert, [0x18], :rvim_completion_chain) # Ctrl-X
       @config.add_default_key_binding_by_keymap(:vi_insert, [0x0D], :rvim_insert_newline)   # Enter
       @config.add_default_key_binding_by_keymap(:vi_command, [?%.ord], :rvim_match_motion)
+      @config.add_default_key_binding_by_keymap(:vi_command, [?G.ord], :rvim_goto_last_line)
       @config.add_default_key_binding_by_keymap(:vi_command, [?[.ord], :rvim_bracket_left)
       @config.add_default_key_binding_by_keymap(:vi_command, [?].ord], :rvim_bracket_right)
       @config.add_default_key_binding_by_keymap(:vi_command, [0x1D], :rvim_tag_jump)   # Ctrl-]
@@ -1666,6 +1667,25 @@ module Rvim
 
       push_jump
       @line_index, @byte_pointer = target
+    end
+
+    # `G` — go to line `arg` (1-based) or to the last line when no
+    # count was typed. Reline's default binding for G is its history-
+    # line jump (vi_to_history_line → line 0), which is the wrong
+    # semantics for an editor: `G` should land on the LAST buffer line
+    # and serve as the linewise endpoint for `dG` / `yG` / `cG`.
+    #
+    # The operator-pending dispatcher passes arg=1 as its default even
+    # when the user typed nothing, so distinguish via @vi_arg (set by
+    # Reline only when a real count was accumulated).
+    private def rvim_goto_last_line(key, arg: nil)
+      last = [(@buffer_of_lines.size - 1), 0].max
+      explicit_count = @vi_arg if @vi_arg.is_a?(Integer) && @vi_arg > 0
+      explicit_count ||= arg if arg.is_a?(Integer) && arg > 1
+      target = explicit_count ? (explicit_count - 1).clamp(0, last) : last
+      push_jump
+      @line_index = target
+      @byte_pointer = sol_byte_for(@line_index)
     end
 
     private def rvim_sentence_forward(key, arg: 1)

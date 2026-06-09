@@ -274,6 +274,40 @@ class TestEditor < Test::Unit::TestCase
     assert_equal 'b', @editor.buffer_of_lines[0]
   end
 
+  def test_capital_G_jumps_to_last_line
+    # Reline's default binding for G is vi_to_history_line (jumps to
+    # line 0 of shell history). The editor needs the buffer-aware
+    # `G` that lands on the LAST buffer line.
+    @editor.instance_variable_set(:@buffer_of_lines, %w[a b c d e])
+    @editor.instance_variable_set(:@line_index, 0)
+    @editor.instance_variable_set(:@byte_pointer, 0)
+    feed('G', :rvim_goto_last_line)
+    assert_equal 4, @editor.line_index
+  end
+
+  def test_count_G_jumps_to_that_line
+    # `3G` jumps to line 3 (1-based) → index 2.
+    @editor.instance_variable_set(:@buffer_of_lines, %w[a b c d e])
+    @editor.instance_variable_set(:@line_index, 0)
+    @editor.instance_variable_set(:@byte_pointer, 0)
+    @editor.instance_variable_set(:@vi_arg, 3)
+    feed('G', :rvim_goto_last_line)
+    assert_equal 2, @editor.line_index
+  end
+
+  def test_dG_deletes_from_cursor_through_last_line
+    # `dG` is a linewise operator pairing with G as the endpoint. From
+    # line 2 in a 5-line buffer it should leave only the first line.
+    # Earlier this was inverted because G dispatched to vi_to_history_line
+    # (jumping to index 0), and the operator deleted [0..cursor] instead.
+    @editor.instance_variable_set(:@buffer_of_lines, %w[a b c d e])
+    @editor.instance_variable_set(:@line_index, 1)
+    @editor.instance_variable_set(:@byte_pointer, 0)
+    feed('d', :rvim_delete_op)
+    feed('G', :rvim_goto_last_line)
+    assert_equal %w[a], @editor.buffer_of_lines
+  end
+
   def test_dw_across_lines_stays_charwise
     # Regression: the old lines_only_motion? heuristic upgraded any
     # operator-motion that started at col 0 and ended at col 0 to
